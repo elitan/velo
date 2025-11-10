@@ -1,31 +1,19 @@
 import chalk from 'chalk';
-import { DockerManager } from '../../managers/docker';
-import { StateManager } from '../../managers/state';
-import { ZFSManager } from '../../managers/zfs';
-import { WALManager } from '../../managers/wal';
-import { CertManager } from '../../managers/cert';
-import { PATHS } from '../../utils/paths';
 import { getContainerName, getDatasetName } from '../../utils/naming';
 import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices, getProject } from '../../utils/service-factory';
+import type { Branch } from '../../types/state';
 
 export async function projectDeleteCommand(name: string, options: { force?: boolean }) {
   console.log();
   console.log(`Deleting project ${chalk.bold(name)}...`);
   console.log();
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  const project = await state.getProjectByName(name);
-  if (!project) {
-    throw new UserError(
-      `Project '${name}' not found`,
-      `Run '${CLI_NAME} project list' to see available projects`
-    );
-  }
+  const { state, docker, zfs, wal, cert, stateData } = await initializeServices();
+  const project = await getProject(state, name);
 
   // Check if project has non-main branches
   const nonMainBranches = project.branches.filter(b => !b.isPrimary);
@@ -34,7 +22,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
 
     // Build tree structure
     interface BranchNode {
-      branch: any;
+      branch: Branch;
       children: BranchNode[];
     }
 
@@ -81,30 +69,24 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
     process.exit(1);
   }
 
-  // Get ZFS config from state
-  const stateData = state.getState();
-
-  const docker = new DockerManager();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
-  const wal = new WALManager();
-  const cert = new CertManager();
-
-  // Delete all branches (in reverse order, main last)
+  // Delete all branches (in reverse order for ZFS, but containers can be removed in parallel)
   const branchesToDelete = [...project.branches].reverse();
 
-  for (const branch of branchesToDelete) {
-    const namespace = parseNamespace(branch.name);
-    const containerName = getContainerName(namespace.project, namespace.branch);
+  // Stop and remove all containers in parallel
+  await Promise.all(
+    branchesToDelete.map(async (branch) => {
+      const namespace = parseNamespace(branch.name);
+      const containerName = getContainerName(namespace.project, namespace.branch);
 
-    await withProgress(`Remove branch: ${branch.name}`, async () => {
-      // Stop and remove container
-      const containerID = await docker.getContainerByName(containerName);
-      if (containerID) {
-        await docker.stopContainer(containerID);
-        await docker.removeContainer(containerID);
-      }
-    });
-  }
+      await withProgress(`Remove branch: ${branch.name}`, async () => {
+        const containerID = await docker.getContainerByName(containerName);
+        if (containerID) {
+          await docker.stopContainer(containerID);
+          await docker.removeContainer(containerID);
+        }
+      });
+    })
+  );
 
   // Destroy ZFS datasets for all branches
   await withProgress('Destroy ZFS datasets', async () => {
@@ -120,13 +102,15 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
     }
   });
 
-  // Clean up WAL archives for all branches
+  // Clean up WAL archives for all branches in parallel
   await withProgress('Clean up WAL archives', async () => {
-    for (const branch of branchesToDelete) {
-      const namespace = parseNamespace(branch.name);
-      const datasetName = getDatasetName(namespace.project, namespace.branch);
-      await wal.deleteArchiveDir(datasetName);
-    }
+    await Promise.all(
+      branchesToDelete.map(async (branch) => {
+        const namespace = parseNamespace(branch.name);
+        const datasetName = getDatasetName(namespace.project, namespace.branch);
+        await wal.deleteArchiveDir(datasetName);
+      })
+    );
   });
 
   // Clean up SSL certificates

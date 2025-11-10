@@ -1,19 +1,16 @@
 import chalk from 'chalk';
-import { DockerManager } from '../../managers/docker';
-import { StateManager } from '../../managers/state';
-import { ZFSManager } from '../../managers/zfs';
-import { WALManager } from '../../managers/wal';
-import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { getContainerName, getDatasetName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
+import type { Branch } from '../../types/state';
 
 // Helper function to collect all descendant branches recursively (depth-first, post-order)
-function collectDescendants(branch: any, allBranches: any[]): any[] {
+function collectDescendants(branch: Branch, allBranches: Branch[]): Branch[] {
   const children = allBranches.filter(b => b.parentBranchId === branch.id);
-  const descendants: any[] = [];
+  const descendants: Branch[] = [];
 
   for (const child of children) {
     // Recursively collect descendants of this child first
@@ -32,18 +29,8 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   console.log(`Deleting ${chalk.bold(name)}...`);
   console.log();
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  const result = await state.getBranchByNamespace(name);
-  if (!result) {
-    throw new UserError(
-      `Branch '${name}' not found`,
-      `Run '${CLI_NAME} branch list' to see available branches`
-    );
-  }
-
-  const { branch, project } = result;
+  const { state, docker, zfs, wal, stateData } = await initializeServices();
+  const { branch, project } = await getBranchWithProject(state, name);
 
   // Prevent deleting main branch
   if (branch.isPrimary) {
@@ -60,7 +47,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
 
     // Build tree structure for display
     interface BranchNode {
-      branch: any;
+      branch: Branch;
       children: BranchNode[];
     }
 
@@ -106,42 +93,51 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
     process.exit(1);
   }
 
-  // Get ZFS config from state
-  const stateData = state.getState();
-
-  const docker = new DockerManager();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
-  const wal = new WALManager();
-
   // Collect all branches to delete (target + descendants in correct order)
   const branchesToDelete = [...descendants, branch];
 
-  // Delete all branches (descendants first, then target)
+  // Stop and remove all containers in parallel
+  await Promise.all(
+    branchesToDelete.map(async (branchToDelete) => {
+      const branchNamespace = parseNamespace(branchToDelete.name);
+      const containerName = getContainerName(branchNamespace.project, branchNamespace.branch);
+
+      await withProgress(`Stop container: ${branchToDelete.name}`, async () => {
+        const containerID = await docker.getContainerByName(containerName);
+        if (containerID) {
+          await docker.stopContainer(containerID);
+          await docker.removeContainer(containerID);
+        }
+      });
+    })
+  );
+
+  // Clean up WAL archives in parallel
+  await Promise.all(
+    branchesToDelete.map(async (branchToDelete) => {
+      const branchNamespace = parseNamespace(branchToDelete.name);
+      const datasetName = getDatasetName(branchNamespace.project, branchNamespace.branch);
+
+      await withProgress(`Clean up WAL archive: ${branchToDelete.name}`, async () => {
+        await wal.deleteArchiveDir(datasetName);
+      });
+    })
+  );
+
+  // Clean up snapshots from state in parallel
+  await Promise.all(
+    branchesToDelete.map(async (branchToDelete) => {
+      await withProgress(`Clean up snapshots: ${branchToDelete.name}`, async () => {
+        await state.deleteSnapshotsForBranch(branchToDelete.name);
+      });
+    })
+  );
+
+  // Destroy ZFS datasets sequentially (order matters due to parent-child dependencies)
   for (const branchToDelete of branchesToDelete) {
     const branchNamespace = parseNamespace(branchToDelete.name);
-    const containerName = getContainerName(branchNamespace.project, branchNamespace.branch);
     const datasetName = getDatasetName(branchNamespace.project, branchNamespace.branch);
 
-    // Stop and remove container
-    await withProgress(`Stop container: ${branchToDelete.name}`, async () => {
-      const containerID = await docker.getContainerByName(containerName);
-      if (containerID) {
-        await docker.stopContainer(containerID);
-        await docker.removeContainer(containerID);
-      }
-    });
-
-    // Clean up WAL archive
-    await withProgress(`Clean up WAL archive: ${branchToDelete.name}`, async () => {
-      await wal.deleteArchiveDir(datasetName);
-    });
-
-    // Clean up snapshots from state
-    await withProgress(`Clean up snapshots: ${branchToDelete.name}`, async () => {
-      await state.deleteSnapshotsForBranch(branchToDelete.name);
-    });
-
-    // Destroy ZFS dataset
     await withProgress(`Destroy dataset: ${branchToDelete.name}`, async () => {
       // Only destroy dataset if it exists - this handles cases where previous deletion attempts
       // were interrupted or failed partway through, leaving state entries without actual ZFS datasets
@@ -150,10 +146,14 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
         await zfs.destroyDataset(datasetName, true);
       }
     });
-
-    // Remove from state
-    await state.deleteBranch(project.id, branchToDelete.id);
   }
+
+  // Remove all branches from state in parallel
+  await Promise.all(
+    branchesToDelete.map(async (branchToDelete) => {
+      await state.deleteBranch(project.id, branchToDelete.id);
+    })
+  );
 
   console.log();
   console.log(chalk.bold('Branch deleted'));
