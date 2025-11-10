@@ -7,7 +7,8 @@ import { StateManager } from '../managers/state';
 import { ZFSManager } from '../managers/zfs';
 import { DockerManager } from '../managers/docker';
 import { PATHS } from '../utils/paths';
-import { detectOrphans, formatBytes } from '../utils/orphan-detection';
+import { detectOrphans } from '../utils/orphan-detection';
+import { formatBytes } from '../utils/helpers';
 import { UserError } from '../errors';
 import * as readline from 'readline';
 

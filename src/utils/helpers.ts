@@ -21,7 +21,7 @@ export function generatePassword(length = 12): string {
 
 export function formatBytes(bytes: number | undefined): string {
   if (bytes === undefined || bytes === null) return '-';
-  if (bytes === 0) return '0 B';
+  if (bytes === 0) return '0.00 B';
 
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
