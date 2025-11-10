@@ -16,7 +16,8 @@ import {
 import { StateManager } from '../src/managers/state';
 import { ZFSManager } from '../src/managers/zfs';
 import { DockerManager } from '../src/managers/docker';
-import { detectOrphans, formatBytes } from '../src/utils/orphan-detection';
+import { detectOrphans } from '../src/utils/orphan-detection';
+import { formatBytes } from '../src/utils/helpers';
 import { $ } from 'bun';
 import { CONTAINER_PREFIX } from '../src/config/constants';
 import { PATHS } from '../src/utils/paths';

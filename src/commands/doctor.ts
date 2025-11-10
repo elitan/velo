@@ -9,7 +9,8 @@ import { getZFSPool } from '../utils/zfs-pool';
 import { validateAllPermissions } from '../utils/zfs-permissions';
 import * as fs from 'fs/promises';
 import { CLI_NAME } from '../config/constants';
-import { detectOrphans, formatBytes } from '../utils/orphan-detection';
+import { detectOrphans } from '../utils/orphan-detection';
+import { formatBytes } from '../utils/helpers';
 
 interface CheckResult {
   name: string;

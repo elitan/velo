@@ -24,26 +24,9 @@ export interface ContainerStatus {
 
 export class DockerManager {
   private docker: Dockerode;
-  private containerCache: Map<string, string | null> = new Map();
 
   constructor() {
     this.docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
-  }
-
-  /**
-   * Invalidate cache for a container name
-   * Call this after operations that change container state (create, remove, etc.)
-   */
-  private invalidateCache(name: string): void {
-    this.containerCache.delete(name);
-  }
-
-  /**
-   * Clear all container cache entries
-   * Call this after bulk operations
-   */
-  private clearCache(): void {
-    this.containerCache.clear();
   }
 
   // Container lifecycle
@@ -94,9 +77,6 @@ export class DockerManager {
       // This avoids ongoing CPU overhead from frequent health checks
     });
 
-    // Cache the new container
-    this.containerCache.set(config.name, container.id);
-
     return container.id;
   }
 
@@ -113,9 +93,6 @@ export class DockerManager {
   async removeContainer(containerID: string): Promise<void> {
     const container = this.docker.getContainer(containerID);
     await container.remove({ force: true });
-
-    // Clear cache after removal since we don't have the container name
-    this.clearCache();
   }
 
   async restartContainer(containerID: string): Promise<void> {
@@ -149,19 +126,9 @@ export class DockerManager {
   }
 
   async getContainerByName(name: string): Promise<string | null> {
-    // Check cache first
-    if (this.containerCache.has(name)) {
-      return this.containerCache.get(name)!;
-    }
-
     const containers = await this.docker.listContainers({ all: true });
     const container = containers.find(c => c.Names.includes(`/${name}`));
-    const result = container ? container.Id : null;
-
-    // Cache the result
-    this.containerCache.set(name, result);
-
-    return result;
+    return container ? container.Id : null;
   }
 
   async getContainerPort(containerID: string): Promise<number> {

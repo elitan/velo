@@ -170,22 +170,9 @@ export class StateManager {
     await this.save();
   }
 
-  async getProject(nameOrID: string): Promise<Project | null> {
-    if (!this.state) throw new Error('State not loaded');
-
-    return this.state.projects.find(
-      proj => proj.name === nameOrID || proj.id === nameOrID
-    ) || null;
-  }
-
   async getProjectByName(name: string): Promise<Project | null> {
     if (!this.state) throw new Error('State not loaded');
     return this.state.projects.find(proj => proj.name === name) || null;
-  }
-
-  async getProjectByID(id: string): Promise<Project | null> {
-    if (!this.state) throw new Error('State not loaded');
-    return this.state.projects.find(proj => proj.id === id) || null;
   }
 
   async updateProject(proj: Project): Promise<void> {
@@ -200,15 +187,13 @@ export class StateManager {
     await this.save();
   }
 
-  async deleteProject(nameOrID: string): Promise<void> {
+  async deleteProject(name: string): Promise<void> {
     if (!this.state) throw new Error('State not loaded');
 
-    const index = this.state.projects.findIndex(
-      proj => proj.name === nameOrID || proj.id === nameOrID
-    );
+    const index = this.state.projects.findIndex(proj => proj.name === name);
 
     if (index === -1) {
-      throw new UserError(`Project '${nameOrID}' not found`);
+      throw new UserError(`Project '${name}' not found`);
     }
 
     this.state.projects.splice(index, 1);
@@ -235,19 +220,6 @@ export class StateManager {
 
     proj.branches.push(branch);
     await this.save();
-  }
-
-  async getBranch(nameOrID: string): Promise<{ branch: Branch; project: Project } | null> {
-    if (!this.state) throw new Error('State not loaded');
-
-    for (const proj of this.state.projects) {
-      const branch = proj.branches.find(b => b.name === nameOrID || b.id === nameOrID);
-      if (branch) {
-        return { branch, project: proj };
-      }
-    }
-
-    return null;
   }
 
   async getBranchByNamespace(namespacedName: string): Promise<{ branch: Branch; project: Project } | null> {
@@ -431,46 +403,30 @@ export class StateManager {
   }
 
   private async acquireLock(): Promise<void> {
-    let attempts = 0;
-    const maxAttempts = 50;
+    const maxAttempts = 50; // 5 seconds total (50 * 100ms)
 
-    while (attempts < maxAttempts) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         await fs.writeFile(this.lockFile, process.pid.toString(), { flag: 'wx' });
         return;
       } catch (error: any) {
         if (error.code === 'EEXIST') {
-          // Check if lock is stale (process that created it is dead)
+          // Check if lock is stale
           try {
-            const lockContent = await fs.readFile(this.lockFile, 'utf-8');
-            const lockPid = parseInt(lockContent.trim(), 10);
-
+            const lockPid = parseInt(await fs.readFile(this.lockFile, 'utf-8'), 10);
             if (!isNaN(lockPid)) {
               try {
-                // Signal 0 doesn't kill, just checks if process exists
-                process.kill(lockPid, 0);
-                // Process exists, wait and retry
-                await Bun.sleep(100);
-                attempts++;
-              } catch (killError: any) {
-                if (killError.code === 'ESRCH') {
-                  // Process doesn't exist, remove stale lock
-                  await fs.unlink(this.lockFile).catch(() => {});
-                  // Try to acquire lock again immediately
-                  continue;
-                }
-                throw killError;
+                process.kill(lockPid, 0); // Check if process exists
+              } catch {
+                // Process doesn't exist, remove stale lock
+                await fs.unlink(this.lockFile).catch(() => {});
+                continue; // Try again immediately
               }
-            } else {
-              // Invalid PID in lock file, remove it
-              await fs.unlink(this.lockFile).catch(() => {});
-              continue;
             }
-          } catch (readError) {
-            // Can't read lock file, wait and retry
-            await Bun.sleep(100);
-            attempts++;
+          } catch {
+            // Error reading lock file, wait and retry
           }
+          await Bun.sleep(100);
         } else {
           throw error;
         }

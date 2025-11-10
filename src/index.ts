@@ -43,7 +43,6 @@ program
 
 const projectCommand = program
   .command('project')
-  .alias('proj')
   .description('Manage projects');
 
 projectCommand
@@ -61,7 +60,6 @@ projectCommand
 
 projectCommand
   .command('list')
-  .alias('ls')
   .description('List all projects')
   .action(wrapCommand(async () => {
     await projectListCommand();
@@ -77,7 +75,6 @@ projectCommand
 
 projectCommand
   .command('delete')
-  .alias('rm')
   .description('Delete a project and all its branches')
   .argument('<name>', 'project name')
   .option('-f, --force', 'force delete even if branches exist')
@@ -92,7 +89,6 @@ projectCommand
 
 const branchCommand = program
   .command('branch')
-  .alias('br')
   .description('Manage branches within projects');
 
 branchCommand
@@ -107,7 +103,6 @@ branchCommand
 
 branchCommand
   .command('list')
-  .alias('ls')
   .description('List branches')
   .argument('[project]', 'project name (optional, lists all if not specified)')
   .action(wrapCommand(async (project?: string) => {
@@ -124,7 +119,6 @@ branchCommand
 
 branchCommand
   .command('delete')
-  .alias('rm')
   .description('Delete a branch')
   .argument('<name>', 'branch name in format: <project>/<branch>')
   .option('-f, --force', 'delete branch and all child branches')
@@ -143,7 +137,6 @@ branchCommand
 
 branchCommand
   .command('password')
-  .alias('pass')
   .description('Show connection details and password for a branch')
   .argument('<name>', 'branch name in format: <project>/<branch>')
   .action(wrapCommand(async (name: string) => {
@@ -209,7 +202,6 @@ walCommand
 
 const snapshotCommand = program
   .command('snapshot')
-  .alias('snap')
   .description('Manage snapshots for point-in-time recovery');
 
 snapshotCommand
@@ -223,7 +215,6 @@ snapshotCommand
 
 snapshotCommand
   .command('list')
-  .alias('ls')
   .description('List snapshots')
   .argument('[branch]', 'branch name in format: <project>/<branch> (optional, lists all if not specified)')
   .action(wrapCommand(async (branch?: string) => {
@@ -232,7 +223,6 @@ snapshotCommand
 
 snapshotCommand
   .command('delete')
-  .alias('rm')
   .description('Delete a snapshot')
   .argument('<snapshot-id>', 'snapshot ID')
   .action(wrapCommand(async (snapshotId: string) => {
@@ -260,7 +250,6 @@ snapshotCommand
 
 program
   .command('status')
-  .alias('ls')
   .description('Show status of all projects and branches')
   .action(wrapCommand(async () => {
     await statusCommand();
