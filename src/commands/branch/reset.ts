@@ -1,7 +1,4 @@
 import chalk from 'chalk';
-import { ZFSManager } from '../../managers/zfs';
-import { DockerManager } from '../../managers/docker';
-import { StateManager } from '../../managers/state';
 import { formatTimestamp } from '../../utils/helpers';
 import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
@@ -10,22 +7,13 @@ import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
 export async function branchResetCommand(name: string, options: { force?: boolean } = {}) {
   const namespace = parseNamespace(name);
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  const result = await state.getBranchByNamespace(name);
-  if (!result) {
-    throw new UserError(
-      `Branch '${name}' not found`,
-      `Run '${CLI_NAME} branch list' to see available branches`
-    );
-  }
-
-  const { branch, project } = result;
+  const { state, docker, zfs, stateData } = await initializeServices();
+  const { branch, project } = await getBranchWithProject(state, name);
 
   // Prevent resetting main branch
   if (branch.isPrimary) {
@@ -70,12 +58,6 @@ export async function branchResetCommand(name: string, options: { force?: boolea
   }
 
   console.log();
-
-  // Get ZFS config from state
-  const stateData = state.getState();
-
-  const docker = new DockerManager();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
 
   // Compute parent branch names
   const parentNamespace = parseNamespace(parentBranch.name);

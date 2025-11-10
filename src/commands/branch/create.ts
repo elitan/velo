@@ -1,9 +1,4 @@
-import { PATHS } from '../../utils/paths';
 import chalk from 'chalk';
-import { ZFSManager } from '../../managers/zfs';
-import { DockerManager } from '../../managers/docker';
-import { WALManager } from '../../managers/wal';
-import { StateManager } from '../../managers/state';
 import { generateUUID, formatTimestamp } from '../../utils/helpers';
 import type { Branch } from '../../types/state';
 import { parseNamespace, getMainBranch } from '../../utils/namespace';
@@ -14,6 +9,8 @@ import { withProgress } from '../../utils/progress';
 import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices, getProject } from '../../utils/service-factory';
+import { selectSnapshotForPITR } from '../../services/pitr-service';
 
 export interface BranchCreateOptions {
   parent?: string;
@@ -55,17 +52,10 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     console.log(chalk.dim(`  Recovery target: ${formatDate(recoveryTarget)}`));
   }
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+  const { state, zfs, docker, wal, stateData } = await initializeServices();
 
   // Find source project and branch
-  const sourceProject = await state.getProjectByName(source.project);
-  if (!sourceProject) {
-    throw new UserError(
-      `Project '${source.project}' not found`,
-      `Run '${CLI_NAME} project list' to see available projects`
-    );
-  }
+  const sourceProject = await getProject(state, source.project);
 
   const sourceBranch = sourceProject.branches.find(b => b.name === source.full);
   if (!sourceBranch) {
@@ -81,53 +71,8 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     throw new UserError(`Branch '${target.full}' already exists`);
   }
 
-  // Get ZFS config from state
-  const stateData = state.getState();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
-  const docker = new DockerManager();
-  const wal = new WALManager();
-
   // Setup rollback for cleanup on failure
   const rollback = new Rollback();
-
-  // For PITR, find existing snapshot before recovery target
-  // Note: These will always be assigned by either PITR or non-PITR block below
-  let fullSnapshotName!: string;
-  let snapshotName!: string;
-  let createdSnapshot = false;
-
-  if (options.pitr && recoveryTarget) {
-    // Find snapshots for source branch
-    const snapshots = await state.getSnapshotsForBranch(source.full);
-
-    // Filter snapshots created BEFORE recovery target
-    const validSnapshots = snapshots.filter(s =>
-      new Date(s.createdAt) < recoveryTarget
-    );
-
-    if (validSnapshots.length === 0) {
-      throw new UserError(
-        `No snapshots found before recovery target ${formatDate(recoveryTarget)}`,
-        `Create a snapshot with: ${CLI_NAME} snapshot create ${source.full} ${chalk.bold('--label')} <name>`
-      );
-    }
-
-    // Sort by creation time (newest first) and take the closest one before target
-    validSnapshots.sort((a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    const selectedSnapshot = validSnapshots[0]!; // Safe: we checked validSnapshots.length > 0
-
-    fullSnapshotName = selectedSnapshot.zfsSnapshot;
-    const parts = fullSnapshotName.split('@');
-    if (parts.length !== 2 || !parts[1]) {
-      throw new UserError(`Invalid snapshot name format: ${fullSnapshotName}`);
-    }
-    snapshotName = parts[1];
-
-    console.log(chalk.dim(`  Using snapshot: ${selectedSnapshot.label || snapshotName} (created ${formatDate(new Date(selectedSnapshot.createdAt))})`));
-    console.log();
-  }
 
   // Compute source branch names
   const sourceNamespace = parseNamespace(source.full);
@@ -135,14 +80,21 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
   const sourceDatasetName = getDatasetName(sourceNamespace.project, sourceNamespace.branch);
   const sourceDatasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, sourceNamespace.project, sourceNamespace.branch);
 
-  // For non-PITR, create new snapshot with appropriate consistency level
-  if (!options.pitr) {
+  // Determine snapshot to use
+  let fullSnapshotName: string;
+  let snapshotName: string;
+  let createdSnapshot = false;
+
+  if (options.pitr && recoveryTarget) {
+    // PITR: select existing snapshot before recovery target
+    const selection = await selectSnapshotForPITR(source.full, recoveryTarget, state);
+    fullSnapshotName = selection.fullSnapshotName;
+    snapshotName = selection.snapshotName;
+  } else {
+    // Non-PITR: prepare to create new snapshot
     snapshotName = formatTimestamp(new Date());
     fullSnapshotName = `${sourceDatasetPath}@${snapshotName}`;
   }
-
-  // At this point, either PITR or non-PITR block has set these variables
-  // The ! operator above tells TypeScript we guarantee they'll be assigned
 
   // Only create a NEW snapshot if not using PITR (PITR uses existing snapshots)
   if (!options.pitr) {
