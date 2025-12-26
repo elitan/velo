@@ -253,6 +253,15 @@ export class ZFSManager {
     await $`zfs promote ${fullClone}`;
   }
 
+  /**
+   * Rename a dataset (used for safe dataset swaps)
+   */
+  async renameDataset(oldName: string, newName: string): Promise<void> {
+    const oldPath = this.getFullPath(oldName);
+    const newPath = this.getFullPath(newName);
+    await $`zfs rename ${oldPath} ${newPath}`;
+  }
+
   // Utility functions
   async getUsedSpace(dataset: string): Promise<number> {
     const fullName = this.getFullPath(dataset);

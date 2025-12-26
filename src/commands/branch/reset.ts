@@ -113,20 +113,44 @@ export async function branchResetCommand(name: string, options: { force?: boolea
     checkpointLabel: `Checkpoint ${parentBranch.name}`,
   });
 
-  // Unmount and destroy existing ZFS dataset (with -R flag to destroy any remaining clones)
-  await withProgress('Destroy old dataset', async () => {
-    await zfs.unmountDataset(datasetName);
-    await zfs.destroyDataset(datasetName, true);
-  });
+  // Safe clone-then-swap: clone to temp first, then swap
+  // This prevents data loss if cloning fails
+  const tempDatasetName = `${datasetName}-temp`;
+  const backupDatasetName = `${datasetName}-old`;
 
-  // Clone the new snapshot
+  // Step 1: Clone to temporary dataset
   await withProgress('Clone new snapshot', async () => {
-    await zfs.cloneSnapshot(fullSnapshotName, datasetName);
+    await zfs.cloneSnapshot(fullSnapshotName, tempDatasetName);
   });
 
-  // Mount the dataset (requires sudo on Linux due to kernel restrictions)
+  // Step 2: Mount temp dataset to verify it works
+  await withProgress('Mount temp dataset', async () => {
+    await zfs.mountDataset(tempDatasetName);
+  });
+
+  // Step 3: Swap datasets (original is still intact until this succeeds)
+  await withProgress('Swap datasets', async () => {
+    // Unmount original
+    await zfs.unmountDataset(datasetName);
+
+    // Rename original to backup
+    await zfs.renameDataset(datasetName, backupDatasetName);
+
+    // Unmount temp before rename (required by ZFS)
+    await zfs.unmountDataset(tempDatasetName);
+
+    // Rename temp to original name
+    await zfs.renameDataset(tempDatasetName, datasetName);
+  });
+
+  // Step 4: Mount the swapped dataset
   await withProgress('Mount dataset', async () => {
     await zfs.mountDataset(datasetName);
+  });
+
+  // Step 5: Clean up backup (best effort - don't fail if this errors)
+  await withProgress('Clean up old dataset', async () => {
+    await zfs.destroyDataset(backupDatasetName, true).catch(() => {});
   });
 
   const mountpoint = await zfs.getMountpoint(datasetName);
