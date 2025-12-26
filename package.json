@@ -3,7 +3,7 @@
   "displayName": "Velo",
   "cliName": "velo",
   "containerPrefix": "velo",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Instant PostgreSQL branching with ZFS snapshots",
   "author": "Johan Eliasson <johan@eliasson.me> (https://github.com/elitan)",
   "license": "MIT",
