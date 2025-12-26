@@ -7,7 +7,7 @@ import { UserError } from '../errors';
 export interface CreateSnapshotParams {
   datasetName: string;
   datasetPath: string;
-  branchStatus: 'running' | 'stopped';
+  branchStatus: 'created' | 'running' | 'stopped';
   containerName: string;
   username: string;
   label?: string;
