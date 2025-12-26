@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { formatTimestamp } from '../../utils/helpers';
+import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
 import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
@@ -101,31 +101,17 @@ export async function branchResetCommand(name: string, options: { force?: boolea
     }
   });
 
-  // Checkpoint parent before snapshot
-  const snapshotName = formatTimestamp(new Date());
-  const fullSnapshotName = `${parentDatasetPath}@${snapshotName}`;
-
-  if (parentBranch.status === 'running') {
-    const parentContainerID = await docker.getContainerByName(parentContainerName);
-    if (parentContainerID) {
-      await withProgress(`Checkpoint ${parentBranch.name}`, async () => {
-        await docker.execSQL(
-          parentContainerID,
-          "CHECKPOINT;",
-          project.credentials.username
-        );
-      });
-
-      // Create snapshot immediately after checkpoint
-      await withProgress('Create snapshot', async () => {
-        await zfs.createSnapshot(parentDatasetName, snapshotName);
-      });
-    }
-  } else {
-    await withProgress('Create snapshot', async () => {
-      await zfs.createSnapshot(parentDatasetName, snapshotName);
-    });
-  }
+  // Create application-consistent snapshot of parent
+  const { fullSnapshotName } = await createApplicationConsistentSnapshot({
+    datasetName: parentDatasetName,
+    datasetPath: parentDatasetPath,
+    branchStatus: parentBranch.status,
+    containerName: parentContainerName,
+    username: project.credentials.username,
+    zfs,
+    docker,
+    checkpointLabel: `Checkpoint ${parentBranch.name}`,
+  });
 
   // Unmount and destroy existing ZFS dataset (with -R flag to destroy any remaining clones)
   await withProgress('Destroy old dataset', async () => {
