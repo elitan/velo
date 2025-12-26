@@ -31,6 +31,10 @@ export class ZFSManager {
     private datasetBase: string
   ) {}
 
+  private getFullPath(name: string): string {
+    return `${this.pool}/${this.datasetBase}/${name}`;
+  }
+
   // Pool operations
   async poolExists(): Promise<boolean> {
     try {
@@ -65,7 +69,7 @@ export class ZFSManager {
 
   // Dataset operations
   async createDataset(name: string, options?: Record<string, string>): Promise<void> {
-    const fullName = `${this.pool}/${this.datasetBase}/${name}`;
+    const fullName = this.getFullPath(name);
 
     // Note: ZFS may print "filesystem successfully created, but it may only be mounted by root"
     // to stderr. This is expected on Linux and not an error - we'll mount it with sudo later.
@@ -86,7 +90,7 @@ export class ZFSManager {
   }
 
   async destroyDataset(name: string, recursive = false): Promise<void> {
-    const fullName = `${this.pool}/${this.datasetBase}/${name}`;
+    const fullName = this.getFullPath(name);
     if (recursive) {
       // Use -R to destroy all dependents (clones) and snapshots
       await $`zfs destroy -R ${fullName}`;
@@ -97,7 +101,7 @@ export class ZFSManager {
 
   async datasetExists(name: string): Promise<boolean> {
     try {
-      const fullName = `${this.pool}/${this.datasetBase}/${name}`;
+      const fullName = this.getFullPath(name);
       await $`zfs list -H ${fullName}`.quiet();
       return true;
     } catch {
@@ -106,7 +110,7 @@ export class ZFSManager {
   }
 
   async getDataset(name: string): Promise<Dataset> {
-    const fullName = `${this.pool}/${this.datasetBase}/${name}`;
+    const fullName = this.getFullPath(name);
     const output = await $`zfs list -H -p -o name,used,avail,refer,mountpoint,creation ${fullName}`.text();
 
     const fields = output.trim().split('\t');
@@ -156,19 +160,19 @@ export class ZFSManager {
   }
 
   async setProperty(dataset: string, key: string, value: string): Promise<void> {
-    const fullName = `${this.pool}/${this.datasetBase}/${dataset}`;
+    const fullName = this.getFullPath(dataset);
     await $`zfs set ${key}=${value} ${fullName}`;
   }
 
   async getProperty(dataset: string, key: string): Promise<string> {
-    const fullName = `${this.pool}/${this.datasetBase}/${dataset}`;
+    const fullName = this.getFullPath(dataset);
     const output = await $`zfs get -H -p -o value ${key} ${fullName}`.text();
     return output.trim();
   }
 
   // Snapshot operations
   async createSnapshot(dataset: string, snapName: string): Promise<void> {
-    const fullDataset = `${this.pool}/${this.datasetBase}/${dataset}`;
+    const fullDataset = this.getFullPath(dataset);
     await $`zfs snapshot ${fullDataset}@${snapName}`;
   }
 
@@ -184,7 +188,7 @@ export class ZFSManager {
   async listSnapshots(dataset?: string): Promise<Snapshot[]> {
     try {
       const basePath = dataset
-        ? `${this.pool}/${this.datasetBase}/${dataset}`
+        ? this.getFullPath(dataset)
         : `${this.pool}/${this.datasetBase}`;
 
       const output = await $`zfs list -H -p -t snapshot -o name,used,creation -r ${basePath}`.text();
@@ -228,7 +232,7 @@ export class ZFSManager {
 
   // Clone operations
   async cloneSnapshot(snapshot: string, target: string): Promise<void> {
-    const fullTarget = `${this.pool}/${this.datasetBase}/${target}`;
+    const fullTarget = this.getFullPath(target);
 
     // Note: ZFS may print "filesystem successfully created, but it may only be mounted by root"
     // to stderr. This is expected on Linux and not an error - we'll mount it with sudo later.
@@ -244,25 +248,25 @@ export class ZFSManager {
   }
 
   async promoteClone(clone: string): Promise<void> {
-    const fullClone = `${this.pool}/${this.datasetBase}/${clone}`;
+    const fullClone = this.getFullPath(clone);
     await $`zfs promote ${fullClone}`;
   }
 
   // Utility functions
   async getUsedSpace(dataset: string): Promise<number> {
-    const fullName = `${this.pool}/${this.datasetBase}/${dataset}`;
+    const fullName = this.getFullPath(dataset);
     const output = await $`zfs list -H -p -o used ${fullName}`.text();
     return parseInt(output.trim(), 10);
   }
 
   async getSharedSpace(clone: string): Promise<number> {
-    const fullClone = `${this.pool}/${this.datasetBase}/${clone}`;
+    const fullClone = this.getFullPath(clone);
     const output = await $`zfs list -H -p -o referenced ${fullClone}`.text();
     return parseInt(output.trim(), 10);
   }
 
   async getMountpoint(dataset: string): Promise<string> {
-    const fullName = `${this.pool}/${this.datasetBase}/${dataset}`;
+    const fullName = this.getFullPath(dataset);
     const output = await $`zfs get -H -p -o value mountpoint ${fullName}`.text();
     return output.trim();
   }
@@ -272,7 +276,7 @@ export class ZFSManager {
    * Requires sudo on Linux due to kernel CAP_SYS_ADMIN requirement
    */
   async mountDataset(dataset: string): Promise<void> {
-    const fullName = `${this.pool}/${this.datasetBase}/${dataset}`;
+    const fullName = this.getFullPath(dataset);
     try {
       await $`sudo zfs mount ${fullName}`.quiet();
     } catch (error: any) {
@@ -289,7 +293,7 @@ export class ZFSManager {
    * Requires sudo on Linux due to kernel CAP_SYS_ADMIN requirement
    */
   async unmountDataset(dataset: string): Promise<void> {
-    const fullName = `${this.pool}/${this.datasetBase}/${dataset}`;
+    const fullName = this.getFullPath(dataset);
     try {
       await $`sudo zfs unmount ${fullName}`.quiet();
     } catch (error: any) {
