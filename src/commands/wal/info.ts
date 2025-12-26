@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { parseNamespace } from '../../utils/namespace';
 import { formatRelativeTime } from '../../utils/time';
+import { formatBytes } from '../../utils/helpers';
 import { getDatasetName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { CLI_NAME } from '../../config/constants';
@@ -39,7 +40,7 @@ export async function walInfoCommand(branchName?: string) {
     console.log();
     console.log(chalk.dim('Archive path:  '), info.path);
     console.log(chalk.dim('File count:    '), info.fileCount);
-    console.log(chalk.dim('Total size:    '), formatSize(info.sizeBytes));
+    console.log(chalk.dim('Total size:    '), formatBytes(info.sizeBytes));
 
     if (info.oldestWAL && info.oldestTimestamp) {
       console.log(chalk.dim('Oldest WAL:    '), info.oldestWAL);
@@ -83,7 +84,7 @@ export async function walInfoCommand(branchName?: string) {
         const info = await wal.getArchiveInfo(datasetName);
 
         console.log(chalk.dim(`  ${branch.name}`));
-        console.log(chalk.dim(`    Files: ${info.fileCount} | Size: ${formatSize(info.sizeBytes)}`));
+        console.log(chalk.dim(`    Files: ${info.fileCount} | Size: ${formatBytes(info.sizeBytes)}`));
 
         if (info.oldestTimestamp && info.newestTimestamp) {
           const coverage = formatRelativeTime(info.oldestTimestamp) + ' to ' + formatRelativeTime(info.newestTimestamp);
@@ -94,14 +95,4 @@ export async function walInfoCommand(branchName?: string) {
       console.log();
     }
   }
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const size = bytes / Math.pow(1024, i);
-
-  return `${size.toFixed(2)} ${units[i]}`;
 }

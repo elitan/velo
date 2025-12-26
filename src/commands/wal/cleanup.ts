@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { parseNamespace } from '../../utils/namespace';
+import { formatBytes } from '../../utils/helpers';
 import { getDatasetName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
@@ -85,18 +86,8 @@ export async function walCleanupCommand(branchName: string, options: WALCleanupO
     console.log();
     console.log(chalk.bold('Cleanup Summary:'));
     console.log(chalk.dim('  Files deleted:  '), deletedCount);
-    console.log(chalk.dim('  Space freed:    '), formatSize(savedBytes));
+    console.log(chalk.dim('  Space freed:    '), formatBytes(savedBytes));
     console.log(chalk.dim('  Files remaining:'), afterInfo.fileCount);
     console.log();
   }
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
-
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const size = bytes / Math.pow(1024, i);
-
-  return `${size.toFixed(2)} ${units[i]}`;
 }
