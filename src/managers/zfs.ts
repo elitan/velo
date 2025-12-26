@@ -1,4 +1,5 @@
 import { $ } from 'bun';
+import { SystemError } from '../errors';
 
 export interface Dataset {
   name: string;
@@ -55,7 +56,7 @@ export class ZFSManager {
     const fields = output.trim().split('\t');
 
     if (fields.length < 10) {
-      throw new Error(`Invalid zpool output: ${output}`);
+      throw new SystemError(`Invalid zpool output: ${output}`);
     }
 
     return {
@@ -115,7 +116,7 @@ export class ZFSManager {
 
     const fields = output.trim().split('\t');
     if (fields.length < 6) {
-      throw new Error(`Invalid zfs output: ${output}`);
+      throw new SystemError(`Invalid zfs output: ${output}`);
     }
 
     return {
@@ -141,7 +142,7 @@ export class ZFSManager {
         .map(line => {
           const fields = line.split('\t');
           if (fields.length < 7) {
-            throw new Error(`Invalid zfs list output: ${line}`);
+            throw new SystemError(`Invalid zfs list output: ${line}`);
           }
 
           return {
@@ -200,13 +201,13 @@ export class ZFSManager {
         .map(line => {
           const fields = line.split('\t');
           if (fields.length < 3) {
-            throw new Error(`Invalid zfs snapshot list output: ${line}`);
+            throw new SystemError(`Invalid zfs snapshot list output: ${line}`);
           }
 
           const name = fields[0]!;
           const parts = name.split('@');
           if (parts.length !== 2 || !parts[0]) {
-            throw new Error(`Invalid snapshot name format: ${name}`);
+            throw new SystemError(`Invalid snapshot name format: ${name}`);
           }
 
           return {

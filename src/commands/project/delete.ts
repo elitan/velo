@@ -66,7 +66,8 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
 
     console.log();
     console.log(`Use ${chalk.bold('--force')} to delete project and all branches`);
-    process.exit(1);
+
+    throw new UserError(`Project '${name}' has ${nonMainBranches.length} branch(es). Use --force to delete.`);
   }
 
   // Delete all branches (in reverse order for ZFS, but containers can be removed in parallel)

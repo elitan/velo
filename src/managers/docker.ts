@@ -254,12 +254,12 @@ export class DockerManager {
       await proc.exited;
 
       if (proc.exitCode !== 0) {
-        throw new Error(error.trim() || `Command failed with exit code ${proc.exitCode}`);
+        throw new SystemError(error.trim() || `Command failed with exit code ${proc.exitCode}`);
       }
 
       return output.trim();
     } catch (error: any) {
-      throw new Error(`SQL execution failed: ${error.message}`);
+      throw new SystemError(`SQL execution failed: ${error.message}`);
     }
   }
 

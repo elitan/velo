@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import type { State } from '../types/state';
-import { SystemError } from '../errors';
+import { SystemError, UserError } from '../errors';
 import { ProjectRepository } from './repositories/project-repository';
 import { BranchRepository } from './repositories/branch-repository';
 import { SnapshotRepository } from './repositories/snapshot-repository';
@@ -91,9 +91,7 @@ export class StateManager {
   }
 
   async save(): Promise<void> {
-    if (!this.state) {
-      throw new Error('State not loaded');
-    }
+    this.ensureLoaded();
 
     await this.acquireLock();
 
@@ -140,7 +138,10 @@ export class StateManager {
       try {
         await fs.access(backupFile);
       } catch (error) {
-        throw new Error('No backup file found');
+        throw new UserError(
+          'No backup file found',
+          'A backup is created automatically when state is modified.'
+        );
       }
 
       // Copy backup to main state file
@@ -190,16 +191,27 @@ export class StateManager {
     await this.save();
   }
 
-  getState(): State {
-    if (!this.state) throw new Error('State not loaded');
+  private ensureLoaded(): State {
+    if (!this.state) {
+      throw new SystemError(
+        'State not loaded',
+        'This is an internal error. Try running the command again.'
+      );
+    }
     return this.state;
   }
 
+  getState(): State {
+    return this.ensureLoaded();
+  }
+
   private validate(): void {
-    if (!this.state) throw new Error('State is null');
+    if (!this.state) {
+      throw new SystemError('State is null', 'State file may be corrupted.');
+    }
 
     if (!this.state.version || !this.state.zfsPool || !this.state.projects) {
-      throw new Error('Invalid state structure');
+      throw new SystemError('Invalid state structure', 'State file may be corrupted. Try restoring from backup.');
     }
 
     const projNames = new Set<string>();
@@ -207,30 +219,30 @@ export class StateManager {
 
     for (const proj of this.state.projects) {
       if (projNames.has(proj.name)) {
-        throw new Error(`Duplicate project name: ${proj.name}`);
+        throw new SystemError(`Duplicate project name: ${proj.name}`, 'State file may be corrupted.');
       }
       projNames.add(proj.name);
 
       // Check that project has a main branch
       const mainBranch = proj.branches.find(b => b.isPrimary);
       if (!mainBranch) {
-        throw new Error(`Project '${proj.name}' must have a main branch`);
+        throw new SystemError(`Project '${proj.name}' must have a main branch`, 'State file may be corrupted.');
       }
 
       for (const branch of proj.branches) {
         // Branch name should be namespaced
         if (!branch.name.includes('/')) {
-          throw new Error(`Branch name must be namespaced: ${branch.name}`);
+          throw new SystemError(`Branch name must be namespaced: ${branch.name}`, 'State file may be corrupted.');
         }
 
         if (branchNames.has(branch.name)) {
-          throw new Error(`Duplicate branch name: ${branch.name}`);
+          throw new SystemError(`Duplicate branch name: ${branch.name}`, 'State file may be corrupted.');
         }
         branchNames.add(branch.name);
 
         // Validate branch belongs to correct project
         if (branch.projectName !== proj.name) {
-          throw new Error(`Branch '${branch.name}' has incorrect projectName`);
+          throw new SystemError(`Branch '${branch.name}' has incorrect projectName`, 'State file may be corrupted.');
         }
       }
     }
@@ -267,7 +279,10 @@ export class StateManager {
       }
     }
 
-    throw new Error('Failed to acquire state lock after 5 seconds');
+    throw new SystemError(
+      'Failed to acquire state lock after 5 seconds',
+      'Another velo process may be running. Try again in a moment.'
+    );
   }
 
   private async releaseLock(): Promise<void> {
