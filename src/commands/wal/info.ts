@@ -3,9 +3,7 @@ import { parseNamespace } from '../../utils/namespace';
 import { formatRelativeTime } from '../../utils/time';
 import { formatBytes } from '../../utils/helpers';
 import { getDatasetName } from '../../utils/naming';
-import { UserError } from '../../errors';
-import { CLI_NAME } from '../../config/constants';
-import { initializeServices } from '../../utils/service-factory';
+import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
 export async function walInfoCommand(branchName?: string) {
   const { state, wal } = await initializeServices();
@@ -17,26 +15,12 @@ export async function walInfoCommand(branchName?: string) {
   if (branchName) {
     // Show info for specific branch
     const target = parseNamespace(branchName);
-    const proj = state.projects.getByName(target.project);
-    if (!proj) {
-      throw new UserError(
-        `Project '${target.project}' not found`,
-        `Run '${CLI_NAME} project list' to see available projects`
-      );
-    }
-
-    const branch = proj.branches.find(b => b.name === target.full);
-    if (!branch) {
-      throw new UserError(
-        `Branch '${target.full}' not found`,
-        `Run '${CLI_NAME} branch list' to see available branches`
-      );
-    }
+    const { branch } = await getBranchWithProject(state, branchName);
 
     const datasetName = getDatasetName(target.project, target.branch);
     const info = await wal.getArchiveInfo(datasetName);
 
-    console.log(chalk.bold(`Branch: ${target.full}`));
+    console.log(chalk.bold(`Branch: ${branch.name}`));
     console.log();
     console.log(chalk.dim('Archive path:  '), info.path);
     console.log(chalk.dim('File count:    '), info.fileCount);

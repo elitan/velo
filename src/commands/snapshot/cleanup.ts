@@ -3,7 +3,7 @@ import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
-import { initializeServices } from '../../utils/service-factory';
+import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
 export interface SnapshotCleanupOptions {
   days: number;
@@ -46,23 +46,7 @@ export async function snapshotCleanupCommand(
     console.log(`Found ${deleted.length} snapshot(s) to delete`);
   } else if (branchName) {
     // Clean up snapshots for specific branch
-    const target = parseNamespace(branchName);
-
-    const proj = state.projects.getByName(target.project);
-    if (!proj) {
-      throw new UserError(
-        `Project '${target.project}' not found`,
-        `Run '${CLI_NAME} project list' to see available projects`
-      );
-    }
-
-    const branch = proj.branches.find(b => b.name === target.full);
-    if (!branch) {
-      throw new UserError(
-        `Branch '${target.full}' not found`,
-        `Run '${CLI_NAME} branch list' to see available branches`
-      );
-    }
+    const { branch } = await getBranchWithProject(state, branchName);
 
     deleted = await withProgress('Find old snapshots', async () => {
       return await state.snapshots.deleteOld(branch.name, options.days, options.dryRun);
