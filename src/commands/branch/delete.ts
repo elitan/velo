@@ -85,12 +85,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
     console.log();
     console.log(`Use ${chalk.bold('--force')} to delete branch and all child branches`);
 
-    // In test mode, throw error instead of exiting for test compatibility
-    if (process.env.NODE_ENV === 'test') {
-      throw new UserError(`Branch has ${descendants.length} child branch(es). Use --force to delete.`);
-    }
-
-    process.exit(1);
+    throw new UserError(`Branch '${name}' has ${descendants.length} child branch(es). Use --force to delete.`);
   }
 
   // Collect all branches to delete (target + descendants in correct order)
