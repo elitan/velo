@@ -1,12 +1,10 @@
 import Table from 'cli-table3';
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { PATHS } from '../../utils/paths';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices } from '../../utils/service-factory';
 
 export async function projectListCommand() {
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+  const { state } = await initializeServices();
 
   const projects = state.projects.list();
 

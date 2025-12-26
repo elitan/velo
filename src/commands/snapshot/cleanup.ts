@@ -1,11 +1,9 @@
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { ZFSManager } from '../../managers/zfs';
-import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices } from '../../utils/service-factory';
 
 export interface SnapshotCleanupOptions {
   days: number;
@@ -36,12 +34,7 @@ export async function snapshotCleanupCommand(
   }
   console.log();
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  // Get ZFS config from state
-  const stateData = state.getState();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
+  const { state, zfs } = await initializeServices();
 
   let deleted: any[] = [];
 

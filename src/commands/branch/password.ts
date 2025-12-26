@@ -1,16 +1,14 @@
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices } from '../../utils/service-factory';
 
 export async function branchPasswordCommand(name: string) {
   const namespace = parseNamespace(name);
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+  const { state } = await initializeServices();
 
   const result = state.branches.getByNamespace(name);
   if (!result) {

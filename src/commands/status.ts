@@ -1,14 +1,11 @@
 import Table from 'cli-table3';
 import chalk from 'chalk';
 import { format } from 'date-fns';
-import { DockerManager } from '../managers/docker';
-import { StateManager } from '../managers/state';
-import { ZFSManager } from '../managers/zfs';
 import { formatBytes } from '../utils/helpers';
-import { PATHS } from '../utils/paths';
 import { TOOL_NAME } from '../config/constants';
 import { getContainerName, getDatasetName } from '../utils/naming';
 import { parseNamespace } from '../utils/namespace';
+import { initializeServices } from '../utils/service-factory';
 
 function formatUptime(startedAt: Date | null): string {
   if (!startedAt) return 'N/A';
@@ -36,14 +33,7 @@ export async function statusCommand() {
   console.log(chalk.bold(`${TOOL_NAME} Status`));
   console.log();
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  // Get ZFS config from state
-  const stateData = state.getState();
-
-  const docker = new DockerManager();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
+  const { state, zfs, docker } = await initializeServices();
 
   // Get pool status
   const poolStatus = await zfs.getPoolStatus();

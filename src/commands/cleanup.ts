@@ -3,14 +3,11 @@
  */
 
 import chalk from 'chalk';
-import { StateManager } from '../managers/state';
-import { ZFSManager } from '../managers/zfs';
-import { DockerManager } from '../managers/docker';
-import { PATHS } from '../utils/paths';
 import { detectOrphans } from '../utils/orphan-detection';
 import { formatBytes } from '../utils/helpers';
 import { UserError } from '../errors';
 import * as readline from 'readline';
+import { initializeServices } from '../utils/service-factory';
 
 interface CleanupOptions {
   dryRun?: boolean;
@@ -23,17 +20,11 @@ export async function cleanupCommand(options: CleanupOptions = {}) {
   console.log(chalk.dim('═'.repeat(60)));
   console.log();
 
-  // Load state
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+  const { state, zfs, docker, stateData } = await initializeServices();
 
   if (!state.isInitialized()) {
     throw new UserError('State not initialized. Create your first project to initialize velo.');
   }
-
-  const stateData = state.getState();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
-  const docker = new DockerManager();
 
   // Detect orphans
   console.log('Scanning for orphaned resources...');

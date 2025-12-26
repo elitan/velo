@@ -1,14 +1,12 @@
 import Table from 'cli-table3';
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { formatBytes } from '../../utils/helpers';
 import { formatRelativeTime } from '../../utils/time';
+import { initializeServices } from '../../utils/service-factory';
 
 export async function snapshotListCommand(branchName?: string) {
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+  const { state } = await initializeServices();
 
   let snapshots;
   let title;
