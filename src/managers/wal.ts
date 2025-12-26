@@ -28,11 +28,12 @@ export class WALManager {
   async ensureArchiveDir(datasetName: string): Promise<void> {
     const walArchivePath = this.getArchivePath(datasetName);
     await $`mkdir -p ${walArchivePath}`.quiet();
-    // Set permissions to allow container user to write
-    await $`chmod 777 ${walArchivePath}`.quiet();
+    // Set ownership to postgres user/group (UID/GID 70) with restrictive permissions
+    await $`chmod 770 ${walArchivePath}`.quiet();
+    await $`sudo chown 70:70 ${walArchivePath}`.quiet();
     // Create .keep file to preserve directory
     await Bun.write(`${walArchivePath}/.keep`, '');
-    await $`chmod 666 ${walArchivePath}/.keep`.quiet();
+    await $`chmod 660 ${walArchivePath}/.keep`.quiet();
   }
 
   /**
