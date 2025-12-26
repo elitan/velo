@@ -38,8 +38,12 @@ jobs:
     - name: Setup Node.js for npm
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
-        registry-url: 'https://registry.npmjs.org'
+        node-version: '24'
+
+    - name: Verify npm version
+      run: |
+        npm --version
+        echo "npm 11.5.1+ required for trusted publishers"
 
     - name: Publish to npm
       run: npm publish --provenance --access public
