@@ -128,7 +128,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   await Promise.all(
     branchesToDelete.map(async (branchToDelete) => {
       await withProgress(`Clean up snapshots: ${branchToDelete.name}`, async () => {
-        await state.deleteSnapshotsForBranch(branchToDelete.name);
+        await state.snapshots.deleteForBranch(branchToDelete.name);
       });
     })
   );
@@ -151,7 +151,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   // Remove all branches from state in parallel
   await Promise.all(
     branchesToDelete.map(async (branchToDelete) => {
-      await state.deleteBranch(project.id, branchToDelete.id);
+      await state.branches.delete(project.id, branchToDelete.id);
     })
   );
 

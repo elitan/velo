@@ -48,14 +48,14 @@ export async function snapshotCleanupCommand(
   if (options.all) {
     // Clean up snapshots across all branches
     deleted = await withProgress('Find old snapshots', async () => {
-      return await state.deleteOldSnapshots(undefined, options.days, options.dryRun);
+      return await state.snapshots.deleteOld(undefined, options.days, options.dryRun);
     });
     console.log(`Found ${deleted.length} snapshot(s) to delete`);
   } else if (branchName) {
     // Clean up snapshots for specific branch
     const target = parseNamespace(branchName);
 
-    const proj = await state.getProjectByName(target.project);
+    const proj = state.projects.getByName(target.project);
     if (!proj) {
       throw new UserError(
         `Project '${target.project}' not found`,
@@ -72,7 +72,7 @@ export async function snapshotCleanupCommand(
     }
 
     deleted = await withProgress('Find old snapshots', async () => {
-      return await state.deleteOldSnapshots(branch.name, options.days, options.dryRun);
+      return await state.snapshots.deleteOld(branch.name, options.days, options.dryRun);
     });
     console.log(`Found ${deleted.length} snapshot(s) to delete`);
   }

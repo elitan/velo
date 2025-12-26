@@ -12,7 +12,7 @@ export async function branchPasswordCommand(name: string) {
   const state = new StateManager(PATHS.STATE);
   await state.load();
 
-  const result = await state.getBranchByNamespace(name);
+  const result = state.branches.getByNamespace(name);
   if (!result) {
     throw new UserError(
       `Branch '${name}' not found`,

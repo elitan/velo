@@ -15,10 +15,10 @@ export async function snapshotListCommand(branchName?: string) {
 
   if (branchName) {
     const target = parseNamespace(branchName);
-    snapshots = await state.getSnapshotsForBranch(target.full);
+    snapshots = state.snapshots.getForBranch(target.full);
     title = `Snapshots for ${target.full}`;
   } else {
-    snapshots = await state.getAllSnapshots();
+    snapshots = state.snapshots.getAll();
     title = 'All Snapshots';
   }
 
