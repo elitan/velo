@@ -38,12 +38,13 @@ export class WALManager {
   async ensureArchiveDir(datasetName: string): Promise<void> {
     const walArchivePath = this.getArchivePath(datasetName);
     await $`mkdir -p ${walArchivePath}`.quiet();
-    // Set ownership to postgres user/group (UID/GID 70) with restrictive permissions
-    await $`chmod 770 ${walArchivePath}`.quiet();
-    await $`sudo chown 70:70 ${walArchivePath}`.quiet();
-    // Create .keep file to preserve directory
+    // Create .keep file first while directory is still owned by current user
     await Bun.write(`${walArchivePath}/.keep`, '');
+    // Set permissions before changing ownership (can't chmod after chown to different user)
+    await $`chmod 770 ${walArchivePath}`.quiet();
     await $`chmod 660 ${walArchivePath}/.keep`.quiet();
+    // Set ownership to postgres user/group (UID/GID 70) - must be last
+    await $`sudo chown -R 70:70 ${walArchivePath}`.quiet();
   }
 
   /**
