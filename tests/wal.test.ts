@@ -4,6 +4,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { $ } from 'bun';
 import * as cleanup from './helpers/cleanup';
 import { getProjectCredentials, getBranchPort, waitForReady } from './helpers/database';
 import {
@@ -12,6 +13,8 @@ import {
   walInfoCommand,
   walCleanupCommand,
 } from './helpers/commands';
+import { WALManager } from '../src/managers/wal';
+import { PATHS } from '../src/utils/paths';
 
 describe('WAL Operations', () => {
   let setupDone = false;
@@ -58,6 +61,31 @@ describe('WAL Operations', () => {
 
     test('should fail to cleanup non-existent branch', async () => {
       await expect(walCleanupCommand('wal-test/non-existent', { days: 30 })).rejects.toThrow();
+    });
+  });
+
+  describe('WAL Archive Permissions', () => {
+    test('should set restrictive permissions (770) on WAL archive directory', async () => {
+      const wal = new WALManager();
+      const testDataset = 'permission-test';
+      const archivePath = `${PATHS.WAL_ARCHIVE}/${testDataset}`;
+
+      // Clean up any existing test directory
+      await $`rm -rf ${archivePath}`.quiet().nothrow();
+
+      // Create the archive directory
+      await wal.ensureArchiveDir(testDataset);
+
+      // Verify permissions are 770 (not 777)
+      const stat = await $`stat -c '%a' ${archivePath}`.text();
+      expect(stat.trim()).toBe('770');
+
+      // Verify ownership is 70:70 (postgres user/group)
+      const owner = await $`stat -c '%u:%g' ${archivePath}`.text();
+      expect(owner.trim()).toBe('70:70');
+
+      // Clean up
+      await $`rm -rf ${archivePath}`.quiet().nothrow();
     });
   });
 });

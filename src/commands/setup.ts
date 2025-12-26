@@ -226,12 +226,15 @@ export async function setupCommand() {
 %${CLI_NAME} ALL=(ALL) NOPASSWD: /usr/bin/chown 70\\:70 ${homeDir}/.${CLI_NAME}/certs/*/server.key
 %${CLI_NAME} ALL=(ALL) NOPASSWD: /usr/bin/chown 70\\:70 ${homeDir}/.${CLI_NAME}/certs/*/server.crt
 
+# Allow chown for WAL archive directories (PostgreSQL requires write access)
+%${CLI_NAME} ALL=(ALL) NOPASSWD: /usr/bin/chown 70\\:70 ${homeDir}/.${CLI_NAME}/wal-archive/*
+
 # Allow rm for SSL certificate cleanup (files may be owned by UID 70)
 %${CLI_NAME} ALL=(ALL) NOPASSWD: /usr/bin/rm -rf ${homeDir}/.${CLI_NAME}/certs/*
 
 # Security notes:
 # - Only mount/unmount commands are allowed (not create, destroy, etc.)
-# - chown is restricted to certificate files only with specific UID:GID (70:70)
+# - chown is restricted to certificate and WAL archive paths with specific UID:GID (70:70)
 # - rm is restricted to certificate directory only
 # - All other ZFS operations use delegation (no sudo required)
 # - This is much more secure than granting full sudo access
