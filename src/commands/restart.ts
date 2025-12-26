@@ -1,21 +1,16 @@
 import chalk from 'chalk';
-import { DockerManager } from '../managers/docker';
-import { StateManager } from '../managers/state';
-import { PATHS } from '../utils/paths';
 import { getContainerName } from '../utils/naming';
 import { parseNamespace } from '../utils/namespace';
 import { UserError } from '../errors';
 import { withProgress } from '../utils/progress';
 import { getPublicIP, formatConnectionString } from '../utils/network';
 import { CLI_NAME } from '../config/constants';
+import { initializeServices } from '../utils/service-factory';
 
 export async function restartCommand(name: string) {
   const namespace = parseNamespace(name);
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  const docker = new DockerManager();
+  const { state, docker } = await initializeServices();
 
   // Look up branch by namespaced name
   const branchResult = state.branches.getByNamespace(name);

@@ -1,18 +1,13 @@
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { WALManager } from '../../managers/wal';
-import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { formatRelativeTime } from '../../utils/time';
 import { getDatasetName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices } from '../../utils/service-factory';
 
 export async function walInfoCommand(branchName?: string) {
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  const wal = new WALManager();
+  const { state, wal } = await initializeServices();
 
   console.log();
   console.log(chalk.bold('WAL Archive Status'));

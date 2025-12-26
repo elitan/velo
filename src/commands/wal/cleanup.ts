@@ -1,12 +1,10 @@
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { WALManager } from '../../managers/wal';
-import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { getDatasetName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices } from '../../utils/service-factory';
 
 export interface WALCleanupOptions {
   days?: number;
@@ -18,8 +16,7 @@ export async function walCleanupCommand(branchName: string, options: WALCleanupO
   const dryRun = options.dryRun || false;
 
   const target = parseNamespace(branchName);
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+  const { state, wal } = await initializeServices();
 
   const proj = state.projects.getByName(target.project);
   if (!proj) {
@@ -38,7 +35,6 @@ export async function walCleanupCommand(branchName: string, options: WALCleanupO
   }
 
   const datasetName = getDatasetName(target.project, target.branch);
-  const wal = new WALManager();
 
   console.log();
   if (dryRun) {

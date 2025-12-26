@@ -1,20 +1,14 @@
 import Table from 'cli-table3';
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { ZFSManager } from '../../managers/zfs';
-import { PATHS } from '../../utils/paths';
 import { formatBytes } from '../../utils/helpers';
 import { getDatasetName } from '../../utils/naming';
 import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
 import { CLI_NAME } from '../../config/constants';
+import { initializeServices } from '../../utils/service-factory';
 
 export async function branchListCommand(projectName?: string) {
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
-
-  const stateData = state.getState();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
+  const { state, zfs } = await initializeServices();
 
   const projects = state.projects.list();
 

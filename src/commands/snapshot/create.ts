@@ -1,8 +1,4 @@
 import chalk from 'chalk';
-import { StateManager } from '../../managers/state';
-import { ZFSManager } from '../../managers/zfs';
-import { DockerManager } from '../../managers/docker';
-import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
 import { generateUUID } from '../../utils/helpers';
 import type { Snapshot } from '../../types/state';
@@ -11,6 +7,7 @@ import { withProgress } from '../../utils/progress';
 import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
 import { CLI_NAME } from '../../config/constants';
 import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
+import { initializeServices } from '../../utils/service-factory';
 
 export interface SnapshotCreateOptions {
   label?: string;
@@ -27,8 +24,7 @@ export async function snapshotCreateCommand(branchName: string, options: Snapsho
   }
   console.log();
 
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+  const { state, zfs, docker, stateData } = await initializeServices();
 
   // Find the branch
   const proj = state.projects.getByName(target.project);
@@ -47,17 +43,10 @@ export async function snapshotCreateCommand(branchName: string, options: Snapsho
     );
   }
 
-  // Get ZFS config from state
-  const stateData = state.getState();
-  const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
-
   // Compute names
   const containerName = getContainerName(target.project, target.branch);
   const datasetName = getDatasetName(target.project, target.branch);
   const datasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, target.project, target.branch);
-
-  // Create application-consistent snapshot
-  const docker = new DockerManager();
   const { snapshotName, fullSnapshotName } = await createApplicationConsistentSnapshot({
     datasetName,
     datasetPath,
