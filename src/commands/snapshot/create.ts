@@ -1,14 +1,16 @@
 import chalk from 'chalk';
 import { StateManager } from '../../managers/state';
 import { ZFSManager } from '../../managers/zfs';
+import { DockerManager } from '../../managers/docker';
 import { PATHS } from '../../utils/paths';
 import { parseNamespace } from '../../utils/namespace';
-import { generateUUID, formatTimestamp } from '../../utils/helpers';
+import { generateUUID } from '../../utils/helpers';
 import type { Snapshot } from '../../types/state';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
 import { CLI_NAME } from '../../config/constants';
+import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
 
 export interface SnapshotCreateOptions {
   label?: string;
@@ -54,30 +56,17 @@ export async function snapshotCreateCommand(branchName: string, options: Snapsho
   const datasetName = getDatasetName(target.project, target.branch);
   const datasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, target.project, target.branch);
 
-  // If branch is running, execute CHECKPOINT before snapshot
-  if (branch.status === 'running') {
-    const { DockerManager } = await import('../../managers/docker');
-    const docker = new DockerManager();
-
-    const containerID = await docker.getContainerByName(containerName);
-    if (!containerID) {
-      throw new UserError(`Container ${containerName} not found`);
-    }
-
-    await withProgress('Checkpoint', async () => {
-      await docker.execSQL(containerID, 'CHECKPOINT;', proj.credentials.username);
-    });
-  }
-
-  // Create ZFS snapshot
-  const snapshotTimestamp = formatTimestamp(new Date());
-  const snapshotName = options.label
-    ? `${snapshotTimestamp}-${options.label}`
-    : snapshotTimestamp;
-
-  const fullSnapshotName = await withProgress('Create snapshot', async () => {
-    await zfs.createSnapshot(datasetName, snapshotName);
-    return `${datasetPath}@${snapshotName}`;
+  // Create application-consistent snapshot
+  const docker = new DockerManager();
+  const { snapshotName, fullSnapshotName } = await createApplicationConsistentSnapshot({
+    datasetName,
+    datasetPath,
+    branchStatus: branch.status,
+    containerName,
+    username: proj.credentials.username,
+    label: options.label,
+    zfs,
+    docker,
   });
 
   // Get snapshot size

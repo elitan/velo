@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { generateUUID, formatTimestamp } from '../../utils/helpers';
+import { generateUUID } from '../../utils/helpers';
 import type { Branch } from '../../types/state';
 import { parseNamespace, getMainBranch } from '../../utils/namespace';
 import { parseRecoveryTime, formatDate } from '../../utils/time';
@@ -11,6 +11,7 @@ import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getProject } from '../../utils/service-factory';
 import { selectSnapshotForPITR } from '../../services/pitr-service';
+import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
 
 export interface BranchCreateOptions {
   parent?: string;
@@ -91,42 +92,19 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     fullSnapshotName = selection.fullSnapshotName;
     snapshotName = selection.snapshotName;
   } else {
-    // Non-PITR: prepare to create new snapshot
-    snapshotName = formatTimestamp(new Date());
-    fullSnapshotName = `${sourceDatasetPath}@${snapshotName}`;
-  }
-
-  // Only create a NEW snapshot if not using PITR (PITR uses existing snapshots)
-  if (!options.pitr) {
-    // Application-consistent snapshot using CHECKPOINT
-    if (sourceBranch.status === 'running') {
-      // We use CHECKPOINT instead of pg_backup_start because:
-      // 1. ZFS snapshots are atomic and instantaneous
-      // 2. CHECKPOINT ensures all data is flushed to disk
-      // 3. This provides application-consistent snapshots which are safe for PostgreSQL
-      // 4. No need for WAL replay on recovery
-      const containerID = await docker.getContainerByName(sourceContainerName);
-      if (!containerID) {
-        throw new UserError(`Container ${sourceContainerName} not found`);
-      }
-
-      await withProgress('Checkpoint', async () => {
-        // Force a checkpoint to ensure all data is written to disk
-        await docker.execSQL(containerID, 'CHECKPOINT;', sourceProject.credentials.username);
-      });
-
-      // Create ZFS snapshot immediately after checkpoint
-      await withProgress(`Snapshot ${snapshotName}`, async () => {
-        await zfs.createSnapshot(sourceDatasetName, snapshotName);
-        createdSnapshot = true;
-      });
-    } else {
-      // Database is stopped - direct snapshot
-      await withProgress(`Snapshot ${snapshotName}`, async () => {
-        await zfs.createSnapshot(sourceDatasetName, snapshotName);
-        createdSnapshot = true;
-      });
-    }
+    // Non-PITR: create new application-consistent snapshot
+    const result = await createApplicationConsistentSnapshot({
+      datasetName: sourceDatasetName,
+      datasetPath: sourceDatasetPath,
+      branchStatus: sourceBranch.status,
+      containerName: sourceContainerName,
+      username: sourceProject.credentials.username,
+      zfs,
+      docker,
+    });
+    snapshotName = result.snapshotName;
+    fullSnapshotName = result.fullSnapshotName;
+    createdSnapshot = true;
   }
 
   // Clone snapshot - use consistent <project>-<branch> naming
