@@ -8,7 +8,7 @@ export async function projectListCommand() {
   const state = new StateManager(PATHS.STATE);
   await state.load();
 
-  const projects = await state.listProjects();
+  const projects = state.projects.list();
 
   if (projects.length === 0) {
     console.log(chalk.dim(`No projects found. Create one with: ${CLI_NAME} project create <name>`));

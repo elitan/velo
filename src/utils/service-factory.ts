@@ -49,7 +49,7 @@ export async function getBranchWithProject(
   state: StateManager,
   branchName: string
 ): Promise<BranchWithProject> {
-  const result = await state.getBranchByNamespace(branchName);
+  const result = state.branches.getByNamespace(branchName);
   if (!result) {
     throw new UserError(
       `Branch '${branchName}' not found`,
@@ -67,7 +67,7 @@ export async function getProject(
   state: StateManager,
   projectName: string
 ): Promise<Project> {
-  const project = await state.getProjectByName(projectName);
+  const project = state.projects.getByName(projectName);
   if (!project) {
     throw new UserError(
       `Project '${projectName}' not found`,

@@ -10,7 +10,7 @@ export async function projectGetCommand(name: string) {
   const state = new StateManager(PATHS.STATE);
   await state.load();
 
-  const project = await state.getProjectByName(name);
+  const project = state.projects.getByName(name);
   if (!project) {
     throw new UserError(
       `Project '${name}' not found`,

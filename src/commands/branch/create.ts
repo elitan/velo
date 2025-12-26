@@ -240,7 +240,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
       status: 'running',
     };
 
-    await state.addBranch(sourceProject.id, branch);
+    await state.branches.add(sourceProject.id, branch);
 
     // Success! Clear rollback steps
     rollback.clear();

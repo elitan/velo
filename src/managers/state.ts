@@ -1,13 +1,52 @@
 import * as fs from 'fs/promises';
-import type { State, Project, Branch, Snapshot } from '../types/state';
-import { UserError, SystemError } from '../errors';
+import type { State } from '../types/state';
+import { SystemError } from '../errors';
+import { ProjectRepository } from './repositories/project-repository';
+import { BranchRepository } from './repositories/branch-repository';
+import { SnapshotRepository } from './repositories/snapshot-repository';
 
 export class StateManager {
   private state: State | null = null;
   private lockFile: string;
 
+  // Lazy-initialized repositories
+  private _projects: ProjectRepository | null = null;
+  private _branches: BranchRepository | null = null;
+  private _snapshots: SnapshotRepository | null = null;
+
   constructor(private filePath: string) {
     this.lockFile = `${filePath}.lock`;
+  }
+
+  // Repository accessors (lazy initialization)
+  get projects(): ProjectRepository {
+    if (!this._projects) {
+      this._projects = new ProjectRepository(
+        () => this.getState(),
+        () => this.save()
+      );
+    }
+    return this._projects;
+  }
+
+  get branches(): BranchRepository {
+    if (!this._branches) {
+      this._branches = new BranchRepository(
+        () => this.getState(),
+        () => this.save()
+      );
+    }
+    return this._branches;
+  }
+
+  get snapshots(): SnapshotRepository {
+    if (!this._snapshots) {
+      this._snapshots = new SnapshotRepository(
+        () => this.getState(),
+        () => this.save()
+      );
+    }
+    return this._snapshots;
   }
 
   // State operations
@@ -26,17 +65,10 @@ export class StateManager {
     }
   }
 
-  /**
-   * Check if state is initialized
-   */
   isInitialized(): boolean {
     return this.state !== null;
   }
 
-  /**
-   * Auto-initialize state if not already initialized
-   * Called automatically on first project create
-   */
   async autoInitialize(pool: string, datasetBase: string): Promise<void> {
     if (this.isInitialized()) {
       return; // Already initialized
@@ -158,204 +190,6 @@ export class StateManager {
     await this.save();
   }
 
-  // Project operations
-  async addProject(proj: Project): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-
-    if (this.state.projects.some(p => p.name === proj.name)) {
-      throw new UserError(`Project '${proj.name}' already exists`);
-    }
-
-    this.state.projects.push(proj);
-    await this.save();
-  }
-
-  async getProjectByName(name: string): Promise<Project | null> {
-    if (!this.state) throw new Error('State not loaded');
-    return this.state.projects.find(proj => proj.name === name) || null;
-  }
-
-  async updateProject(proj: Project): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-
-    const index = this.state.projects.findIndex(p => p.id === proj.id);
-    if (index === -1) {
-      throw new UserError(`Project ${proj.id} not found`);
-    }
-
-    this.state.projects[index] = proj;
-    await this.save();
-  }
-
-  async deleteProject(name: string): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-
-    const index = this.state.projects.findIndex(proj => proj.name === name);
-
-    if (index === -1) {
-      throw new UserError(`Project '${name}' not found`);
-    }
-
-    this.state.projects.splice(index, 1);
-    await this.save();
-  }
-
-  async listProjects(): Promise<Project[]> {
-    if (!this.state) throw new Error('State not loaded');
-    return [...this.state.projects];
-  }
-
-  // Branch operations
-  async addBranch(projectID: string, branch: Branch): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-
-    const proj = this.state.projects.find(p => p.id === projectID);
-    if (!proj) {
-      throw new UserError(`Project ${projectID} not found`);
-    }
-
-    if (proj.branches.some(b => b.name === branch.name)) {
-      throw new UserError(`Branch '${branch.name}' already exists`);
-    }
-
-    proj.branches.push(branch);
-    await this.save();
-  }
-
-  async getBranchByNamespace(namespacedName: string): Promise<{ branch: Branch; project: Project } | null> {
-    if (!this.state) throw new Error('State not loaded');
-
-    for (const proj of this.state.projects) {
-      const branch = proj.branches.find(b => b.name === namespacedName);
-      if (branch) {
-        return { branch, project: proj };
-      }
-    }
-
-    return null;
-  }
-
-  async getMainBranch(projectName: string): Promise<Branch | null> {
-    if (!this.state) throw new Error('State not loaded');
-
-    const proj = this.state.projects.find(p => p.name === projectName);
-    if (!proj) return null;
-
-    return proj.branches.find(b => b.isPrimary) || null;
-  }
-
-  async updateBranch(projectID: string, branch: Branch): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-
-    const proj = this.state.projects.find(p => p.id === projectID);
-    if (!proj) {
-      throw new UserError(`Project ${projectID} not found`);
-    }
-
-    const index = proj.branches.findIndex(b => b.id === branch.id);
-    if (index === -1) {
-      throw new UserError(`Branch ${branch.id} not found`);
-    }
-
-    proj.branches[index] = branch;
-    await this.save();
-  }
-
-  async deleteBranch(projectID: string, branchID: string): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-
-    const proj = this.state.projects.find(p => p.id === projectID);
-    if (!proj) {
-      throw new UserError(`Project ${projectID} not found`);
-    }
-
-    const index = proj.branches.findIndex(b => b.id === branchID);
-    if (index === -1) {
-      throw new UserError(`Branch ${branchID} not found`);
-    }
-
-    proj.branches.splice(index, 1);
-    await this.save();
-  }
-
-  async listAllBranches(): Promise<Branch[]> {
-    if (!this.state) throw new Error('State not loaded');
-    return this.state.projects.flatMap(proj => proj.branches);
-  }
-
-  // Snapshot operations
-  async addSnapshot(snapshot: Snapshot): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-    this.state.snapshots.push(snapshot);
-    await this.save();
-  }
-
-  async getSnapshotsForBranch(branchName: string): Promise<Snapshot[]> {
-    if (!this.state) throw new Error('State not loaded');
-    return this.state.snapshots.filter(s => s.branchName === branchName);
-  }
-
-  async getSnapshotsForProject(projectName: string): Promise<Snapshot[]> {
-    if (!this.state) throw new Error('State not loaded');
-    return this.state.snapshots.filter(s => s.projectName === projectName);
-  }
-
-  async getSnapshotById(id: string): Promise<Snapshot | undefined> {
-    if (!this.state) throw new Error('State not loaded');
-    return this.state.snapshots.find(s => s.id === id);
-  }
-
-  async deleteSnapshot(id: string): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-    const index = this.state.snapshots.findIndex(s => s.id === id);
-    if (index === -1) {
-      throw new UserError(`Snapshot not found: ${id}`);
-    }
-    this.state.snapshots.splice(index, 1);
-    await this.save();
-  }
-
-  async deleteSnapshotsForBranch(branchName: string): Promise<void> {
-    if (!this.state) throw new Error('State not loaded');
-    this.state.snapshots = this.state.snapshots.filter(s => s.branchName !== branchName);
-    await this.save();
-  }
-
-  async deleteOldSnapshots(branchName: string | undefined, retentionDays: number, dryRun: boolean = false): Promise<Snapshot[]> {
-    if (!this.state) throw new Error('State not loaded');
-
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - retentionDays);
-
-    const toDelete = this.state.snapshots.filter(s => {
-      const isOld = new Date(s.createdAt) < cutoff;
-      if (branchName) {
-        return s.branchName === branchName && isOld;
-      }
-      return isOld;
-    });
-
-    if (!dryRun) {
-      this.state.snapshots = this.state.snapshots.filter(s => {
-        const isOld = new Date(s.createdAt) < cutoff;
-        if (branchName) {
-          return s.branchName !== branchName || !isOld;
-        }
-        return !isOld;
-      });
-
-      await this.save();
-    }
-
-    return toDelete;
-  }
-
-  async getAllSnapshots(): Promise<Snapshot[]> {
-    if (!this.state) throw new Error('State not loaded');
-    return this.state.snapshots;
-  }
-
-  // Utility
   getState(): State {
     if (!this.state) throw new Error('State not loaded');
     return this.state;

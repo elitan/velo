@@ -71,7 +71,7 @@ export async function statusCommand() {
   console.log();
 
   // Get all projects
-  const projects = await state.listProjects();
+  const projects = state.projects.list();
 
   if (projects.length === 0) {
     console.log(chalk.dim('No projects found.'));

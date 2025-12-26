@@ -21,7 +21,7 @@ export async function selectSnapshotForPITR(
   state: StateManager
 ): Promise<SnapshotSelection> {
   // Find snapshots for source branch
-  const snapshots = await state.getSnapshotsForBranch(sourceBranchName);
+  const snapshots = state.snapshots.getForBranch(sourceBranchName);
 
   // Filter snapshots created BEFORE recovery target
   const validSnapshots = snapshots.filter(s =>

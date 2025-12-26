@@ -119,7 +119,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   });
 
   // Remove from state
-  await state.deleteProject(project.name);
+  await state.projects.delete(project.name);
 
   console.log();
   console.log(chalk.bold(`Project '${name}' deleted`));

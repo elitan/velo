@@ -19,7 +19,7 @@ export async function stopCommand(name: string) {
   const docker = new DockerManager();
 
   // Look up branch by namespaced name
-  const branchResult = await state.getBranchByNamespace(name);
+  const branchResult = state.branches.getByNamespace(name);
 
   if (!branchResult) {
     throw new UserError(
@@ -53,7 +53,7 @@ export async function stopCommand(name: string) {
 
   // Update state
   branch.status = 'stopped';
-  await state.updateBranch(project.id, branch);
+  await state.branches.update(project.id, branch);
 
   console.log();
   console.log(chalk.bold('Branch stopped'));

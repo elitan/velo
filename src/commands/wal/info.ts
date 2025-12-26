@@ -21,7 +21,7 @@ export async function walInfoCommand(branchName?: string) {
   if (branchName) {
     // Show info for specific branch
     const target = parseNamespace(branchName);
-    const proj = await state.getProjectByName(target.project);
+    const proj = state.projects.getByName(target.project);
     if (!proj) {
       throw new UserError(
         `Project '${target.project}' not found`,

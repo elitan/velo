@@ -29,7 +29,7 @@ export async function snapshotCreateCommand(branchName: string, options: Snapsho
   await state.load();
 
   // Find the branch
-  const proj = await state.getProjectByName(target.project);
+  const proj = state.projects.getByName(target.project);
   if (!proj) {
     throw new UserError(
       `Project '${target.project}' not found`,
@@ -97,7 +97,7 @@ export async function snapshotCreateCommand(branchName: string, options: Snapsho
     sizeBytes,
   };
 
-  await state.addSnapshot(snapshot);
+  await state.snapshots.add(snapshot);
 
   console.log();
   console.log(chalk.bold('Snapshot created'));

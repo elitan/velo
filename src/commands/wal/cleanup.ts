@@ -21,7 +21,7 @@ export async function walCleanupCommand(branchName: string, options: WALCleanupO
   const state = new StateManager(PATHS.STATE);
   await state.load();
 
-  const proj = await state.getProjectByName(target.project);
+  const proj = state.projects.getByName(target.project);
   if (!proj) {
     throw new UserError(
       `Project '${target.project}' not found`,

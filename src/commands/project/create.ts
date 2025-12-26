@@ -86,7 +86,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
   }
 
   // Check if project already exists
-  const existing = await state.getProjectByName(name);
+  const existing = state.projects.getByName(name);
   if (existing) {
     throw new UserError(`Project '${name}' already exists`);
   }
@@ -203,7 +203,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
     branches: [mainBranch],
   };
 
-  await state.addProject(project);
+  await state.projects.add(project);
 
   // Get public IP for remote connection info
   const publicIP = await getPublicIP();

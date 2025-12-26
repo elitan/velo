@@ -16,7 +16,7 @@ export async function branchListCommand(projectName?: string) {
   const stateData = state.getState();
   const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
 
-  const projects = await state.listProjects();
+  const projects = state.projects.list();
 
   // Filter by project if specified
   const filtered = projectName

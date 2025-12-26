@@ -84,10 +84,10 @@ export async function branchResetCommand(name: string, options: { force?: boolea
         }
 
         // Clean up snapshots from state
-        await state.deleteSnapshotsForBranch(depBranch.name);
+        await state.snapshots.deleteForBranch(depBranch.name);
 
         // Remove branch from state (will be destroyed with ZFS dataset)
-        await state.deleteBranch(project.id, depBranch.id);
+        await state.branches.delete(project.id, depBranch.id);
       }
     });
   }
@@ -172,14 +172,14 @@ export async function branchResetCommand(name: string, options: { force?: boolea
   });
 
   // Clean up orphaned snapshots for this branch (ZFS snapshots were destroyed with dataset)
-  await state.deleteSnapshotsForBranch(branch.name);
+  await state.snapshots.deleteForBranch(branch.name);
 
   // Update state
   const sizeBytes = await zfs.getUsedSpace(datasetName);
   branch.sizeBytes = sizeBytes;
   branch.status = 'running';
   branch.snapshotName = fullSnapshotName;
-  await state.updateBranch(project.id, branch);
+  await state.branches.update(project.id, branch);
 
   // Get public IP for remote connection info
   const publicIP = await getPublicIP();

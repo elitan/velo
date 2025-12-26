@@ -15,7 +15,7 @@ export async function snapshotDeleteCommand(snapshotId: string) {
   await state.load();
 
   // Find the snapshot
-  const snapshot = await state.getSnapshotById(snapshotId);
+  const snapshot = state.snapshots.getById(snapshotId);
   if (!snapshot) {
     throw new UserError(
       `Snapshot not found: ${snapshotId}`,
@@ -33,7 +33,7 @@ export async function snapshotDeleteCommand(snapshotId: string) {
   });
 
   // Remove from state
-  await state.deleteSnapshot(snapshotId);
+  await state.snapshots.delete(snapshotId);
 
   console.log();
   console.log(chalk.bold('Snapshot deleted'));
