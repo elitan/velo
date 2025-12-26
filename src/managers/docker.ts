@@ -22,11 +22,17 @@ export interface ContainerStatus {
   startedAt: Date | null;
 }
 
+export interface DockerManagerOptions {
+  socketPath?: string;
+}
+
 export class DockerManager {
   private docker: Dockerode;
 
-  constructor() {
-    this.docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
+  constructor(options: DockerManagerOptions = {}) {
+    this.docker = new Dockerode({
+      socketPath: options.socketPath || '/var/run/docker.sock',
+    });
   }
 
   // Container lifecycle
