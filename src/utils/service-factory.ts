@@ -17,6 +17,14 @@ export interface Services {
   stateData: State;
 }
 
+export interface ServiceOverrides {
+  state?: StateManager;
+  zfs?: ZFSManager;
+  docker?: DockerManager;
+  wal?: WALManager;
+  cert?: CertManager;
+}
+
 export interface BranchWithProject {
   branch: Branch;
   project: Project;
@@ -25,18 +33,23 @@ export interface BranchWithProject {
 /**
  * Initialize all service managers
  * Loads state and creates ZFS, Docker, WAL, and Cert managers
+ * Accepts optional overrides for dependency injection (useful for testing)
  */
-export async function initializeServices(): Promise<Services> {
-  const state = new StateManager(PATHS.STATE);
-  await state.load();
+export async function initializeServices(overrides: ServiceOverrides = {}): Promise<Services> {
+  const state = overrides.state || new StateManager(PATHS.STATE);
+
+  if (!overrides.state) {
+    await state.load();
+  }
+
   const stateData = state.getState();
 
   return {
     state,
-    zfs: new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase),
-    docker: new DockerManager(),
-    wal: new WALManager(),
-    cert: new CertManager(),
+    zfs: overrides.zfs || new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase),
+    docker: overrides.docker || new DockerManager(),
+    wal: overrides.wal || new WALManager(),
+    cert: overrides.cert || new CertManager(),
     stateData,
   };
 }

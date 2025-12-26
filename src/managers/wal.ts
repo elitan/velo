@@ -13,12 +13,22 @@ export interface WALArchiveInfo {
   newestTimestamp: Date | null;
 }
 
+export interface WALManagerOptions {
+  basePath?: string;
+}
+
 export class WALManager {
+  private basePath: string;
+
+  constructor(options: WALManagerOptions = {}) {
+    this.basePath = options.basePath || PATHS.WAL_ARCHIVE;
+  }
+
   /**
    * Get WAL archive path for a dataset
    */
   getArchivePath(datasetName: string): string {
-    return `${PATHS.WAL_ARCHIVE}/${datasetName}`;
+    return `${this.basePath}/${datasetName}`;
   }
 
   /**

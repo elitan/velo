@@ -17,6 +17,7 @@ import { withProgress } from '../../utils/progress';
 import * as fs from 'fs/promises';
 import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
+import { Rollback } from '../../utils/rollback';
 
 interface CreateOptions {
   pool?: string;
@@ -110,100 +111,139 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
   const mainDatasetPath = getDatasetPath(pool, fullDatasetBase, name, 'main');
   const mainContainerName = getContainerName(name, 'main');
 
-  await withProgress(`Create dataset ${mainBranchName}`, async () => {
-    await zfs.createDataset(mainDatasetName, {
-      compression: DEFAULTS.zfs.compression,
-      recordsize: DEFAULTS.zfs.recordsize,
-      atime: DEFAULTS.zfs.atime,
+  // Rollback handler for cleaning up on failure
+  const rollback = new Rollback();
+
+  let password: string;
+  let certPaths: { certDir: string };
+  let containerID: string;
+  let sizeBytes: number;
+
+  try {
+    await withProgress(`Create dataset ${mainBranchName}`, async () => {
+      await zfs.createDataset(mainDatasetName, {
+        compression: DEFAULTS.zfs.compression,
+        recordsize: DEFAULTS.zfs.recordsize,
+        atime: DEFAULTS.zfs.atime,
+      });
     });
-  });
 
-  // Mount the dataset (requires sudo on Linux due to kernel restrictions)
-  await withProgress('Mount dataset', async () => {
-    await zfs.mountDataset(mainDatasetName);
-  });
-
-  // Get dataset mountpoint
-  const mountpoint = await zfs.getMountpoint(mainDatasetName);
-
-  // Generate SSL certificates
-  const certPaths = await withProgress('Generate SSL certificates', async () => {
-    return await cert.generateCerts(name);
-  });
-
-  // Generate credentials
-  const password = generatePassword();
-
-  // Pull PostgreSQL image if needed
-  const imageExists = await docker.imageExists(dockerImage);
-  if (!imageExists) {
-    await withProgress(`Pull ${dockerImage}`, async () => {
-      await docker.pullImage(dockerImage);
+    // Register rollback: unmount + destroy dataset
+    rollback.add(async () => {
+      await zfs.unmountDataset(mainDatasetName).catch(() => {});
+      await zfs.destroyDataset(mainDatasetName, true).catch(() => {});
     });
-  }
 
-  // Create WAL archive directory (delete any leftover archives first)
-  await wal.deleteArchiveDir(mainDatasetName);
-  await wal.ensureArchiveDir(mainDatasetName);
-  const walArchivePath = wal.getArchivePath(mainDatasetName);
+    // Mount the dataset (requires sudo on Linux due to kernel restrictions)
+    await withProgress('Mount dataset', async () => {
+      await zfs.mountDataset(mainDatasetName);
+    });
 
-  // Create and start Docker container for main branch
-  const containerID = await withProgress('PostgreSQL ready', async () => {
-    const id = await docker.createContainer({
-      name: mainContainerName,
-      image: dockerImage,
+    // Get dataset mountpoint
+    const mountpoint = await zfs.getMountpoint(mainDatasetName);
+
+    // Generate SSL certificates
+    certPaths = await withProgress('Generate SSL certificates', async () => {
+      return await cert.generateCerts(name);
+    });
+
+    // Register rollback: delete SSL certificates
+    rollback.add(async () => {
+      await cert.deleteCerts(name).catch(() => {});
+    });
+
+    // Generate credentials
+    password = generatePassword();
+
+    // Pull PostgreSQL image if needed (no rollback - images can be reused)
+    const imageExists = await docker.imageExists(dockerImage);
+    if (!imageExists) {
+      await withProgress(`Pull ${dockerImage}`, async () => {
+        await docker.pullImage(dockerImage);
+      });
+    }
+
+    // Create WAL archive directory (delete any leftover archives first)
+    await wal.deleteArchiveDir(mainDatasetName);
+    await wal.ensureArchiveDir(mainDatasetName);
+    const walArchivePath = wal.getArchivePath(mainDatasetName);
+
+    // Register rollback: delete WAL archive directory
+    rollback.add(async () => {
+      await wal.deleteArchiveDir(mainDatasetName).catch(() => {});
+    });
+
+    // Create and start Docker container for main branch
+    containerID = await withProgress('PostgreSQL ready', async () => {
+      const id = await docker.createContainer({
+        name: mainContainerName,
+        image: dockerImage,
+        port,
+        dataPath: mountpoint,
+        walArchivePath,
+        sslCertDir: certPaths.certDir,
+        password,
+        username: 'postgres',
+        database: 'postgres',
+      });
+
+      // Register rollback: remove container (before start for safety)
+      rollback.add(async () => {
+        await docker.removeContainer(id).catch(() => {});
+      });
+
+      await docker.startContainer(id);
+      await docker.waitForHealthy(id);
+
+      return id;
+    });
+
+    // Get the dynamically assigned port from Docker
+    port = await docker.getContainerPort(containerID);
+
+    // Get dataset size
+    sizeBytes = await zfs.getUsedSpace(mainDatasetName);
+
+    // Create main branch
+    const mainBranch: Branch = {
+      id: generateUUID(),
+      name: mainBranchName,
+      projectName: name,
+      parentBranchId: null, // main has no parent
+      isPrimary: true,
+      snapshotName: null, // main has no snapshot
+      zfsDataset: mainDatasetName,
       port,
-      dataPath: mountpoint,
-      walArchivePath,
+      createdAt: new Date().toISOString(),
+      sizeBytes,
+      status: 'running',
+    };
+
+    // Create project record with main branch
+    const project: Project = {
+      id: generateUUID(),
+      name: name,
+      dockerImage,
       sslCertDir: certPaths.certDir,
-      password,
-      username: 'postgres',
-      database: 'postgres',
-    });
+      createdAt: new Date().toISOString(),
+      credentials: {
+        username: 'postgres',
+        password,
+        database: 'postgres',
+      },
+      branches: [mainBranch],
+    };
 
-    await docker.startContainer(id);
-    await docker.waitForHealthy(id);
+    await state.projects.add(project);
 
-    return id;
-  });
-
-  // Get the dynamically assigned port from Docker
-  port = await docker.getContainerPort(containerID);
-
-  // Get dataset size
-  const sizeBytes = await zfs.getUsedSpace(mainDatasetName);
-
-  // Create main branch
-  const mainBranch: Branch = {
-    id: generateUUID(),
-    name: mainBranchName,
-    projectName: name,
-    parentBranchId: null, // main has no parent
-    isPrimary: true,
-    snapshotName: null, // main has no snapshot
-    zfsDataset: mainDatasetName,
-    port,
-    createdAt: new Date().toISOString(),
-    sizeBytes,
-    status: 'running',
-  };
-
-  // Create project record with main branch
-  const project: Project = {
-    id: generateUUID(),
-    name: name,
-    dockerImage,
-    sslCertDir: certPaths.certDir,
-    createdAt: new Date().toISOString(),
-    credentials: {
-      username: 'postgres',
-      password,
-      database: 'postgres',
-    },
-    branches: [mainBranch],
-  };
-
-  await state.projects.add(project);
+    // Success - clear all rollback steps
+    rollback.clear();
+  } catch (error) {
+    console.log();
+    console.log('Operation failed, cleaning up...');
+    await rollback.execute();
+    throw error;
+  }
 
   // Get public IP for remote connection info
   const publicIP = await getPublicIP();
