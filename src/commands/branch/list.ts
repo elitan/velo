@@ -6,6 +6,7 @@ import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices } from '../../utils/service-factory';
+import { buildBranchTree, traverseBranchTree, getTreeIndent } from '../../utils/tree-renderer';
 
 export async function branchListCommand(projectName?: string) {
   const { state, zfs } = await initializeServices();
@@ -40,78 +41,40 @@ export async function branchListCommand(projectName?: string) {
     }
   });
 
-  // Helper to build tree and render branches
-  interface BranchNode {
-    branch: any;
-    children: BranchNode[];
-  }
-
-  async function renderBranch(node: BranchNode, depth: number = 0) {
-    const branch = node.branch;
-    const statusIcon = branch.status === 'running' ? '●' : '';
-    const statusText = branch.status === 'running' ? 'running' : 'stopped';
-    const port = branch.status === 'running' ? branch.port.toString() : '-';
-
-    // Build name with tree structure
-    const indent = depth > 0 ? '  '.repeat(depth) + '↳ ' : '';
-    const namespace = parseNamespace(branch.name);
-    const displayName = depth > 0 ? namespace.branch : branch.name;
-    const name = indent + displayName;
-    const type = branch.isPrimary ? chalk.dim(' (main)') : '';
-
-    // Query size on-demand from ZFS
-    const datasetName = getDatasetName(namespace.project, namespace.branch);
-    let sizeBytes = 0;
-    try {
-      sizeBytes = await zfs.getUsedSpace(datasetName);
-    } catch {
-      // If dataset doesn't exist, show 0
-    }
-
-    table.push([
-      statusIcon,
-      name + type,
-      statusText,
-      port,
-      formatBytes(sizeBytes)
-    ]);
-
-    // Render children
-    for (const child of node.children) {
-      await renderBranch(child, depth + 1);
-    }
-  }
-
   // Process each project
   for (const proj of filtered) {
-    // Build tree structure
-    const branchMap = new Map<string, BranchNode>();
-    const roots: BranchNode[] = [];
+    const { roots } = buildBranchTree(proj.branches);
 
-    // Create nodes for all branches
-    for (const branch of proj.branches) {
-      branchMap.set(branch.id, { branch, children: [] });
-    }
+    await traverseBranchTree(roots, async (node, depth) => {
+      const branch = node.branch;
+      const statusIcon = branch.status === 'running' ? '●' : '';
+      const statusText = branch.status === 'running' ? 'running' : 'stopped';
+      const port = branch.status === 'running' ? branch.port.toString() : '-';
 
-    // Build parent-child relationships
-    for (const branch of proj.branches) {
-      const node = branchMap.get(branch.id)!;
-      if (branch.parentBranchId) {
-        const parent = branchMap.get(branch.parentBranchId);
-        if (parent) {
-          parent.children.push(node);
-        } else {
-          roots.push(node);
-        }
-      } else {
-        roots.push(node);
+      // Build name with tree structure
+      const indent = depth > 0 ? getTreeIndent(depth).slice(2) : '';
+      const namespace = parseNamespace(branch.name);
+      const displayName = depth > 0 ? namespace.branch : branch.name;
+      const name = indent + displayName;
+      const type = branch.isPrimary ? chalk.dim(' (main)') : '';
+
+      // Query size on-demand from ZFS
+      const datasetName = getDatasetName(namespace.project, namespace.branch);
+      let sizeBytes = 0;
+      try {
+        sizeBytes = await zfs.getUsedSpace(datasetName);
+      } catch {
+        // If dataset doesn't exist, show 0
       }
-    }
 
-    // Render tree
-    for (const root of roots) {
-      await renderBranch(root, 0);
-    }
+      table.push([
+        statusIcon,
+        name + type,
+        statusText,
+        port,
+        formatBytes(sizeBytes)
+      ]);
+    });
   }
 
   console.log();

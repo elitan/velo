@@ -5,6 +5,7 @@ import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
+import { buildBranchTree, renderBranchTree } from '../../utils/tree-renderer';
 import type { Branch } from '../../types/state';
 
 // Helper function to collect all descendant branches recursively (depth-first, post-order)
@@ -45,42 +46,10 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   if (descendants.length > 0 && !options.force) {
     console.log(`Branch '${chalk.bold(name)}' has ${descendants.length} child branch(es):`);
 
-    // Build tree structure for display
-    interface BranchNode {
-      branch: Branch;
-      children: BranchNode[];
-    }
-
-    const branchMap = new Map<string, BranchNode>();
-
-    // Create nodes for target branch and all descendants
-    branchMap.set(branch.id, { branch, children: [] });
-    for (const desc of descendants) {
-      branchMap.set(desc.id, { branch: desc, children: [] });
-    }
-
-    // Build parent-child relationships
-    for (const desc of descendants) {
-      const node = branchMap.get(desc.id)!;
-      if (desc.parentBranchId) {
-        const parent = branchMap.get(desc.parentBranchId);
-        if (parent) {
-          parent.children.push(node);
-        }
-      }
-    }
-
-    // Render tree (same logic as project delete)
-    function renderBranch(node: BranchNode, depth: number = 0) {
-      const indent = depth > 0 ? '  '.repeat(depth) + '↳ ' : '  ';
-      console.log(chalk.dim(`${indent}${node.branch.name}`));
-      for (const child of node.children) {
-        renderBranch(child, depth + 1);
-      }
-    }
-
-    const rootNode = branchMap.get(branch.id)!;
-    renderBranch(rootNode, 0);
+    // Build and render tree structure
+    const { nodeMap } = buildBranchTree([branch, ...descendants]);
+    const rootNode = nodeMap.get(branch.id)!;
+    renderBranchTree([rootNode]);
 
     console.log();
     console.log(`Use ${chalk.bold('--force')} to delete branch and all child branches`);

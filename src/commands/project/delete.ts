@@ -5,7 +5,7 @@ import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getProject } from '../../utils/service-factory';
-import type { Branch } from '../../types/state';
+import { buildBranchTree, renderBranchTree } from '../../utils/tree-renderer';
 
 export async function projectDeleteCommand(name: string, options: { force?: boolean }) {
   console.log();
@@ -20,49 +20,11 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   if (nonMainBranches.length > 0 && !options.force) {
     console.log(`Project '${chalk.bold(name)}' has ${nonMainBranches.length} branch(es):`);
 
-    // Build tree structure
-    interface BranchNode {
-      branch: Branch;
-      children: BranchNode[];
-    }
-
-    const branchMap = new Map<string, BranchNode>();
-    const roots: BranchNode[] = [];
-
-    // Create nodes for all branches (including main for parent lookups)
-    for (const branch of project.branches) {
-      branchMap.set(branch.id, { branch, children: [] });
-    }
-
-    // Build parent-child relationships
-    for (const branch of project.branches) {
-      const node = branchMap.get(branch.id)!;
-      if (branch.parentBranchId) {
-        const parent = branchMap.get(branch.parentBranchId);
-        if (parent) {
-          parent.children.push(node);
-        } else {
-          roots.push(node);
-        }
-      } else {
-        roots.push(node);
-      }
-    }
-
-    // Render tree (only non-main branches)
-    function renderBranch(node: BranchNode, depth: number = 0) {
-      if (!node.branch.isPrimary) {
-        const indent = depth > 0 ? '  '.repeat(depth) + '↳ ' : '  ';
-        console.log(chalk.dim(`${indent}${node.branch.name}`));
-      }
-      for (const child of node.children) {
-        renderBranch(child, node.branch.isPrimary ? depth : depth + 1);
-      }
-    }
-
-    for (const root of roots) {
-      renderBranch(root, 0);
-    }
+    // Build and render tree (skip main branch)
+    const { roots } = buildBranchTree(project.branches);
+    renderBranchTree(roots, {
+      skip: (branch) => branch.isPrimary,
+    });
 
     console.log();
     console.log(`Use ${chalk.bold('--force')} to delete project and all branches`);
