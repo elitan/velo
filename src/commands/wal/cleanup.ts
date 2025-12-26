@@ -2,10 +2,8 @@ import chalk from 'chalk';
 import { parseNamespace } from '../../utils/namespace';
 import { formatBytes } from '../../utils/helpers';
 import { getDatasetName } from '../../utils/naming';
-import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
-import { CLI_NAME } from '../../config/constants';
-import { initializeServices } from '../../utils/service-factory';
+import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
 export interface WALCleanupOptions {
   days?: number;
@@ -19,21 +17,7 @@ export async function walCleanupCommand(branchName: string, options: WALCleanupO
   const target = parseNamespace(branchName);
   const { state, wal } = await initializeServices();
 
-  const proj = state.projects.getByName(target.project);
-  if (!proj) {
-    throw new UserError(
-      `Project '${target.project}' not found`,
-      `Run '${CLI_NAME} project list' to see available projects`
-    );
-  }
-
-  const branch = proj.branches.find(b => b.name === target.full);
-  if (!branch) {
-    throw new UserError(
-      `Branch '${target.full}' not found`,
-      `Run '${CLI_NAME} branch list' to see available branches`
-    );
-  }
+  await getBranchWithProject(state, branchName);
 
   const datasetName = getDatasetName(target.project, target.branch);
 

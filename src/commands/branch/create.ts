@@ -8,8 +8,7 @@ import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
-import { CLI_NAME } from '../../config/constants';
-import { initializeServices, getProject } from '../../utils/service-factory';
+import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 import { selectSnapshotForPITR } from '../../services/pitr-service';
 import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
 
@@ -56,15 +55,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
   const { state, zfs, docker, wal, stateData } = await initializeServices();
 
   // Find source project and branch
-  const sourceProject = await getProject(state, source.project);
-
-  const sourceBranch = sourceProject.branches.find(b => b.name === source.full);
-  if (!sourceBranch) {
-    throw new UserError(
-      `Source branch '${source.full}' not found`,
-      `Run '${CLI_NAME} branch list' to see available branches`
-    );
-  }
+  const { branch: sourceBranch, project: sourceProject } = await getBranchWithProject(state, source.full);
 
   // Check if target already exists
   const existingBranch = sourceProject.branches.find(b => b.name === target.full);
