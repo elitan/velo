@@ -200,7 +200,7 @@ ZFS copy-on-write + PostgreSQL CHECKPOINT = instant, space-efficient, applicatio
 
 **Requirements:** Linux + ZFS + Docker + Bun
 
-> **⚠ Security Notice:** Beta software (v0.3.5). Credentials stored in plaintext. Designed for dev/test environments.
+> **⚠ Security Notice:** Credentials stored in plaintext in `~/.velo/state.json`. Designed for dev/test environments.
 
 ## Installation
 
