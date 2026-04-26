@@ -1,4 +1,5 @@
 export interface State {
+  schemaVersion: number;
   version: string;
   initializedAt: string;
   zfsPool: string;

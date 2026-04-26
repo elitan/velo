@@ -4,6 +4,7 @@ import { SystemError, UserError } from '../errors';
 import { ProjectRepository } from './repositories/project-repository';
 import { BranchRepository } from './repositories/branch-repository';
 import { SnapshotRepository } from './repositories/snapshot-repository';
+import { CURRENT_STATE_SCHEMA_VERSION, migrateState } from './state-migration';
 
 export class StateManager {
   private state: State | null = null;
@@ -53,9 +54,14 @@ export class StateManager {
   async load(): Promise<void> {
     try {
       const content = await fs.readFile(this.filePath, 'utf-8');
-      this.state = JSON.parse(content);
+      const result = migrateState(JSON.parse(content));
+      this.state = result.state;
 
       this.validate();
+
+      if (result.migrated) {
+        await this.save();
+      }
     } catch (error: any) {
       if (error.code === 'ENOENT') {
         // Return without error - state will be auto-initialized on first project create
@@ -75,6 +81,7 @@ export class StateManager {
     }
 
     this.state = {
+      schemaVersion: CURRENT_STATE_SCHEMA_VERSION,
       version: '1.0.0',
       initializedAt: new Date().toISOString(),
       zfsPool: pool,
@@ -180,6 +187,7 @@ export class StateManager {
 
   async initialize(pool: string, datasetBase: string): Promise<void> {
     this.state = {
+      schemaVersion: CURRENT_STATE_SCHEMA_VERSION,
       version: '1.0.0',
       initializedAt: new Date().toISOString(),
       zfsPool: pool,
