@@ -1,10 +1,11 @@
 import chalk from 'chalk';
 import { UserError } from '../../errors';
-import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 import { buildBranchTree, renderBranchTree } from '../../utils/tree-renderer';
 import type { Branch } from '../../types/state';
+import { OperationRunner } from '../../utils/operation-runner';
+import { deleteBranches } from '../../services/delete-service';
 
 // Helper function to collect all descendant branches recursively (depth-first, post-order)
 function collectDescendants(branch: Branch, allBranches: Branch[]): Branch[] {
@@ -55,47 +56,19 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
 
   // Collect all branches to delete (target + descendants in correct order)
   const branchesToDelete = [...descendants, branch];
+  const operation = new OperationRunner({
+    failureMessage: 'Delete failed. Some resources may already be removed.',
+  });
 
-  // Stop and remove all containers in parallel
-  await Promise.all(
-    branchesToDelete.map(async (branchToDelete) => {
-      await withProgress(`Stop container: ${branchToDelete.name}`, async () => {
-        await resources.stopAndRemoveBranchContainer(branchToDelete);
-      });
-    })
-  );
-
-  // Clean up WAL archives in parallel
-  await Promise.all(
-    branchesToDelete.map(async (branchToDelete) => {
-      await withProgress(`Clean up WAL archive: ${branchToDelete.name}`, async () => {
-        await resources.deleteBranchWalArchive(branchToDelete);
-      });
-    })
-  );
-
-  // Clean up snapshots from state in parallel
-  await Promise.all(
-    branchesToDelete.map(async (branchToDelete) => {
-      await withProgress(`Clean up snapshots: ${branchToDelete.name}`, async () => {
-        await state.snapshots.deleteForBranch(branchToDelete.name);
-      });
-    })
-  );
-
-  // Destroy ZFS datasets sequentially (order matters due to parent-child dependencies)
-  for (const branchToDelete of branchesToDelete) {
-    await withProgress(`Destroy dataset: ${branchToDelete.name}`, async () => {
-      await resources.destroyBranchDataset(branchToDelete);
+  await operation.run(async function runOperation() {
+    await deleteBranches({
+      operation,
+      branches: branchesToDelete,
+      projectId: project.id,
+      state,
+      resources,
     });
-  }
-
-  // Remove all branches from state in parallel
-  await Promise.all(
-    branchesToDelete.map(async (branchToDelete) => {
-      await state.branches.delete(project.id, branchToDelete.id);
-    })
-  );
+  });
 
   console.log();
   console.log(chalk.bold('Branch deleted'));

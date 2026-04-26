@@ -1,9 +1,10 @@
 import chalk from 'chalk';
 import { UserError } from '../../errors';
-import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getProject } from '../../utils/service-factory';
 import { buildBranchTree, renderBranchTree } from '../../utils/tree-renderer';
+import { OperationRunner } from '../../utils/operation-runner';
+import { deleteProject } from '../../services/delete-service';
 
 export async function projectDeleteCommand(name: string, options: { force?: boolean }) {
   console.log();
@@ -30,41 +31,19 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
     throw new UserError(`Project '${name}' has ${nonMainBranches.length} branch(es). Use --force to delete.`);
   }
 
-  // Delete all branches (in reverse order for ZFS, but containers can be removed in parallel)
-  const branchesToDelete = [...project.branches].reverse();
-
-  // Stop and remove all containers in parallel
-  await Promise.all(
-    branchesToDelete.map(async (branch) => {
-      await withProgress(`Remove branch: ${branch.name}`, async () => {
-        await resources.stopAndRemoveBranchContainer(branch);
-      });
-    })
-  );
-
-  // Destroy ZFS datasets for all branches
-  await withProgress('Destroy ZFS datasets', async () => {
-    for (const branch of branchesToDelete) {
-      await resources.destroyBranchDataset(branch);
-    }
+  const operation = new OperationRunner({
+    failureMessage: 'Delete failed. Some resources may already be removed.',
   });
 
-  // Clean up WAL archives for all branches in parallel
-  await withProgress('Clean up WAL archives', async () => {
-    await Promise.all(
-      branchesToDelete.map(async (branch) => {
-        await resources.deleteBranchWalArchive(branch);
-      })
-    );
+  await operation.run(async function runOperation() {
+    await deleteProject({
+      operation,
+      project,
+      state,
+      resources,
+      cert,
+    });
   });
-
-  // Clean up SSL certificates
-  await withProgress('Clean up SSL certificates', async () => {
-    await cert.deleteCerts(project.name);
-  });
-
-  // Remove from state
-  await state.projects.delete(project.name);
 
   console.log();
   console.log(chalk.bold(`Project '${name}' deleted`));
