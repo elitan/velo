@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import { format } from 'date-fns';
 import { formatBytes } from '../utils/helpers';
 import { TOOL_NAME } from '../config/constants';
-import { getContainerName, getDatasetName } from '../utils/naming';
+import { getBranchContainerName } from '../utils/naming';
 import { parseNamespace } from '../utils/namespace';
 import { initializeServices } from '../utils/service-factory';
 
@@ -95,7 +95,7 @@ export async function statusCommand() {
     for (const branch of proj.branches) {
       // Get branch container status
       const namespace = parseNamespace(branch.name);
-      const containerName = getContainerName(namespace.project, namespace.branch);
+      const containerName = getBranchContainerName(branch);
       let branchContainerStatus = null;
       const branchContainerID = await docker.getContainerByName(containerName);
       if (branchContainerID) {
@@ -114,10 +114,9 @@ export async function statusCommand() {
         : chalk.dim('—');
 
       // Query size on-demand from ZFS
-      const datasetName = getDatasetName(namespace.project, namespace.branch);
       let sizeBytes = 0;
       try {
-        sizeBytes = await zfs.getUsedSpace(datasetName);
+        sizeBytes = await zfs.getUsedSpace(branch.zfsDataset);
       } catch {
         // If dataset doesn't exist, show 0
       }

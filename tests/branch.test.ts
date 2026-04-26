@@ -44,18 +44,18 @@ describe('Branch Operations', () => {
       await waitForBranchReady('test-branch', 'dev');
 
       // Verify ZFS dataset
-      expect(await datasetExists('test-branch-dev')).toBe(true);
+      expect(await datasetExists('test-branch.dev')).toBe(true);
 
       // Verify container running
-      expect(await isContainerRunning('test-branch-dev')).toBe(true);
+      expect(await isContainerRunning('test-branch.dev')).toBe(true);
     }, { timeout: 30000 });
 
     test('should create branch with --parent flag', async () => {
       await branchCreateCommand('test-branch/staging', { parent: 'test-branch/dev' });
       await waitForBranchReady('test-branch', 'staging');
 
-      expect(await datasetExists('test-branch-staging')).toBe(true);
-      expect(await isContainerRunning('test-branch-staging')).toBe(true);
+      expect(await datasetExists('test-branch.staging')).toBe(true);
+      expect(await isContainerRunning('test-branch.staging')).toBe(true);
     }, { timeout: 30000 });
 
     test('should fail to create duplicate branch', async () => {
@@ -105,7 +105,7 @@ describe('Branch Operations', () => {
       await branchDeleteCommand('test-branch/staging');
 
       // Verify ZFS dataset removed
-      expect(await datasetExists('test-branch-staging')).toBe(false);
+      expect(await datasetExists('test-branch.staging')).toBe(false);
 
       // Verify not in state
       const state = await getState();

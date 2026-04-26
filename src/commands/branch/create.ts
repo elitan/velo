@@ -6,7 +6,7 @@ import { parseRecoveryTime, formatDate } from '../../utils/time';
 import { Rollback } from '../../utils/rollback';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
-import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
+import { getBranchContainerName, getContainerName, getDatasetName, getDatasetPath, getDatasetPathFromName } from '../../utils/naming';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 import { selectSnapshotForPITR } from '../../services/pitr-service';
@@ -66,11 +66,9 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
   // Setup rollback for cleanup on failure
   const rollback = new Rollback();
 
-  // Compute source branch names
-  const sourceNamespace = parseNamespace(source.full);
-  const sourceContainerName = getContainerName(sourceNamespace.project, sourceNamespace.branch);
-  const sourceDatasetName = getDatasetName(sourceNamespace.project, sourceNamespace.branch);
-  const sourceDatasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, sourceNamespace.project, sourceNamespace.branch);
+  const sourceContainerName = getBranchContainerName(sourceBranch);
+  const sourceDatasetName = sourceBranch.zfsDataset;
+  const sourceDatasetPath = getDatasetPathFromName(stateData.zfsPool, stateData.zfsDatasetBase, sourceDatasetName);
 
   // Determine snapshot to use
   let fullSnapshotName: string;
@@ -98,7 +96,6 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     createdSnapshot = true;
   }
 
-  // Clone snapshot - use consistent <project>-<branch> naming
   const targetDatasetName = getDatasetName(target.project, target.branch);
   const targetDatasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, target.project, target.branch);
   const targetContainerName = getContainerName(target.project, target.branch);
@@ -203,6 +200,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
       isPrimary: false,
       snapshotName: fullSnapshotName,
       zfsDataset: targetDatasetName,
+      containerName: targetContainerName,
       port,
       createdAt: new Date().toISOString(),
       sizeBytes,

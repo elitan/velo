@@ -1,8 +1,6 @@
 import chalk from 'chalk';
 import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
-import { PATHS } from '../../utils/paths';
-import { parseNamespace } from '../../utils/namespace';
-import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
+import { getBranchContainerName, getDatasetPathFromName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
@@ -10,9 +8,7 @@ import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
 export async function branchResetCommand(name: string, options: { force?: boolean } = {}) {
-  const namespace = parseNamespace(name);
-
-  const { state, docker, zfs, stateData } = await initializeServices();
+  const { state, docker, zfs, wal, stateData } = await initializeServices();
   const { branch, project } = await getBranchWithProject(state, name);
 
   // Prevent resetting main branch
@@ -60,21 +56,19 @@ export async function branchResetCommand(name: string, options: { force?: boolea
   console.log();
 
   // Compute parent branch names
-  const parentNamespace = parseNamespace(parentBranch.name);
-  const parentContainerName = getContainerName(parentNamespace.project, parentNamespace.branch);
-  const parentDatasetName = getDatasetName(parentNamespace.project, parentNamespace.branch);
-  const parentDatasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, parentNamespace.project, parentNamespace.branch);
+  const parentContainerName = getBranchContainerName(parentBranch);
+  const parentDatasetName = parentBranch.zfsDataset;
+  const parentDatasetPath = getDatasetPathFromName(stateData.zfsPool, stateData.zfsDatasetBase, parentDatasetName);
 
   // Compute current branch names
-  const containerName = getContainerName(namespace.project, namespace.branch);
-  const datasetName = getDatasetName(namespace.project, namespace.branch);
+  const containerName = getBranchContainerName(branch);
+  const datasetName = branch.zfsDataset;
 
   // If force reset, clean up dependent branches first
   if (dependentBranches.length > 0 && options.force) {
     await withProgress('Clean up dependent branches', async () => {
       for (const depBranch of dependentBranches) {
-        const depNamespace = parseNamespace(depBranch.name);
-        const depContainerName = getContainerName(depNamespace.project, depNamespace.branch);
+        const depContainerName = getBranchContainerName(depBranch);
 
         // Stop and remove container
         const depContainerID = await docker.getContainerByName(depContainerName);
@@ -82,6 +76,8 @@ export async function branchResetCommand(name: string, options: { force?: boolea
           await docker.stopContainer(depContainerID);
           await docker.removeContainer(depContainerID);
         }
+
+        await wal.deleteArchiveDir(depBranch.zfsDataset);
 
         // Clean up snapshots from state
         await state.snapshots.deleteForBranch(depBranch.name);
@@ -155,9 +151,9 @@ export async function branchResetCommand(name: string, options: { force?: boolea
 
   const mountpoint = await zfs.getMountpoint(datasetName);
 
-  // Create WAL archive directory
-  const walArchivePath = `${PATHS.WAL_ARCHIVE}/${datasetName}`;
-  await Bun.write(walArchivePath + '/.keep', '');
+  await wal.deleteArchiveDir(datasetName);
+  await wal.ensureArchiveDir(datasetName);
+  const walArchivePath = wal.getArchivePath(datasetName);
 
   // Recreate container with same port (use project's docker image)
   const newContainerID = await withProgress('Start container', async () => {

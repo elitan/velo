@@ -33,18 +33,18 @@ describe('Project Operations', () => {
       await waitForProjectReady('api');
 
       // Verify ZFS dataset
-      expect(await datasetExists('api-main')).toBe(true);
+      expect(await datasetExists('api.main')).toBe(true);
 
       // Verify container running
-      expect(await isContainerRunning('api-main')).toBe(true);
+      expect(await isContainerRunning('api.main')).toBe(true);
     }, { timeout: 30000 });
 
     test('should create second project', async () => {
       await projectCreateCommand('web', {});
       await waitForProjectReady('web');
 
-      expect(await datasetExists('web-main')).toBe(true);
-      expect(await isContainerRunning('web-main')).toBe(true);
+      expect(await datasetExists('web.main')).toBe(true);
+      expect(await isContainerRunning('web.main')).toBe(true);
     }, { timeout: 30000 });
 
     test('should fail to create duplicate project', async () => {
@@ -82,7 +82,7 @@ describe('Project Operations', () => {
       await projectDeleteCommand('web', {});
 
       // Verify ZFS dataset removed
-      expect(await datasetExists('web-main')).toBe(false);
+      expect(await datasetExists('web.main')).toBe(false);
 
       // Verify not in state
       const state = await getState();

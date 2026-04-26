@@ -25,7 +25,8 @@ export interface Branch {
   parentBranchId: string | null;             // null for main branch
   isPrimary: boolean;                        // true for main branch, false for others
   snapshotName: string | null;               // null for main branch
-  zfsDataset: string;                        // ZFS dataset name (e.g., api-dev)
+  zfsDataset: string;                        // ZFS dataset name (e.g., api.dev)
+  containerName?: string;
   port: number;
   createdAt: string;
   status: 'running' | 'stopped' | 'created';

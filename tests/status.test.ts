@@ -52,7 +52,7 @@ describe('Status Command', () => {
     await branchCreateCommand('status-test/dev', {});
     await waitForBranchReady('status-test', 'dev');
     await stopCommand('status-test/dev');
-    await waitForContainerStopped('status-test-dev');
+    await waitForContainerStopped('status-test.dev');
 
     await statusCommand();
 

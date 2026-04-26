@@ -1,7 +1,6 @@
 import chalk from 'chalk';
 import { parseNamespace } from '../../utils/namespace';
 import { formatBytes } from '../../utils/helpers';
-import { getDatasetName } from '../../utils/naming';
 import { withProgress } from '../../utils/progress';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
@@ -17,9 +16,8 @@ export async function walCleanupCommand(branchName: string, options: WALCleanupO
   const target = parseNamespace(branchName);
   const { state, wal } = await initializeServices();
 
-  await getBranchWithProject(state, branchName);
-
-  const datasetName = getDatasetName(target.project, target.branch);
+  const { branch } = await getBranchWithProject(state, branchName);
+  const datasetName = branch.zfsDataset;
 
   console.log();
   if (dryRun) {

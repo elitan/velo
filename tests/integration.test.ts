@@ -111,7 +111,7 @@ describe('Integration Tests', () => {
       for (const project of state.projects || []) {
         for (const branch of project.branches || []) {
           if (branch.status === 'running') {
-            const containerName = `${project.name}-${branch.name.split('/')[1]}`;
+            const containerName = branch.containerName || `${project.name}.${branch.name.split('/')[1]}`;
             expect(await isContainerRunning(containerName)).toBe(true);
           }
         }

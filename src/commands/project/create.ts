@@ -213,6 +213,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
       isPrimary: true,
       snapshotName: null, // main has no snapshot
       zfsDataset: mainDatasetName,
+      containerName: mainContainerName,
       port,
       createdAt: new Date().toISOString(),
       sizeBytes,

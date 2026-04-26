@@ -1,6 +1,5 @@
 import chalk from 'chalk';
-import { getContainerName, getDatasetName } from '../../utils/naming';
-import { parseNamespace } from '../../utils/namespace';
+import { getBranchContainerName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
@@ -38,8 +37,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   // Stop and remove all containers in parallel
   await Promise.all(
     branchesToDelete.map(async (branch) => {
-      const namespace = parseNamespace(branch.name);
-      const containerName = getContainerName(namespace.project, namespace.branch);
+      const containerName = getBranchContainerName(branch);
 
       await withProgress(`Remove branch: ${branch.name}`, async () => {
         const containerID = await docker.getContainerByName(containerName);
@@ -54,8 +52,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   // Destroy ZFS datasets for all branches
   await withProgress('Destroy ZFS datasets', async () => {
     for (const branch of branchesToDelete) {
-      const namespace = parseNamespace(branch.name);
-      const datasetName = getDatasetName(namespace.project, namespace.branch);
+      const datasetName = branch.zfsDataset;
       // Only destroy dataset if it exists - this handles cases where previous deletion attempts
       // were interrupted or failed partway through, leaving state entries without actual ZFS datasets
       if (await zfs.datasetExists(datasetName)) {
@@ -69,9 +66,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   await withProgress('Clean up WAL archives', async () => {
     await Promise.all(
       branchesToDelete.map(async (branch) => {
-        const namespace = parseNamespace(branch.name);
-        const datasetName = getDatasetName(namespace.project, namespace.branch);
-        await wal.deleteArchiveDir(datasetName);
+        await wal.deleteArchiveDir(branch.zfsDataset);
       })
     );
   });

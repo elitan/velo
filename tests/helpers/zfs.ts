@@ -88,5 +88,5 @@ export async function listSnapshots(datasetName: string): Promise<string[]> {
  * Get ZFS dataset name for a branch
  */
 export function getDatasetName(project: string, branch: string): string {
-  return `${project}-${branch}`;
+  return `${project}.${branch}`;
 }

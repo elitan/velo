@@ -1,8 +1,6 @@
 import chalk from 'chalk';
-import { parseNamespace } from '../../utils/namespace';
 import { formatRelativeTime } from '../../utils/time';
 import { formatBytes } from '../../utils/helpers';
-import { getDatasetName } from '../../utils/naming';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
 export async function walInfoCommand(branchName?: string) {
@@ -14,10 +12,9 @@ export async function walInfoCommand(branchName?: string) {
 
   if (branchName) {
     // Show info for specific branch
-    const target = parseNamespace(branchName);
     const { branch } = await getBranchWithProject(state, branchName);
 
-    const datasetName = getDatasetName(target.project, target.branch);
+    const datasetName = branch.zfsDataset;
     const info = await wal.getArchiveInfo(datasetName);
 
     console.log(chalk.bold(`Branch: ${branch.name}`));
@@ -63,8 +60,7 @@ export async function walInfoCommand(branchName?: string) {
       console.log(chalk.bold(proj.name));
 
       for (const branch of proj.branches) {
-        const namespace = parseNamespace(branch.name);
-        const datasetName = getDatasetName(namespace.project, namespace.branch);
+        const datasetName = branch.zfsDataset;
         const info = await wal.getArchiveInfo(datasetName);
 
         console.log(chalk.dim(`  ${branch.name}`));

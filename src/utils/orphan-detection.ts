@@ -8,18 +8,17 @@ import { ZFSManager } from '../managers/zfs';
 import { DockerManager } from '../managers/docker';
 import type { State, Branch } from '../types/state';
 import { CONTAINER_PREFIX } from '../config/constants';
-import { getContainerName } from './naming';
-import { parseNamespace } from './namespace';
+import { getBranchContainerName } from './naming';
 
 export interface OrphanedDataset {
-  name: string;           // Simple dataset name (e.g., "api-dev")
-  fullPath: string;       // Full ZFS path (e.g., "tank/velo/databases/api-dev")
+  name: string;           // Simple dataset name (e.g., "api.dev")
+  fullPath: string;       // Full ZFS path (e.g., "tank/velo/databases/api.dev")
   sizeBytes: number;      // Size in bytes
   createdAt: Date;        // Creation timestamp
 }
 
 export interface OrphanedContainer {
-  name: string;           // Container name (e.g., "velo-api-dev")
+  name: string;           // Container name (e.g., "velo-api.dev")
   id: string;             // Docker container ID
   state: string;          // Container state (running, stopped, etc.)
   createdAt: Date;        // Creation timestamp
@@ -34,7 +33,7 @@ export interface OrphanDetectionResult {
 
 /**
  * Extract simple dataset name from full ZFS path
- * Example: "tank/velo/databases/api-dev" → "api-dev"
+ * Example: "tank/velo/databases/api.dev" → "api.dev"
  */
 function extractDatasetName(fullPath: string, pool: string, datasetBase: string): string | null {
   const prefix = `${pool}/${datasetBase}/`;
@@ -61,16 +60,8 @@ export async function detectOrphans(
 
   for (const project of state.projects) {
     for (const branch of project.branches) {
-      // Extract simple branch name from namespaced name (e.g., "api/dev" → "dev")
-      const parsed = parseNamespace(branch.name);
-      if (!parsed) continue;
-
-      // Add expected dataset
       expectedDatasets.add(branch.zfsDataset);
-
-      // Add expected container
-      const containerName = getContainerName(parsed.project, parsed.branch);
-      expectedContainers.add(containerName);
+      expectedContainers.add(getBranchContainerName(branch));
     }
   }
 
@@ -105,7 +96,7 @@ export async function detectOrphans(
   const actualContainers = await docker.listContainers();
   for (const container of actualContainers) {
     // Only check velo-prefixed containers
-    if (!container.name.startsWith(CONTAINER_PREFIX)) {
+    if (!container.name.startsWith(`${CONTAINER_PREFIX}-`)) {
       continue;
     }
 

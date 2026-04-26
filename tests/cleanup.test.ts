@@ -136,8 +136,8 @@ describe('Cleanup Command', () => {
     await cleanupCommand({ force: true });
 
     // Verify tracked branch resources still exist
-    expect(await datasetExists('api-test-branch')).toBe(true);
-    expect(await containerExists(`${CONTAINER_PREFIX}-api-test-branch`)).toBe(true);
+    expect(await datasetExists('api.test-branch')).toBe(true);
+    expect(await containerExists(`${CONTAINER_PREFIX}-api.test-branch`)).toBe(true);
 
     // Verify orphaned resources were deleted
     expect(await datasetExists(orphanDatasetName)).toBe(false);

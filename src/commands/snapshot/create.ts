@@ -3,7 +3,7 @@ import { parseNamespace } from '../../utils/namespace';
 import { generateUUID } from '../../utils/helpers';
 import type { Snapshot } from '../../types/state';
 import { withProgress } from '../../utils/progress';
-import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
+import { getBranchContainerName, getDatasetPathFromName } from '../../utils/naming';
 import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
@@ -28,9 +28,9 @@ export async function snapshotCreateCommand(branchName: string, options: Snapsho
   const { branch, project: proj } = await getBranchWithProject(state, target.full);
 
   // Compute names
-  const containerName = getContainerName(target.project, target.branch);
-  const datasetName = getDatasetName(target.project, target.branch);
-  const datasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, target.project, target.branch);
+  const containerName = getBranchContainerName(branch);
+  const datasetName = branch.zfsDataset;
+  const datasetPath = getDatasetPathFromName(stateData.zfsPool, stateData.zfsDatasetBase, datasetName);
   const { snapshotName, fullSnapshotName } = await createApplicationConsistentSnapshot({
     datasetName,
     datasetPath,

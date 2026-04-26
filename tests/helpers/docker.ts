@@ -64,5 +64,5 @@ export async function containerExists(name: string): Promise<boolean> {
  * Get container name for a project/branch
  */
 export function getContainerName(project: string, branch: string): string {
-  return `${CONTAINER_PREFIX}-${project}-${branch}`;
+  return `${CONTAINER_PREFIX}-${project}.${branch}`;
 }

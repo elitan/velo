@@ -65,7 +65,7 @@ describe('SSL/TLS Tests', () => {
 
   test('should enable SSL in PostgreSQL container', async () => {
     await ensureSetup();
-    const containerName = `velo-${TEST_PROJECT}-main`;
+    const containerName = `velo-${TEST_PROJECT}.main`;
 
     // Check PostgreSQL SSL settings
     const sslOn = await $`docker exec ${containerName} psql -U postgres -t -A -c "SHOW ssl;"`.text();
@@ -108,7 +108,7 @@ describe('SSL/TLS Tests', () => {
     await waitForBranchReady(TEST_PROJECT, 'dev');
 
     // Verify branch container has SSL enabled
-    const containerName = `velo-${TEST_PROJECT}-dev`;
+    const containerName = `velo-${TEST_PROJECT}.dev`;
     const sslOn = await $`docker exec ${containerName} psql -U postgres -t -A -c "SHOW ssl;"`.text();
     expect(sslOn.trim()).toBe('on');
   }, { timeout: 30000 });
@@ -116,7 +116,7 @@ describe('SSL/TLS Tests', () => {
   test('should mount SSL certificates as read-only', async () => {
     await ensureSetup();
     // Check Docker mount for main branch container
-    const containerName = `velo-${TEST_PROJECT}-main`;
+    const containerName = `velo-${TEST_PROJECT}.main`;
     const mounts = await $`docker inspect ${containerName} --format '{{json .Mounts}}'`.text();
 
     const mountsJson = JSON.parse(mounts);

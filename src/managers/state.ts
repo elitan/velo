@@ -183,7 +183,7 @@ export class StateManager {
       version: '1.0.0',
       initializedAt: new Date().toISOString(),
       zfsPool: pool,
-      zfsDatasetBase: `${pool}/${datasetBase}`,
+      zfsDatasetBase: datasetBase,
       projects: [],
       snapshots: [],
     };

@@ -1,6 +1,5 @@
 import chalk from 'chalk';
-import { parseNamespace } from '../../utils/namespace';
-import { getContainerName, getDatasetName } from '../../utils/naming';
+import { getBranchContainerName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
@@ -24,8 +23,6 @@ function collectDescendants(branch: Branch, allBranches: Branch[]): Branch[] {
 }
 
 export async function branchDeleteCommand(name: string, options: { force?: boolean } = {}) {
-  const namespace = parseNamespace(name);
-
   console.log();
   console.log(`Deleting ${chalk.bold(name)}...`);
   console.log();
@@ -63,8 +60,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   // Stop and remove all containers in parallel
   await Promise.all(
     branchesToDelete.map(async (branchToDelete) => {
-      const branchNamespace = parseNamespace(branchToDelete.name);
-      const containerName = getContainerName(branchNamespace.project, branchNamespace.branch);
+      const containerName = getBranchContainerName(branchToDelete);
 
       await withProgress(`Stop container: ${branchToDelete.name}`, async () => {
         const containerID = await docker.getContainerByName(containerName);
@@ -79,8 +75,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   // Clean up WAL archives in parallel
   await Promise.all(
     branchesToDelete.map(async (branchToDelete) => {
-      const branchNamespace = parseNamespace(branchToDelete.name);
-      const datasetName = getDatasetName(branchNamespace.project, branchNamespace.branch);
+      const datasetName = branchToDelete.zfsDataset;
 
       await withProgress(`Clean up WAL archive: ${branchToDelete.name}`, async () => {
         await wal.deleteArchiveDir(datasetName);
@@ -99,8 +94,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
 
   // Destroy ZFS datasets sequentially (order matters due to parent-child dependencies)
   for (const branchToDelete of branchesToDelete) {
-    const branchNamespace = parseNamespace(branchToDelete.name);
-    const datasetName = getDatasetName(branchNamespace.project, branchNamespace.branch);
+    const datasetName = branchToDelete.zfsDataset;
 
     await withProgress(`Destroy dataset: ${branchToDelete.name}`, async () => {
       // Only destroy dataset if it exists - this handles cases where previous deletion attempts

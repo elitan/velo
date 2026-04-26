@@ -42,6 +42,14 @@ describe('State Backup and Restore', () => {
   });
 
   describe('Automatic Backup Creation', () => {
+    test('should store dataset base without pool name', async () => {
+      await state.initialize('tank', 'velo/databases');
+
+      const stateData = state.getState();
+      expect(stateData.zfsPool).toBe('tank');
+      expect(stateData.zfsDatasetBase).toBe('velo/databases');
+    });
+
     test('should NOT create backup on first save (no existing state)', async () => {
       // Initialize and save for first time
       await state.initialize('tank', 'velo/databases');

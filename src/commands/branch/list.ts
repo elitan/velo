@@ -1,7 +1,6 @@
 import Table from 'cli-table3';
 import chalk from 'chalk';
 import { formatBytes } from '../../utils/helpers';
-import { getDatasetName } from '../../utils/naming';
 import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
 import { CLI_NAME } from '../../config/constants';
@@ -59,10 +58,9 @@ export async function branchListCommand(projectName?: string) {
       const type = branch.isPrimary ? chalk.dim(' (main)') : '';
 
       // Query size on-demand from ZFS
-      const datasetName = getDatasetName(namespace.project, namespace.branch);
       let sizeBytes = 0;
       try {
-        sizeBytes = await zfs.getUsedSpace(datasetName);
+        sizeBytes = await zfs.getUsedSpace(branch.zfsDataset);
       } catch {
         // If dataset doesn't exist, show 0
       }

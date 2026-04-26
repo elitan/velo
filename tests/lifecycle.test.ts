@@ -34,32 +34,32 @@ describe('Lifecycle Operations', () => {
       await waitForProjectReady('test-lifecycle');
 
       // Verify running
-      expect(await isContainerRunning('test-lifecycle-main')).toBe(true);
+      expect(await isContainerRunning('test-lifecycle.main')).toBe(true);
 
       // Stop project
       await stopCommand('test-lifecycle/main');
-      await waitForContainerStopped('test-lifecycle-main');
+      await waitForContainerStopped('test-lifecycle.main');
 
       // Verify stopped
-      expect(await isContainerStopped('test-lifecycle-main')).toBe(true);
+      expect(await isContainerStopped('test-lifecycle.main')).toBe(true);
     }, { timeout: 30000 });
 
     test('should start a stopped project', async () => {
       // Start project
       await startCommand('test-lifecycle/main');
-      await waitForContainer('test-lifecycle-main');
+      await waitForContainer('test-lifecycle.main');
 
       // Verify running
-      expect(await isContainerRunning('test-lifecycle-main')).toBe(true);
+      expect(await isContainerRunning('test-lifecycle.main')).toBe(true);
     }, { timeout: 30000 });
 
     test('should restart a running project', async () => {
       // Restart project
       await restartCommand('test-lifecycle/main');
-      await waitForContainer('test-lifecycle-main');
+      await waitForContainer('test-lifecycle.main');
 
       // Verify running
-      expect(await isContainerRunning('test-lifecycle-main')).toBe(true);
+      expect(await isContainerRunning('test-lifecycle.main')).toBe(true);
     }, { timeout: 30000 });
 
     test('should persist data after stop/start cycle', async () => {
@@ -73,9 +73,9 @@ describe('Lifecycle Operations', () => {
 
       // Stop and start
       await stopCommand('test-lifecycle/main');
-      await waitForContainerStopped('test-lifecycle-main');
+      await waitForContainerStopped('test-lifecycle.main');
       await startCommand('test-lifecycle/main');
-      await waitForContainer('test-lifecycle-main');
+      await waitForContainer('test-lifecycle.main');
 
       // Get port again (might have changed after restart)
       port = await getBranchPort('test-lifecycle/main');
@@ -94,51 +94,51 @@ describe('Lifecycle Operations', () => {
       await waitForBranchReady('test-lifecycle', 'dev');
 
       // Verify running
-      expect(await isContainerRunning('test-lifecycle-dev')).toBe(true);
+      expect(await isContainerRunning('test-lifecycle.dev')).toBe(true);
 
       // Stop branch
       await stopCommand('test-lifecycle/dev');
-      await waitForContainerStopped('test-lifecycle-dev');
+      await waitForContainerStopped('test-lifecycle.dev');
 
       // Verify stopped
-      expect(await isContainerStopped('test-lifecycle-dev')).toBe(true);
+      expect(await isContainerStopped('test-lifecycle.dev')).toBe(true);
     }, { timeout: 30000 });
 
     test('should start a stopped branch', async () => {
       // Start branch
       await startCommand('test-lifecycle/dev');
-      await waitForContainer('test-lifecycle-dev');
+      await waitForContainer('test-lifecycle.dev');
 
       // Verify running
-      expect(await isContainerRunning('test-lifecycle-dev')).toBe(true);
+      expect(await isContainerRunning('test-lifecycle.dev')).toBe(true);
     }, { timeout: 30000 });
 
     test('should restart a branch', async () => {
       // Restart branch
       await restartCommand('test-lifecycle/dev');
-      await waitForContainer('test-lifecycle-dev');
+      await waitForContainer('test-lifecycle.dev');
 
       // Verify running
-      expect(await isContainerRunning('test-lifecycle-dev')).toBe(true);
+      expect(await isContainerRunning('test-lifecycle.dev')).toBe(true);
     }, { timeout: 30000 });
   });
 
   describe('Idempotent Operations', () => {
     test('should handle start on already running container', async () => {
       await startCommand('test-lifecycle/main');
-      expect(await isContainerRunning('test-lifecycle-main')).toBe(true);
+      expect(await isContainerRunning('test-lifecycle.main')).toBe(true);
     }, { timeout: 15000 });
 
     test('should handle stop on already stopped container', async () => {
       await stopCommand('test-lifecycle/dev');
-      await waitForContainerStopped('test-lifecycle-dev');
+      await waitForContainerStopped('test-lifecycle.dev');
 
       await stopCommand('test-lifecycle/dev');
-      expect(await isContainerStopped('test-lifecycle-dev')).toBe(true);
+      expect(await isContainerStopped('test-lifecycle.dev')).toBe(true);
 
       // Start it back up for other tests
       await startCommand('test-lifecycle/dev');
-      await waitForContainer('test-lifecycle-dev');
+      await waitForContainer('test-lifecycle.dev');
     }, { timeout: 30000 });
   });
 

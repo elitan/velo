@@ -3,8 +3,8 @@
  * Replaces hardcoded Bun.sleep() calls with polling-based waits
  */
 
-import { isContainerRunning, isContainerStopped } from './docker';
-import { datasetExists } from './zfs';
+import { getContainerName, isContainerRunning, isContainerStopped } from './docker';
+import { datasetExists, getDatasetName } from './zfs';
 import { getBranchPort, getProjectCredentials, waitForReady as waitForPostgresReady } from './database';
 
 /**
@@ -100,8 +100,8 @@ export async function waitForBranchReady(
   branchName: string,
   timeoutMs = TIMEOUTS.POSTGRES_READY
 ): Promise<void> {
-  const datasetName = `${projectName}-${branchName}`;
-  const containerName = `${projectName}-${branchName}`;
+  const datasetName = getDatasetName(projectName, branchName);
+  const containerName = getContainerName(projectName, branchName);
   const fullBranchName = `${projectName}/${branchName}`;
 
   // Wait for dataset

@@ -1,6 +1,5 @@
 import chalk from 'chalk';
-import { getContainerName } from '../utils/naming';
-import { parseNamespace } from '../utils/namespace';
+import { getBranchContainerName } from '../utils/naming';
 import { UserError } from '../errors';
 import { withProgress } from '../utils/progress';
 import { getPublicIP, formatConnectionString } from '../utils/network';
@@ -8,8 +7,6 @@ import { CLI_NAME } from '../config/constants';
 import { initializeServices } from '../utils/service-factory';
 
 export async function restartCommand(name: string) {
-  const namespace = parseNamespace(name);
-
   const { state, docker } = await initializeServices();
 
   // Look up branch by namespaced name
@@ -28,7 +25,7 @@ export async function restartCommand(name: string) {
   console.log(`Restarting ${chalk.bold(name)}...`);
   console.log();
 
-  const containerName = getContainerName(namespace.project, namespace.branch);
+  const containerName = getBranchContainerName(branch);
   const containerID = await docker.getContainerByName(containerName);
   if (!containerID) {
     throw new UserError(`Container '${containerName}' not found`);

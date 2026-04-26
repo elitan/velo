@@ -36,7 +36,7 @@ describe('Point-in-Time Recovery (PITR)', () => {
     await query(mainPort, creds.password, "INSERT INTO pitr_data (value) VALUES ('initial');");
 
     // Force initial WAL archiving to ensure we have a baseline
-    await ensureWALArchived(mainPort, creds.password, 'pitr-test-main', 1);
+    await ensureWALArchived(mainPort, creds.password, 'pitr-test.main', 1);
 
     // Create a snapshot
     await snapshotCreateCommand('pitr-test/main', { label: 'before-changes' });
@@ -60,7 +60,7 @@ describe('Point-in-Time Recovery (PITR)', () => {
     await query(mainPort, creds.password, "INSERT INTO pitr_data (value) VALUES ('after-snapshot-2');");
 
     // Force WAL archiving of the new changes
-    await ensureWALArchived(mainPort, creds.password, 'pitr-test-main', 2);
+    await ensureWALArchived(mainPort, creds.password, 'pitr-test.main', 2);
 
     // Store the recovery timestamp for the test
     (globalThis as any).__pitrRecoveryTimestamp = recoveryTimestamp;
