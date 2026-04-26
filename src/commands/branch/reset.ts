@@ -8,7 +8,7 @@ import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 
 export async function branchResetCommand(name: string, options: { force?: boolean } = {}) {
-  const { state, docker, zfs, wal, stateData } = await initializeServices();
+  const { state, docker, zfs, resources, stateData } = await initializeServices();
   const { branch, project } = await getBranchWithProject(state, name);
 
   // Prevent resetting main branch
@@ -68,16 +68,8 @@ export async function branchResetCommand(name: string, options: { force?: boolea
   if (dependentBranches.length > 0 && options.force) {
     await withProgress('Clean up dependent branches', async () => {
       for (const depBranch of dependentBranches) {
-        const depContainerName = getBranchContainerName(depBranch);
-
-        // Stop and remove container
-        const depContainerID = await docker.getContainerByName(depContainerName);
-        if (depContainerID) {
-          await docker.stopContainer(depContainerID);
-          await docker.removeContainer(depContainerID);
-        }
-
-        await wal.deleteArchiveDir(depBranch.zfsDataset);
+        await resources.stopAndRemoveBranchContainer(depBranch);
+        await resources.deleteBranchWalArchive(depBranch);
 
         // Clean up snapshots from state
         await state.snapshots.deleteForBranch(depBranch.name);
@@ -90,11 +82,7 @@ export async function branchResetCommand(name: string, options: { force?: boolea
 
   // Stop and remove existing container
   await withProgress('Stop container', async () => {
-    const containerID = await docker.getContainerByName(containerName);
-    if (containerID) {
-      await docker.stopContainer(containerID);
-      await docker.removeContainer(containerID);
-    }
+    await resources.stopAndRemoveContainer(containerName);
   });
 
   // Create application-consistent snapshot of parent
@@ -146,14 +134,12 @@ export async function branchResetCommand(name: string, options: { force?: boolea
 
   // Step 5: Clean up backup (best effort - don't fail if this errors)
   await withProgress('Clean up old dataset', async () => {
-    await zfs.destroyDataset(backupDatasetName, true).catch(() => {});
+    await resources.destroyDataset(backupDatasetName).catch(() => {});
   });
 
   const mountpoint = await zfs.getMountpoint(datasetName);
 
-  await wal.deleteArchiveDir(datasetName);
-  await wal.ensureArchiveDir(datasetName);
-  const walArchivePath = wal.getArchivePath(datasetName);
+  const walArchivePath = await resources.recreateWalArchive(datasetName);
 
   // Recreate container with same port (use project's docker image)
   const newContainerID = await withProgress('Start container', async () => {

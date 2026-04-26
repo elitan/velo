@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import { getBranchContainerName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
@@ -27,7 +26,7 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   console.log(`Deleting ${chalk.bold(name)}...`);
   console.log();
 
-  const { state, docker, zfs, wal, stateData } = await initializeServices();
+  const { state, resources } = await initializeServices();
   const { branch, project } = await getBranchWithProject(state, name);
 
   // Prevent deleting main branch
@@ -60,14 +59,8 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   // Stop and remove all containers in parallel
   await Promise.all(
     branchesToDelete.map(async (branchToDelete) => {
-      const containerName = getBranchContainerName(branchToDelete);
-
       await withProgress(`Stop container: ${branchToDelete.name}`, async () => {
-        const containerID = await docker.getContainerByName(containerName);
-        if (containerID) {
-          await docker.stopContainer(containerID);
-          await docker.removeContainer(containerID);
-        }
+        await resources.stopAndRemoveBranchContainer(branchToDelete);
       });
     })
   );
@@ -75,10 +68,8 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
   // Clean up WAL archives in parallel
   await Promise.all(
     branchesToDelete.map(async (branchToDelete) => {
-      const datasetName = branchToDelete.zfsDataset;
-
       await withProgress(`Clean up WAL archive: ${branchToDelete.name}`, async () => {
-        await wal.deleteArchiveDir(datasetName);
+        await resources.deleteBranchWalArchive(branchToDelete);
       });
     })
   );
@@ -94,15 +85,8 @@ export async function branchDeleteCommand(name: string, options: { force?: boole
 
   // Destroy ZFS datasets sequentially (order matters due to parent-child dependencies)
   for (const branchToDelete of branchesToDelete) {
-    const datasetName = branchToDelete.zfsDataset;
-
     await withProgress(`Destroy dataset: ${branchToDelete.name}`, async () => {
-      // Only destroy dataset if it exists - this handles cases where previous deletion attempts
-      // were interrupted or failed partway through, leaving state entries without actual ZFS datasets
-      if (await zfs.datasetExists(datasetName)) {
-        await zfs.unmountDataset(datasetName);
-        await zfs.destroyDataset(datasetName, true);
-      }
+      await resources.destroyBranchDataset(branchToDelete);
     });
   }
 

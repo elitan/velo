@@ -3,6 +3,7 @@ import { ZFSManager } from '../managers/zfs';
 import { DockerManager } from '../managers/docker';
 import { WALManager } from '../managers/wal';
 import { CertManager } from '../managers/cert';
+import { ResourceService } from '../services/resource-service';
 import { PATHS } from './paths';
 import type { State, Project, Branch } from '../types/state';
 import { UserError } from '../errors';
@@ -14,6 +15,7 @@ export interface Services {
   docker: DockerManager;
   wal: WALManager;
   cert: CertManager;
+  resources: ResourceService;
   stateData: State;
 }
 
@@ -44,12 +46,17 @@ export async function initializeServices(overrides: ServiceOverrides = {}): Prom
 
   const stateData = state.getState();
 
+  const zfs = overrides.zfs || new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
+  const docker = overrides.docker || new DockerManager();
+  const wal = overrides.wal || new WALManager();
+
   return {
     state,
-    zfs: overrides.zfs || new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase),
-    docker: overrides.docker || new DockerManager(),
-    wal: overrides.wal || new WALManager(),
+    zfs,
+    docker,
+    wal,
     cert: overrides.cert || new CertManager(),
+    resources: new ResourceService(docker, zfs, wal),
     stateData,
   };
 }

@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import { getBranchContainerName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import { CLI_NAME } from '../../config/constants';
@@ -11,7 +10,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   console.log(`Deleting project ${chalk.bold(name)}...`);
   console.log();
 
-  const { state, docker, zfs, wal, cert, stateData } = await initializeServices();
+  const { state, resources, cert } = await initializeServices();
   const project = await getProject(state, name);
 
   // Check if project has non-main branches
@@ -37,14 +36,8 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   // Stop and remove all containers in parallel
   await Promise.all(
     branchesToDelete.map(async (branch) => {
-      const containerName = getBranchContainerName(branch);
-
       await withProgress(`Remove branch: ${branch.name}`, async () => {
-        const containerID = await docker.getContainerByName(containerName);
-        if (containerID) {
-          await docker.stopContainer(containerID);
-          await docker.removeContainer(containerID);
-        }
+        await resources.stopAndRemoveBranchContainer(branch);
       });
     })
   );
@@ -52,13 +45,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   // Destroy ZFS datasets for all branches
   await withProgress('Destroy ZFS datasets', async () => {
     for (const branch of branchesToDelete) {
-      const datasetName = branch.zfsDataset;
-      // Only destroy dataset if it exists - this handles cases where previous deletion attempts
-      // were interrupted or failed partway through, leaving state entries without actual ZFS datasets
-      if (await zfs.datasetExists(datasetName)) {
-        await zfs.unmountDataset(datasetName);
-        await zfs.destroyDataset(datasetName, true);
-      }
+      await resources.destroyBranchDataset(branch);
     }
   });
 
@@ -66,7 +53,7 @@ export async function projectDeleteCommand(name: string, options: { force?: bool
   await withProgress('Clean up WAL archives', async () => {
     await Promise.all(
       branchesToDelete.map(async (branch) => {
-        await wal.deleteArchiveDir(branch.zfsDataset);
+        await resources.deleteBranchWalArchive(branch);
       })
     );
   });

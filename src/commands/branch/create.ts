@@ -52,7 +52,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     console.log(chalk.dim(`  Recovery target: ${formatDate(recoveryTarget)}`));
   }
 
-  const { state, zfs, docker, wal, stateData } = await initializeServices();
+  const { state, zfs, docker, wal, resources, stateData } = await initializeServices();
 
   // Find source project and branch
   const { branch: sourceBranch, project: sourceProject } = await getBranchWithProject(state, source.full);
@@ -110,7 +110,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
 
     // Rollback: destroy cloned dataset
     rollback.add(async () => {
-      await zfs.destroyDataset(targetDatasetName, true).catch(() => {});
+      await resources.destroyDataset(targetDatasetName).catch(() => {});
     });
 
     // Rollback: destroy snapshot if we created it (not for PITR which uses existing snapshots)
@@ -139,10 +139,10 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
       });
     }
 
-    // Create WAL archive directory for target branch (delete any leftover archives first)
-    await wal.deleteArchiveDir(targetDatasetName);
-    await wal.ensureArchiveDir(targetDatasetName);
-    const targetWALArchivePath = wal.getArchivePath(targetDatasetName);
+    const targetWALArchivePath = await resources.recreateWalArchive(targetDatasetName);
+    rollback.add(async () => {
+      await resources.deleteWalArchive(targetDatasetName).catch(() => {});
+    });
 
     // Determine which WAL archive to mount
     let walArchivePath = targetWALArchivePath;

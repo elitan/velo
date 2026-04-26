@@ -18,6 +18,7 @@ import * as fs from 'fs/promises';
 import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { Rollback } from '../../utils/rollback';
+import { ResourceService } from '../../services/resource-service';
 
 interface CreateOptions {
   pool?: string;
@@ -101,6 +102,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
   const docker = new DockerManager();
   const wal = new WALManager();
   const cert = new CertManager();
+  const resources = new ResourceService(docker, zfs, wal);
 
   // Use port 0 to let Docker dynamically assign an available port
   let port = 0;
@@ -130,8 +132,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
 
     // Register rollback: unmount + destroy dataset
     rollback.add(async () => {
-      await zfs.unmountDataset(mainDatasetName).catch(() => {});
-      await zfs.destroyDataset(mainDatasetName, true).catch(() => {});
+      await resources.destroyDataset(mainDatasetName).catch(() => {});
     });
 
     // Mount the dataset (requires sudo on Linux due to kernel restrictions)
@@ -163,14 +164,11 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
       });
     }
 
-    // Create WAL archive directory (delete any leftover archives first)
-    await wal.deleteArchiveDir(mainDatasetName);
-    await wal.ensureArchiveDir(mainDatasetName);
-    const walArchivePath = wal.getArchivePath(mainDatasetName);
+    const walArchivePath = await resources.recreateWalArchive(mainDatasetName);
 
     // Register rollback: delete WAL archive directory
     rollback.add(async () => {
-      await wal.deleteArchiveDir(mainDatasetName).catch(() => {});
+      await resources.deleteWalArchive(mainDatasetName).catch(() => {});
     });
 
     // Create and start Docker container for main branch
