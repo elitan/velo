@@ -3,14 +3,13 @@ import { generateUUID } from '../../utils/helpers';
 import type { Branch } from '../../types/state';
 import { parseNamespace, getMainBranch } from '../../utils/namespace';
 import { parseRecoveryTime, formatDate } from '../../utils/time';
-import { Rollback } from '../../utils/rollback';
 import { UserError } from '../../errors';
-import { withProgress } from '../../utils/progress';
-import { getBranchContainerName, getContainerName, getDatasetName, getDatasetPath, getDatasetPathFromName } from '../../utils/naming';
+import { getBranchContainerName, getContainerName, getDatasetName, getDatasetPathFromName } from '../../utils/naming';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 import { selectSnapshotForPITR } from '../../services/pitr-service';
 import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
+import { OperationRunner } from '../../utils/operation-runner';
 
 export interface BranchCreateOptions {
   parent?: string;
@@ -63,65 +62,48 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     throw new UserError(`Branch '${target.full}' already exists`);
   }
 
-  // Setup rollback for cleanup on failure
-  const rollback = new Rollback();
+  const operation = new OperationRunner();
 
   const sourceContainerName = getBranchContainerName(sourceBranch);
   const sourceDatasetName = sourceBranch.zfsDataset;
   const sourceDatasetPath = getDatasetPathFromName(stateData.zfsPool, stateData.zfsDatasetBase, sourceDatasetName);
 
-  // Determine snapshot to use
-  let fullSnapshotName: string;
-  let snapshotName: string;
-  let createdSnapshot = false;
-
-  if (options.pitr && recoveryTarget) {
-    // PITR: select existing snapshot before recovery target
-    const selection = await selectSnapshotForPITR(source.full, recoveryTarget, state);
-    fullSnapshotName = selection.fullSnapshotName;
-    snapshotName = selection.snapshotName;
-  } else {
-    // Non-PITR: create new application-consistent snapshot
-    const result = await createApplicationConsistentSnapshot({
-      datasetName: sourceDatasetName,
-      datasetPath: sourceDatasetPath,
-      branchStatus: sourceBranch.status,
-      containerName: sourceContainerName,
-      username: sourceProject.credentials.username,
-      zfs,
-      docker,
-    });
-    snapshotName = result.snapshotName;
-    fullSnapshotName = result.fullSnapshotName;
-    createdSnapshot = true;
-  }
+  let fullSnapshotName = '';
 
   const targetDatasetName = getDatasetName(target.project, target.branch);
-  const targetDatasetPath = getDatasetPath(stateData.zfsPool, stateData.zfsDatasetBase, target.project, target.branch);
   const targetContainerName = getContainerName(target.project, target.branch);
   let mountpoint: string;
-  let port: number;
+  let port = 0;
   let containerID: string | undefined;
 
-  try {
-    await withProgress('Clone dataset', async () => {
-      await zfs.cloneSnapshot(fullSnapshotName, targetDatasetName);
-    });
-
-    // Rollback: destroy cloned dataset
-    rollback.add(async () => {
-      await resources.destroyDataset(targetDatasetName).catch(() => {});
-    });
-
-    // Rollback: destroy snapshot if we created it (not for PITR which uses existing snapshots)
-    if (createdSnapshot) {
-      rollback.add(async () => {
-        await zfs.destroySnapshot(fullSnapshotName).catch(() => {});
+  await operation.run(async function runOperation() {
+    if (options.pitr && recoveryTarget) {
+      const selection = await selectSnapshotForPITR(source.full, recoveryTarget, state);
+      fullSnapshotName = selection.fullSnapshotName;
+    } else {
+      const result = await createApplicationConsistentSnapshot({
+        datasetName: sourceDatasetName,
+        datasetPath: sourceDatasetPath,
+        branchStatus: sourceBranch.status,
+        containerName: sourceContainerName,
+        username: sourceProject.credentials.username,
+        zfs,
+        docker,
+      });
+      fullSnapshotName = result.fullSnapshotName;
+      operation.addRollback(async function rollbackSnapshot() {
+        await zfs.destroySnapshot(fullSnapshotName);
       });
     }
 
+    await operation.step('Clone dataset', async function cloneDataset() {
+      await zfs.cloneSnapshot(fullSnapshotName, targetDatasetName);
+    }, async function rollbackDataset() {
+      await resources.destroyDataset(targetDatasetName);
+    });
+
     // Mount the dataset (requires sudo on Linux due to kernel restrictions)
-    await withProgress('Mount dataset', async () => {
+    await operation.step('Mount dataset', async function mountDataset() {
       await zfs.mountDataset(targetDatasetName);
     });
 
@@ -134,14 +116,15 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     const dockerImage = sourceProject.dockerImage;
     const imageExists = await docker.imageExists(dockerImage);
     if (!imageExists) {
-      await withProgress(`Pull ${dockerImage}`, async () => {
+      await operation.step(`Pull ${dockerImage}`, async function pullImage() {
         await docker.pullImage(dockerImage);
       });
     }
 
-    const targetWALArchivePath = await resources.recreateWalArchive(targetDatasetName);
-    rollback.add(async () => {
-      await resources.deleteWalArchive(targetDatasetName).catch(() => {});
+    const targetWALArchivePath = await operation.step('Prepare WAL archive', async function prepareWalArchive() {
+      return await resources.recreateWalArchive(targetDatasetName);
+    }, async function rollbackWalArchive() {
+      await resources.deleteWalArchive(targetDatasetName);
     });
 
     // Determine which WAL archive to mount
@@ -149,7 +132,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
 
     // If PITR is requested, setup recovery configuration
     if (recoveryTarget) {
-      await withProgress('Configure PITR recovery', async () => {
+      await operation.step('Configure PITR recovery', async function configurePitrRecovery() {
         // Get source WAL archive path (shared across all branches of same project)
         const sourceWALArchivePath = wal.getArchivePath(sourceDatasetName);
 
@@ -163,7 +146,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
 
     // Create and start container
     const containerLabel = recoveryTarget ? 'PostgreSQL WAL replay' : 'PostgreSQL ready';
-    containerID = await withProgress(containerLabel, async () => {
+    containerID = await operation.step(containerLabel, async function startPostgres() {
       const id = await docker.createContainer({
         name: targetContainerName,
         image: dockerImage,
@@ -176,9 +159,8 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
         database: sourceProject.credentials.database,
       });
 
-      // Rollback: remove container
-      rollback.add(async () => {
-        await docker.removeContainer(id).catch(() => {});
+      operation.addRollback(async function rollbackContainer() {
+        await docker.removeContainer(id);
       });
 
       await docker.startContainer(id);
@@ -208,16 +190,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
     };
 
     await state.branches.add(sourceProject.id, branch);
-
-    // Success! Clear rollback steps
-    rollback.clear();
-  } catch (error) {
-    // Operation failed, rollback all created resources
-    console.log();
-    console.log('Operation failed, cleaning up...');
-    await rollback.execute();
-    throw error;
-  }
+  });
 
   // Get public IP for remote connection info
   const publicIP = await getPublicIP();

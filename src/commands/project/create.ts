@@ -15,10 +15,10 @@ import { requireSetup } from '../../utils/setup-check';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import * as fs from 'fs/promises';
-import { getContainerName, getDatasetName, getDatasetPath } from '../../utils/naming';
+import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
-import { Rollback } from '../../utils/rollback';
 import { ResourceService } from '../../services/resource-service';
+import { OperationRunner } from '../../utils/operation-runner';
 
 interface CreateOptions {
   pool?: string;
@@ -110,33 +110,28 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
   // Create ZFS dataset for main branch
   const mainBranchName = buildNamespace(name, 'main');
   const mainDatasetName = getDatasetName(name, 'main');
-  const mainDatasetPath = getDatasetPath(pool, fullDatasetBase, name, 'main');
   const mainContainerName = getContainerName(name, 'main');
 
-  // Rollback handler for cleaning up on failure
-  const rollback = new Rollback();
+  const operation = new OperationRunner();
 
-  let password: string;
+  let password = '';
   let certPaths: { certDir: string };
   let containerID: string;
   let sizeBytes: number;
 
-  try {
-    await withProgress(`Create dataset ${mainBranchName}`, async () => {
+  await operation.run(async function runOperation() {
+    await operation.step(`Create dataset ${mainBranchName}`, async function createDataset() {
       await zfs.createDataset(mainDatasetName, {
         compression: DEFAULTS.zfs.compression,
         recordsize: DEFAULTS.zfs.recordsize,
         atime: DEFAULTS.zfs.atime,
       });
-    });
-
-    // Register rollback: unmount + destroy dataset
-    rollback.add(async () => {
-      await resources.destroyDataset(mainDatasetName).catch(() => {});
+    }, async function rollbackDataset() {
+      await resources.destroyDataset(mainDatasetName);
     });
 
     // Mount the dataset (requires sudo on Linux due to kernel restrictions)
-    await withProgress('Mount dataset', async () => {
+    await operation.step('Mount dataset', async function mountDataset() {
       await zfs.mountDataset(mainDatasetName);
     });
 
@@ -144,13 +139,10 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
     const mountpoint = await zfs.getMountpoint(mainDatasetName);
 
     // Generate SSL certificates
-    certPaths = await withProgress('Generate SSL certificates', async () => {
+    certPaths = await operation.step('Generate SSL certificates', async function generateCerts() {
       return await cert.generateCerts(name);
-    });
-
-    // Register rollback: delete SSL certificates
-    rollback.add(async () => {
-      await cert.deleteCerts(name).catch(() => {});
+    }, async function rollbackCerts() {
+      await cert.deleteCerts(name);
     });
 
     // Generate credentials
@@ -159,20 +151,19 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
     // Pull PostgreSQL image if needed (no rollback - images can be reused)
     const imageExists = await docker.imageExists(dockerImage);
     if (!imageExists) {
-      await withProgress(`Pull ${dockerImage}`, async () => {
+      await operation.step(`Pull ${dockerImage}`, async function pullImage() {
         await docker.pullImage(dockerImage);
       });
     }
 
-    const walArchivePath = await resources.recreateWalArchive(mainDatasetName);
-
-    // Register rollback: delete WAL archive directory
-    rollback.add(async () => {
-      await resources.deleteWalArchive(mainDatasetName).catch(() => {});
+    const walArchivePath = await operation.step('Prepare WAL archive', async function prepareWalArchive() {
+      return await resources.recreateWalArchive(mainDatasetName);
+    }, async function rollbackWalArchive() {
+      await resources.deleteWalArchive(mainDatasetName);
     });
 
     // Create and start Docker container for main branch
-    containerID = await withProgress('PostgreSQL ready', async () => {
+    containerID = await operation.step('PostgreSQL ready', async function startPostgres() {
       const id = await docker.createContainer({
         name: mainContainerName,
         image: dockerImage,
@@ -185,9 +176,8 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
         database: 'postgres',
       });
 
-      // Register rollback: remove container (before start for safety)
-      rollback.add(async () => {
-        await docker.removeContainer(id).catch(() => {});
+      operation.addRollback(async function rollbackContainer() {
+        await docker.removeContainer(id);
       });
 
       await docker.startContainer(id);
@@ -234,15 +224,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
     };
 
     await state.projects.add(project);
-
-    // Success - clear all rollback steps
-    rollback.clear();
-  } catch (error) {
-    console.log();
-    console.log('Operation failed, cleaning up...');
-    await rollback.execute();
-    throw error;
-  }
+  });
 
   // Get public IP for remote connection info
   const publicIP = await getPublicIP();
