@@ -6,9 +6,11 @@ import { withProgress } from '../../utils/progress';
 import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
+import { OperationRunner } from '../../utils/operation-runner';
+import { replaceBranchDataset } from '../../services/branch-reset-service';
 
 export async function branchResetCommand(name: string, options: { force?: boolean } = {}) {
-  const { state, docker, zfs, resources, stateData } = await initializeServices();
+  const { state, docker, zfs, wal, resources, stateData } = await initializeServices();
   const { branch, project } = await getBranchWithProject(state, name);
 
   // Prevent resetting main branch
@@ -63,6 +65,8 @@ export async function branchResetCommand(name: string, options: { force?: boolea
   // Compute current branch names
   const containerName = getBranchContainerName(branch);
   const datasetName = branch.zfsDataset;
+  const originalBranch = { ...branch };
+  const originalSnapshots = state.snapshots.getForBranch(branch.name);
 
   // If force reset, clean up dependent branches first
   if (dependentBranches.length > 0 && options.force) {
@@ -80,98 +84,123 @@ export async function branchResetCommand(name: string, options: { force?: boolea
     });
   }
 
-  // Stop and remove existing container
-  await withProgress('Stop container', async () => {
-    await resources.stopAndRemoveContainer(containerName);
-  });
-
-  // Create application-consistent snapshot of parent
-  const { fullSnapshotName } = await createApplicationConsistentSnapshot({
-    datasetName: parentDatasetName,
-    datasetPath: parentDatasetPath,
-    branchStatus: parentBranch.status,
-    containerName: parentContainerName,
-    username: project.credentials.username,
-    zfs,
-    docker,
-    checkpointLabel: `Checkpoint ${parentBranch.name}`,
-  });
-
-  // Safe clone-then-swap: clone to temp first, then swap
-  // This prevents data loss if cloning fails
+  const operation = new OperationRunner();
+  let fullSnapshotName = '';
   const tempDatasetName = `${datasetName}-temp`;
   const backupDatasetName = `${datasetName}-old`;
+  let mountpoint = await zfs.getMountpoint(datasetName);
+  let walArchivePath = wal.getArchivePath(datasetName);
+  let newContainerID = '';
 
-  // Step 1: Clone to temporary dataset
-  await withProgress('Clone new snapshot', async () => {
-    await zfs.cloneSnapshot(fullSnapshotName, tempDatasetName);
-  });
+  await operation.run(async function runOperation() {
+    const oldMountpoint = mountpoint;
+    const oldWalArchivePath = walArchivePath;
 
-  // Step 2: Mount temp dataset to verify it works
-  await withProgress('Mount temp dataset', async () => {
-    await zfs.mountDataset(tempDatasetName);
-  });
+    await operation.step('Stop container', async function stopContainer() {
+      return await resources.stopAndRemoveContainer(containerName);
+    }, async function rollbackContainer(removed) {
+      if (!removed || originalBranch.status !== 'running') {
+        return;
+      }
 
-  // Step 3: Swap datasets (original is still intact until this succeeds)
-  await withProgress('Swap datasets', async () => {
-    // Unmount original
-    await zfs.unmountDataset(datasetName);
+      const id = await docker.createContainer({
+        name: containerName,
+        image: project.dockerImage,
+        port: originalBranch.port,
+        dataPath: oldMountpoint,
+        walArchivePath: oldWalArchivePath,
+        sslCertDir: project.sslCertDir,
+        password: project.credentials.password,
+        username: project.credentials.username,
+        database: project.credentials.database,
+      });
 
-    // Rename original to backup
-    await zfs.renameDataset(datasetName, backupDatasetName);
-
-    // Unmount temp before rename (required by ZFS)
-    await zfs.unmountDataset(tempDatasetName);
-
-    // Rename temp to original name
-    await zfs.renameDataset(tempDatasetName, datasetName);
-  });
-
-  // Step 4: Mount the swapped dataset
-  await withProgress('Mount dataset', async () => {
-    await zfs.mountDataset(datasetName);
-  });
-
-  // Step 5: Clean up backup (best effort - don't fail if this errors)
-  await withProgress('Clean up old dataset', async () => {
-    await resources.destroyDataset(backupDatasetName).catch(() => {});
-  });
-
-  const mountpoint = await zfs.getMountpoint(datasetName);
-
-  const walArchivePath = await resources.recreateWalArchive(datasetName);
-
-  // Recreate container with same port (use project's docker image)
-  const newContainerID = await withProgress('Start container', async () => {
-    const id = await docker.createContainer({
-      name: containerName,
-      image: project.dockerImage,
-      port: branch.port,
-      dataPath: mountpoint,
-      walArchivePath,
-      sslCertDir: project.sslCertDir,
-      password: project.credentials.password,
-      username: project.credentials.username,
-      database: project.credentials.database,
+      await docker.startContainer(id);
+      await docker.waitForHealthy(id);
     });
 
-    await docker.startContainer(id);
-    return id;
+    const snapshot = await createApplicationConsistentSnapshot({
+      datasetName: parentDatasetName,
+      datasetPath: parentDatasetPath,
+      branchStatus: parentBranch.status,
+      containerName: parentContainerName,
+      username: project.credentials.username,
+      zfs,
+      docker,
+      checkpointLabel: `Checkpoint ${parentBranch.name}`,
+    });
+
+    fullSnapshotName = snapshot.fullSnapshotName;
+
+    operation.addRollback(async function rollbackParentSnapshot() {
+      await zfs.destroySnapshot(fullSnapshotName).catch(function ignoreError() {});
+    });
+
+    await replaceBranchDataset({
+      operation,
+      zfs,
+      resources,
+      fullSnapshotName,
+      datasetName,
+      tempDatasetName,
+      backupDatasetName,
+    });
+
+    mountpoint = await zfs.getMountpoint(datasetName);
+
+    walArchivePath = await operation.step('Prepare WAL archive', async function prepareWalArchive() {
+      return await resources.recreateWalArchive(datasetName);
+    });
+
+    newContainerID = await operation.step('Start container', async function startContainer() {
+      const id = await docker.createContainer({
+        name: containerName,
+        image: project.dockerImage,
+        port: branch.port,
+        dataPath: mountpoint,
+        walArchivePath,
+        sslCertDir: project.sslCertDir,
+        password: project.credentials.password,
+        username: project.credentials.username,
+        database: project.credentials.database,
+      });
+
+      operation.addRollback(async function rollbackNewContainer() {
+        await docker.removeContainer(id);
+      });
+
+      await docker.startContainer(id);
+      return id;
+    });
+
+    await operation.step('PostgreSQL ready', async function waitForPostgres() {
+      await docker.waitForHealthy(newContainerID);
+    });
+
+    operation.addRollback(async function rollbackState() {
+      const currentState = state.getState();
+      currentState.snapshots = currentState.snapshots.filter(function keepSnapshot(snapshot) {
+        return snapshot.branchName !== branch.name;
+      });
+      currentState.snapshots.push(...originalSnapshots);
+      await state.branches.update(project.id, originalBranch);
+    });
+
+    await operation.step('Update state', async function updateState() {
+      const sizeBytes = await zfs.getUsedSpace(datasetName);
+
+      await state.snapshots.deleteForBranch(branch.name);
+
+      branch.sizeBytes = sizeBytes;
+      branch.status = 'running';
+      branch.snapshotName = fullSnapshotName;
+      await state.branches.update(project.id, branch);
+    });
   });
 
-  await withProgress('PostgreSQL ready', async () => {
-    await docker.waitForHealthy(newContainerID);
+  await withProgress('Clean up old dataset', async () => {
+    await resources.destroyDataset(backupDatasetName).catch(function ignoreError() {});
   });
-
-  // Clean up orphaned snapshots for this branch (ZFS snapshots were destroyed with dataset)
-  await state.snapshots.deleteForBranch(branch.name);
-
-  // Update state
-  const sizeBytes = await zfs.getUsedSpace(datasetName);
-  branch.sizeBytes = sizeBytes;
-  branch.status = 'running';
-  branch.snapshotName = fullSnapshotName;
-  await state.branches.update(project.id, branch);
 
   // Get public IP for remote connection info
   const publicIP = await getPublicIP();
