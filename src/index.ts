@@ -27,6 +27,7 @@ import { doctorCommand } from './commands/doctor';
 import { cleanupCommand } from './commands/cleanup';
 import { setupCommand } from './commands/setup';
 import { stateRestoreCommand } from './commands/state/restore';
+import { stateInfoCommand } from './commands/state/info';
 import { wrapCommand } from './utils/command-wrapper';
 import packageJson from '../package.json';
 
@@ -285,6 +286,13 @@ program
 const stateCommand = program
   .command('state')
   .description('Manage state file');
+
+stateCommand
+  .command('info')
+  .description('Show state file and backup info')
+  .action(wrapCommand(async () => {
+    await stateInfoCommand();
+  }));
 
 stateCommand
   .command('restore')

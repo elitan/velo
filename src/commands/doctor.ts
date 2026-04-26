@@ -11,6 +11,7 @@ import * as fs from 'fs/promises';
 import { CLI_NAME } from '../config/constants';
 import { detectOrphans } from '../utils/orphan-detection';
 import { formatBytes } from '../utils/helpers';
+import { getStateInfo } from '../services/state-info-service';
 
 interface CheckResult {
   name: string;
@@ -74,6 +75,8 @@ export async function doctorCommand() {
   console.log(chalk.dim('─'.repeat(60)));
 
   const stateResults = [
+    await checkStateSchema(),
+    await checkStateBackup(),
     await checkStateFile(),
     await checkWALDirectory(),
     await checkProjects(),
@@ -591,6 +594,82 @@ async function checkStateFile(): Promise<CheckResult> {
       details: [`Location: ${PATHS.STATE}`],
     };
   }
+}
+
+async function checkStateSchema(): Promise<CheckResult> {
+  const info = await getStateInfo(PATHS.STATE);
+
+  if (!info.exists) {
+    return {
+      name: 'State Schema',
+      status: 'info',
+      message: 'State file not created yet',
+    };
+  }
+
+  if (info.schemaStatus === 'unsupported') {
+    return {
+      name: 'State Schema',
+      status: 'fail',
+      message: info.error || 'Unsupported schema version',
+      details: [`Current supported schema: ${info.currentSchemaVersion}`],
+    };
+  }
+
+  if (info.schemaStatus === 'invalid') {
+    return {
+      name: 'State Schema',
+      status: 'fail',
+      message: info.error || 'Invalid state file',
+      details: [`Location: ${PATHS.STATE}`],
+    };
+  }
+
+  if (info.schemaStatus === 'migrated') {
+    return {
+      name: 'State Schema',
+      status: 'pass',
+      message: `Migrated to schema ${info.currentSchemaVersion}`,
+      details: [`Backup: ${PATHS.STATE}.backup`],
+    };
+  }
+
+  return {
+    name: 'State Schema',
+    status: 'pass',
+    message: `Schema ${info.schemaVersion}`,
+  };
+}
+
+async function checkStateBackup(): Promise<CheckResult> {
+  const info = await getStateInfo(PATHS.STATE);
+
+  if (!info.exists) {
+    return {
+      name: 'State Backup',
+      status: 'info',
+      message: 'State file not created yet',
+    };
+  }
+
+  if (!info.backup.exists) {
+    return {
+      name: 'State Backup',
+      status: 'info',
+      message: 'No backup yet',
+      details: ['A backup is created before state changes and migrations'],
+    };
+  }
+
+  return {
+    name: 'State Backup',
+    status: 'pass',
+    message: `Available: ${PATHS.STATE}.backup`,
+    details: [
+      `Modified: ${info.backup.modifiedAt?.toLocaleString()}`,
+      `Restore: ${CLI_NAME} state restore`,
+    ],
+  };
 }
 
 async function checkWALDirectory(): Promise<CheckResult> {
