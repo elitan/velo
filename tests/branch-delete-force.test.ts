@@ -47,15 +47,15 @@ describe('Branch Delete with --force', () => {
       await waitForBranchReady('force-test', 'simple');
 
       // Verify it exists
-      expect(await datasetExists('force-test-simple')).toBe(true);
-      expect(await isContainerRunning('force-test-simple')).toBe(true);
+      expect(await datasetExists('force-test.simple')).toBe(true);
+      expect(await isContainerRunning('force-test.simple')).toBe(true);
 
       // Delete without --force (should work fine)
       await branchDeleteCommand('force-test/simple', {});
 
       // Verify deletion
-      expect(await datasetExists('force-test-simple')).toBe(false);
-      expect(await isContainerRunning('force-test-simple')).toBe(false);
+      expect(await datasetExists('force-test.simple')).toBe(false);
+      expect(await isContainerRunning('force-test.simple')).toBe(false);
 
       const state = await getState();
       const project = state.projects?.find((p: any) => p.name === 'force-test');
@@ -75,8 +75,8 @@ describe('Branch Delete with --force', () => {
       await waitForBranchReady('force-test', 'child');
 
       // Verify both exist
-      expect(await datasetExists('force-test-parent')).toBe(true);
-      expect(await datasetExists('force-test-child')).toBe(true);
+      expect(await datasetExists('force-test.parent')).toBe(true);
+      expect(await datasetExists('force-test.child')).toBe(true);
 
       // Try to delete parent without --force - should fail
       await expect(
@@ -84,10 +84,10 @@ describe('Branch Delete with --force', () => {
       ).rejects.toThrow();
 
       // Verify parent and child still exist
-      expect(await datasetExists('force-test-parent')).toBe(true);
-      expect(await datasetExists('force-test-child')).toBe(true);
-      expect(await isContainerRunning('force-test-parent')).toBe(true);
-      expect(await isContainerRunning('force-test-child')).toBe(true);
+      expect(await datasetExists('force-test.parent')).toBe(true);
+      expect(await datasetExists('force-test.child')).toBe(true);
+      expect(await isContainerRunning('force-test.parent')).toBe(true);
+      expect(await isContainerRunning('force-test.child')).toBe(true);
 
       const state = await getState();
       const project = state.projects?.find((p: any) => p.name === 'force-test');
@@ -99,17 +99,17 @@ describe('Branch Delete with --force', () => {
   describe('Delete branch with children using --force', () => {
     test('should delete branch and all children with --force', async () => {
       // Verify parent and child exist from previous test
-      expect(await datasetExists('force-test-parent')).toBe(true);
-      expect(await datasetExists('force-test-child')).toBe(true);
+      expect(await datasetExists('force-test.parent')).toBe(true);
+      expect(await datasetExists('force-test.child')).toBe(true);
 
       // Delete parent with --force - should succeed
       await branchDeleteCommand('force-test/parent', { force: true });
 
       // Verify both parent and child are deleted
-      expect(await datasetExists('force-test-parent')).toBe(false);
-      expect(await datasetExists('force-test-child')).toBe(false);
-      expect(await isContainerRunning('force-test-parent')).toBe(false);
-      expect(await isContainerRunning('force-test-child')).toBe(false);
+      expect(await datasetExists('force-test.parent')).toBe(false);
+      expect(await datasetExists('force-test.child')).toBe(false);
+      expect(await isContainerRunning('force-test.parent')).toBe(false);
+      expect(await isContainerRunning('force-test.child')).toBe(false);
 
       const state = await getState();
       const project = state.projects?.find((p: any) => p.name === 'force-test');
@@ -147,24 +147,24 @@ describe('Branch Delete with --force', () => {
       await waitForBranchReady('force-test', 'level3');
 
       // Verify all branches exist
-      expect(await datasetExists('force-test-level1')).toBe(true);
-      expect(await datasetExists('force-test-level2a')).toBe(true);
-      expect(await datasetExists('force-test-level2b')).toBe(true);
-      expect(await datasetExists('force-test-level3')).toBe(true);
+      expect(await datasetExists('force-test.level1')).toBe(true);
+      expect(await datasetExists('force-test.level2a')).toBe(true);
+      expect(await datasetExists('force-test.level2b')).toBe(true);
+      expect(await datasetExists('force-test.level3')).toBe(true);
 
       // Delete level1 with --force - should delete all descendants
       await branchDeleteCommand('force-test/level1', { force: true });
 
       // Verify all are deleted
-      expect(await datasetExists('force-test-level1')).toBe(false);
-      expect(await datasetExists('force-test-level2a')).toBe(false);
-      expect(await datasetExists('force-test-level2b')).toBe(false);
-      expect(await datasetExists('force-test-level3')).toBe(false);
+      expect(await datasetExists('force-test.level1')).toBe(false);
+      expect(await datasetExists('force-test.level2a')).toBe(false);
+      expect(await datasetExists('force-test.level2b')).toBe(false);
+      expect(await datasetExists('force-test.level3')).toBe(false);
 
-      expect(await isContainerRunning('force-test-level1')).toBe(false);
-      expect(await isContainerRunning('force-test-level2a')).toBe(false);
-      expect(await isContainerRunning('force-test-level2b')).toBe(false);
-      expect(await isContainerRunning('force-test-level3')).toBe(false);
+      expect(await isContainerRunning('force-test.level1')).toBe(false);
+      expect(await isContainerRunning('force-test.level2a')).toBe(false);
+      expect(await isContainerRunning('force-test.level2b')).toBe(false);
+      expect(await isContainerRunning('force-test.level3')).toBe(false);
 
       // Verify state is clean
       const state = await getState();
@@ -201,20 +201,20 @@ describe('Branch Delete with --force', () => {
       await waitForBranchReady('force-test', 'sibling1-child');
 
       // Verify all exist
-      expect(await datasetExists('force-test-sibling1')).toBe(true);
-      expect(await datasetExists('force-test-sibling2')).toBe(true);
-      expect(await datasetExists('force-test-sibling1-child')).toBe(true);
+      expect(await datasetExists('force-test.sibling1')).toBe(true);
+      expect(await datasetExists('force-test.sibling2')).toBe(true);
+      expect(await datasetExists('force-test.sibling1-child')).toBe(true);
 
       // Delete sibling1 with --force
       await branchDeleteCommand('force-test/sibling1', { force: true });
 
       // Verify sibling1 and its child are deleted
-      expect(await datasetExists('force-test-sibling1')).toBe(false);
-      expect(await datasetExists('force-test-sibling1-child')).toBe(false);
+      expect(await datasetExists('force-test.sibling1')).toBe(false);
+      expect(await datasetExists('force-test.sibling1-child')).toBe(false);
 
       // Verify sibling2 still exists
-      expect(await datasetExists('force-test-sibling2')).toBe(true);
-      expect(await isContainerRunning('force-test-sibling2')).toBe(true);
+      expect(await datasetExists('force-test.sibling2')).toBe(true);
+      expect(await isContainerRunning('force-test.sibling2')).toBe(true);
 
       const state = await getState();
       const project = state.projects?.find((p: any) => p.name === 'force-test');
