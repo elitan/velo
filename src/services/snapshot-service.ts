@@ -1,8 +1,16 @@
 import { ZFSManager } from '../managers/zfs';
 import { DockerManager } from '../managers/docker';
-import { formatTimestamp } from '../utils/helpers';
+import { formatTimestamp, generateUUID } from '../utils/helpers';
 import { withProgress } from '../utils/progress';
 import { UserError } from '../errors';
+import { getBranchContainerName, getDatasetPathFromName } from '../utils/naming';
+import type { Branch, Project, Snapshot, State } from '../types/state';
+
+interface SnapshotState {
+  snapshots: {
+    add(snapshot: Snapshot): Promise<void>;
+  };
+}
 
 export interface CreateSnapshotParams {
   datasetName: string;
@@ -22,6 +30,22 @@ export interface CreateSnapshotParams {
 export interface CreateSnapshotResult {
   snapshotName: string;
   fullSnapshotName: string;
+}
+
+export interface CreateBranchSnapshotParams {
+  state: SnapshotState;
+  stateData: State;
+  branch: Branch;
+  project: Project;
+  label?: string;
+  createdAt?: Date;
+  zfs: ZFSManager;
+  docker: DockerManager;
+}
+
+export interface CreateBranchSnapshotResult {
+  snapshot: Snapshot;
+  snapshotName: string;
 }
 
 /**
@@ -70,4 +94,51 @@ export async function createApplicationConsistentSnapshot(
   });
 
   return { snapshotName, fullSnapshotName };
+}
+
+export async function createBranchSnapshot(
+  params: CreateBranchSnapshotParams
+): Promise<CreateBranchSnapshotResult> {
+  const {
+    state,
+    stateData,
+    branch,
+    project,
+    label,
+    createdAt = new Date(),
+    zfs,
+    docker,
+  } = params;
+  const containerName = getBranchContainerName(branch);
+  const datasetName = branch.zfsDataset;
+  const datasetPath = getDatasetPathFromName(stateData.zfsPool, stateData.zfsDatasetBase, datasetName);
+  const { snapshotName, fullSnapshotName } = await createApplicationConsistentSnapshot({
+    datasetName,
+    datasetPath,
+    branchStatus: branch.status,
+    containerName,
+    username: project.credentials.username,
+    label,
+    zfs,
+    docker,
+  });
+
+  const sizeBytes = await withProgress('Calculate size', async function () {
+    return await zfs.getSnapshotSize(fullSnapshotName);
+  });
+
+  const snapshot: Snapshot = {
+    id: generateUUID(),
+    branchId: branch.id,
+    branchName: branch.name,
+    projectName: project.name,
+    zfsSnapshot: fullSnapshotName,
+    createdAt: createdAt.toISOString(),
+    label,
+    sizeBytes,
+  };
+
+  await state.snapshots.add(snapshot);
+
+  return { snapshot, snapshotName };
 }

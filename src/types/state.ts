@@ -33,6 +33,7 @@ export interface Branch {
   status: 'running' | 'stopped' | 'created';
   sizeBytes?: number;                        // Dataset size in bytes (optional, populated on create/reset)
   idleStop?: IdleStopPolicy;
+  snapshotPolicy?: SnapshotPolicy;
 }
 
 export interface IdleStopPolicy {
@@ -40,6 +41,18 @@ export interface IdleStopPolicy {
   idleMinutes: number;
   lastActiveAt?: string;
   stoppedReason?: 'idle-timeout' | 'manual';
+}
+
+export type SnapshotScheduleInterval = 'hourly' | 'daily';
+
+export interface SnapshotPolicy {
+  enabled: boolean;
+  interval: SnapshotScheduleInterval;
+  retentionDays: number;
+  walRetentionDays: number;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  lastFailure?: string;
 }
 
 export interface Credentials {

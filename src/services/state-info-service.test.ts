@@ -24,7 +24,7 @@ describe('getStateInfo', function () {
     expect(info.exists).toBe(false);
     expect(info.initialized).toBe(false);
     expect(info.schemaStatus).toBe('missing');
-    expect(info.currentSchemaVersion).toBe(3);
+    expect(info.currentSchemaVersion).toBe(4);
     expect(info.backup.exists).toBe(false);
   });
 
@@ -36,7 +36,7 @@ describe('getStateInfo', function () {
 
     expect(info.exists).toBe(true);
     expect(info.initialized).toBe(true);
-    expect(info.schemaVersion).toBe(3);
+    expect(info.schemaVersion).toBe(4);
     expect(info.schemaStatus).toBe('current');
     expect(info.projectCount).toBe(0);
     expect(info.branchCount).toBe(0);
@@ -94,7 +94,7 @@ describe('getStateInfo', function () {
     const info = await getStateInfo(stateFile);
 
     expect(info.initialized).toBe(true);
-    expect(info.schemaVersion).toBe(3);
+    expect(info.schemaVersion).toBe(4);
     expect(info.schemaStatus).toBe('migrated');
     expect(info.migrationApplied).toBe(true);
     expect(info.projectCount).toBe(1);

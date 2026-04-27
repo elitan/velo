@@ -19,6 +19,15 @@ import { snapshotCreateCommand } from './commands/snapshot/create';
 import { snapshotListCommand } from './commands/snapshot/list';
 import { snapshotDeleteCommand } from './commands/snapshot/delete';
 import { snapshotCleanupCommand } from './commands/snapshot/cleanup';
+import {
+  snapshotScheduleCronInstallCommand,
+  snapshotScheduleCronListCommand,
+  snapshotScheduleCronRemoveCommand,
+  snapshotScheduleDisableCommand,
+  snapshotScheduleEnableCommand,
+  snapshotScheduleListCommand,
+  snapshotScheduleRunCommand,
+} from './commands/snapshot/schedule';
 import { startCommand } from './commands/start';
 import { stopCommand } from './commands/stop';
 import { restartCommand } from './commands/restart';
@@ -249,6 +258,79 @@ snapshotCommand
       dryRun: options.dryRun,
       all: options.all,
     });
+  }));
+
+const snapshotScheduleCommand = snapshotCommand
+  .command('schedule')
+  .description('Manage built-in snapshot schedules');
+
+snapshotScheduleCommand
+  .command('enable')
+  .description('Enable scheduled snapshots for a branch')
+  .argument('<branch>', 'branch name in format: <project>/<branch>')
+  .requiredOption('--interval <interval>', 'hourly or daily')
+  .option('--retention-days <days>', 'snapshot retention period in days', '30')
+  .option('--wal-retention-days <days>', 'WAL retention period in days', '7')
+  .action(wrapCommand(async function (branch: string, options: { interval: string; retentionDays: string; walRetentionDays: string }) {
+    await snapshotScheduleEnableCommand(branch, {
+      interval: options.interval,
+      retentionDays: parseInt(options.retentionDays, 10),
+      walRetentionDays: parseInt(options.walRetentionDays, 10),
+    });
+  }));
+
+snapshotScheduleCommand
+  .command('disable')
+  .description('Disable scheduled snapshots for a branch')
+  .argument('<branch>', 'branch name in format: <project>/<branch>')
+  .action(wrapCommand(async function (branch: string) {
+    await snapshotScheduleDisableCommand(branch);
+  }));
+
+snapshotScheduleCommand
+  .command('list')
+  .description('List snapshot schedules')
+  .action(wrapCommand(async function () {
+    await snapshotScheduleListCommand();
+  }));
+
+snapshotScheduleCommand
+  .command('run')
+  .description('Apply scheduled snapshot policies')
+  .argument('[branch]', 'branch name in format: <project>/<branch>')
+  .option('--dry-run', 'show what would happen without creating or deleting files')
+  .action(wrapCommand(async function (branch: string | undefined, options: { dryRun?: boolean }) {
+    await snapshotScheduleRunCommand(branch, options);
+  }));
+
+const snapshotScheduleCronCommand = snapshotScheduleCommand
+  .command('cron')
+  .description('Manage cron runner for snapshot schedules');
+
+snapshotScheduleCronCommand
+  .command('install')
+  .description('Install cron runner for snapshot schedules')
+  .option('--every-minutes <minutes>', 'run interval in minutes', '5')
+  .option('--command <command>', 'command to run from cron')
+  .action(wrapCommand(async function (options: { everyMinutes: string; command?: string }) {
+    await snapshotScheduleCronInstallCommand({
+      everyMinutes: parseInt(options.everyMinutes, 10),
+      command: options.command,
+    });
+  }));
+
+snapshotScheduleCronCommand
+  .command('list')
+  .description('Show installed snapshot schedule cron runner')
+  .action(wrapCommand(async function () {
+    await snapshotScheduleCronListCommand();
+  }));
+
+snapshotScheduleCronCommand
+  .command('remove')
+  .description('Remove snapshot schedule cron runner')
+  .action(wrapCommand(async function () {
+    await snapshotScheduleCronRemoveCommand();
   }));
 
 // ============================================================================

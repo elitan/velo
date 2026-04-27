@@ -2,7 +2,7 @@ import type { Branch, State } from '../types/state';
 import { getContainerName, getLegacyContainerName } from '../utils/naming';
 import { parseNamespace } from '../utils/namespace';
 
-export const CURRENT_STATE_SCHEMA_VERSION = 3;
+export const CURRENT_STATE_SCHEMA_VERSION = 4;
 
 type MigratableState = Partial<State> & {
   schemaVersion?: number;

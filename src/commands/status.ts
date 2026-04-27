@@ -5,6 +5,7 @@ import { formatBytes } from '../utils/helpers';
 import { TOOL_NAME } from '../config/constants';
 import { initializeServices } from '../utils/service-factory';
 import { getBranchHealth, type BranchHealth } from '../services/branch-health-service';
+import type { Branch, IdleStopPolicy, SnapshotPolicy } from '../types/state';
 
 function formatUptime(startedAt: Date | null): string {
   if (!startedAt) return 'N/A';
@@ -111,7 +112,7 @@ export async function statusCommand() {
         chalk.dim('  ↳ ') + branch.name,
         stateText,
         healthText,
-        formatLifecycle(branch.idleStop),
+        formatLifecycle(branch),
         portText ? `Port ${portText}` : chalk.dim('missing'),
         sizeText,
         formatDate(branch.createdAt)
@@ -143,9 +144,24 @@ function formatHealth(health: BranchHealth): string {
   return chalk.yellow(health.reason);
 }
 
-function formatLifecycle(idleStop: { enabled: boolean; idleMinutes: number; stoppedReason?: string } | undefined): string {
-  if (!idleStop?.enabled) {
+function formatLifecycle(branch: Branch): string {
+  const parts = [
+    formatIdleStop(branch.idleStop),
+    formatSnapshotPolicy(branch.snapshotPolicy),
+  ].filter(function (part) {
+    return part !== '';
+  });
+
+  if (parts.length === 0) {
     return chalk.dim('—');
+  }
+
+  return parts.join(' | ');
+}
+
+function formatIdleStop(idleStop: IdleStopPolicy | undefined): string {
+  if (!idleStop?.enabled) {
+    return '';
   }
 
   if (idleStop.stoppedReason) {
@@ -153,4 +169,24 @@ function formatLifecycle(idleStop: { enabled: boolean; idleMinutes: number; stop
   }
 
   return `idle-stop ${idleStop.idleMinutes}m`;
+}
+
+function formatSnapshotPolicy(policy: SnapshotPolicy | undefined): string {
+  if (!policy?.enabled) {
+    return '';
+  }
+
+  if (policy.nextRunAt) {
+    return `snapshot ${policy.interval} next ${formatShortDate(policy.nextRunAt)}`;
+  }
+
+  if (policy.lastRunAt) {
+    return `snapshot ${policy.interval} last ${formatShortDate(policy.lastRunAt)}`;
+  }
+
+  return `snapshot ${policy.interval}`;
+}
+
+function formatShortDate(value: string): string {
+  return format(new Date(value), 'MM-dd HH:mm');
 }

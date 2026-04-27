@@ -7,6 +7,7 @@ import { getPublicIP, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices } from '../../utils/service-factory';
 import { getBranchHealth } from '../../services/branch-health-service';
+import type { SnapshotPolicy } from '../../types/state';
 
 export async function branchGetCommand(name: string) {
   const namespace = parseNamespace(name);
@@ -38,6 +39,7 @@ export async function branchGetCommand(name: string) {
   console.log(chalk.dim('  Port         '), branch.port.toString());
   console.log(chalk.dim('  Size         '), health.sizeBytes === null ? 'unknown' : formatBytes(health.sizeBytes));
   console.log(chalk.dim('  Idle stop    '), formatIdleStop(branch.idleStop));
+  console.log(chalk.dim('  Snapshots    '), formatSnapshotPolicy(branch.snapshotPolicy));
   console.log(chalk.dim('  Created      '), new Date(branch.createdAt).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'));
   if (branch.parentBranchId) {
     const parentBranch = project.branches.find(b => b.id === branch.parentBranchId);
@@ -62,6 +64,32 @@ export async function branchGetCommand(name: string) {
     publicIP
   ));
   console.log();
+}
+
+function formatSnapshotPolicy(policy: SnapshotPolicy | undefined): string {
+  if (!policy?.enabled) {
+    return 'disabled';
+  }
+
+  const parts = [
+    `enabled (${policy.interval})`,
+    `snapshot retention ${policy.retentionDays}d`,
+    `WAL retention ${policy.walRetentionDays}d`,
+  ];
+
+  if (policy.lastRunAt) {
+    parts.push(`last run ${policy.lastRunAt}`);
+  }
+
+  if (policy.nextRunAt) {
+    parts.push(`next run ${policy.nextRunAt}`);
+  }
+
+  if (policy.lastFailure) {
+    parts.push(`failure: ${policy.lastFailure}`);
+  }
+
+  return parts.join(', ');
 }
 
 function formatIdleStop(idleStop: { enabled: boolean; idleMinutes: number; lastActiveAt?: string; stoppedReason?: string } | undefined): string {
