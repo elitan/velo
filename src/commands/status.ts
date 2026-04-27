@@ -3,9 +3,8 @@ import chalk from 'chalk';
 import { format } from 'date-fns';
 import { formatBytes } from '../utils/helpers';
 import { TOOL_NAME } from '../config/constants';
-import { getBranchContainerName } from '../utils/naming';
-import { parseNamespace } from '../utils/namespace';
 import { initializeServices } from '../utils/service-factory';
+import { getBranchHealth, type BranchHealth } from '../services/branch-health-service';
 
 function formatUptime(startedAt: Date | null): string {
   if (!startedAt) return 'N/A';
@@ -33,7 +32,7 @@ export async function statusCommand() {
   console.log(chalk.bold(`${TOOL_NAME} Status`));
   console.log();
 
-  const { state, zfs, docker } = await initializeServices();
+  const { state, zfs, docker, wal } = await initializeServices();
 
   // Get pool status
   const poolStatus = await zfs.getPoolStatus();
@@ -73,7 +72,7 @@ export async function statusCommand() {
 
   // Create table for all instances (primaries + branches)
   const instanceTable = new Table({
-    head: ['', 'Name', 'Type', 'Image', 'Branches', 'Created'],
+    head: ['', 'Name', 'State', 'Health', 'Image / Port', 'Branches / Size', 'Created'],
     style: {
       head: [],
       border: ['gray']
@@ -86,6 +85,7 @@ export async function statusCommand() {
       '●',
       chalk.bold(proj.name),
       'project',
+      chalk.dim('—'),
       chalk.dim(proj.dockerImage),
       proj.branches.length.toString(),
       formatDate(proj.createdAt)
@@ -93,41 +93,25 @@ export async function statusCommand() {
 
     // Add branches
     for (const branch of proj.branches) {
-      // Get branch container status
-      const namespace = parseNamespace(branch.name);
-      const containerName = getBranchContainerName(branch);
-      let branchContainerStatus = null;
-      const branchContainerID = await docker.getContainerByName(containerName);
-      if (branchContainerID) {
-        try {
-          branchContainerStatus = await docker.getContainerStatus(branchContainerID);
-        } catch {
-          // Container doesn't exist
-        }
-      }
+      const health = await getBranchHealth(branch, { zfs, docker, wal });
+      const branchStatusIcon = getHealthIcon(health);
+      const observedText = health.observedStatus === 'running' && health.startedAt
+        ? `running ${formatUptime(health.startedAt)}`
+        : health.observedStatus;
+      const portText = health.port ?? branch.port;
+      const sizeText = health.sizeBytes === null
+        ? chalk.dim(health.reason === 'DatasetMissing' ? 'missing' : 'unknown')
+        : formatBytes(health.sizeBytes);
+      const healthText = formatHealth(health);
+      const stateText = `${branch.status} | ${observedText}`;
 
-      const actualBranchStatus = branchContainerStatus ? branchContainerStatus.state : branch.status;
-      const branchStatusIcon = actualBranchStatus === 'running' ? '●' : '○';
-      const branchStatusText = actualBranchStatus === 'running' ? 'running' : actualBranchStatus;
-      const branchUptime = branchContainerStatus?.state === 'running' && branchContainerStatus.startedAt
-        ? formatUptime(branchContainerStatus.startedAt)
-        : chalk.dim('—');
-
-      // Query size on-demand from ZFS
-      let sizeBytes = 0;
-      try {
-        sizeBytes = await zfs.getUsedSpace(branch.zfsDataset);
-      } catch {
-        // If dataset doesn't exist, show 0
-      }
-
-      // Branch row with different columns
       instanceTable.push([
         branchStatusIcon,
         chalk.dim('  ↳ ') + branch.name,
-        `${branchStatusText} | ${branchUptime}`,
-        `Port ${branch.port}`,
-        formatBytes(sizeBytes),
+        stateText,
+        healthText,
+        portText ? `Port ${portText}` : chalk.dim('missing'),
+        sizeText,
         formatDate(branch.createdAt)
       ]);
     }
@@ -135,4 +119,24 @@ export async function statusCommand() {
 
   console.log(instanceTable.toString());
   console.log();
+}
+
+function getHealthIcon(health: BranchHealth): string {
+  if (health.status === 'healthy') {
+    return health.observedStatus === 'running' ? '●' : '○';
+  }
+
+  return health.status === 'critical' ? '✗' : '!';
+}
+
+function formatHealth(health: BranchHealth): string {
+  if (health.reason === 'Healthy') {
+    return chalk.green('Healthy');
+  }
+
+  if (health.status === 'critical') {
+    return chalk.red(health.reason);
+  }
+
+  return chalk.yellow(health.reason);
 }

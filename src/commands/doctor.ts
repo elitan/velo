@@ -3,6 +3,7 @@ import { $ } from 'bun';
 import { StateManager } from '../managers/state';
 import { DockerManager } from '../managers/docker';
 import { ZFSManager } from '../managers/zfs';
+import { WALManager } from '../managers/wal';
 import { PATHS } from '../utils/paths';
 import { DEFAULTS } from '../config/defaults';
 import { getZFSPool } from '../utils/zfs-pool';
@@ -12,6 +13,7 @@ import { CLI_NAME } from '../config/constants';
 import { detectOrphans } from '../utils/orphan-detection';
 import { formatBytes } from '../utils/helpers';
 import { getStateInfo } from '../services/state-info-service';
+import { getBranchHealth } from '../services/branch-health-service';
 
 interface CheckResult {
   name: string;
@@ -81,6 +83,7 @@ export async function doctorCommand() {
     await checkWALDirectory(),
     await checkProjects(),
     await checkContainers(),
+    await checkBranchHealth(),
   ];
   allResults.push(...stateResults);
   printResults(stateResults);
@@ -783,6 +786,91 @@ async function checkContainers(): Promise<CheckResult> {
       name: 'Docker Containers',
       status: 'warn',
       message: 'Unable to list containers',
+    };
+  }
+}
+
+async function checkBranchHealth(): Promise<CheckResult> {
+  try {
+    const state = new StateManager(PATHS.STATE);
+    await state.load();
+
+    if (!state.isInitialized()) {
+      return {
+        name: 'Branch Health',
+        status: 'info',
+        message: 'No branches yet',
+      };
+    }
+
+    const stateData = state.getState();
+    const branches = stateData.projects.flatMap(function getBranches(project) {
+      return project.branches;
+    });
+
+    if (branches.length === 0) {
+      return {
+        name: 'Branch Health',
+        status: 'info',
+        message: 'No branches',
+      };
+    }
+
+    const zfs = new ZFSManager(stateData.zfsPool, stateData.zfsDatasetBase);
+    const docker = new DockerManager();
+    const wal = new WALManager();
+    const details: string[] = [];
+    let failed = 0;
+    let warnings = 0;
+
+    for (const branch of branches) {
+      const health = await getBranchHealth(branch, { zfs, docker, wal });
+
+      if (health.status === 'healthy') {
+        continue;
+      }
+
+      if (health.status === 'critical') {
+        failed++;
+      } else {
+        warnings++;
+      }
+
+      details.push(`${branch.name}: ${health.reason} - ${health.message}`);
+
+      if (health.hint) {
+        details.push(`  ${health.hint}`);
+      }
+    }
+
+    if (failed > 0) {
+      return {
+        name: 'Branch Health',
+        status: 'fail',
+        message: `${failed} critical, ${warnings} warning(s)`,
+        details,
+      };
+    }
+
+    if (warnings > 0) {
+      return {
+        name: 'Branch Health',
+        status: 'warn',
+        message: `${warnings} warning(s)`,
+        details,
+      };
+    }
+
+    return {
+      name: 'Branch Health',
+      status: 'pass',
+      message: `${branches.length} healthy branch(es)`,
+    };
+  } catch (error: any) {
+    return {
+      name: 'Branch Health',
+      status: 'warn',
+      message: error.message || 'Unable to check branch health',
     };
   }
 }
