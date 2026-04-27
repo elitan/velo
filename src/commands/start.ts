@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { getBranchContainerName } from '../utils/naming';
 import { UserError } from '../errors';
 import { withProgress } from '../utils/progress';
-import { getPublicIP, formatConnectionString } from '../utils/network';
+import { getPublicIPForBranch, formatConnectionString } from '../utils/network';
 import { CLI_NAME } from '../config/constants';
 import { initializeServices } from '../utils/service-factory';
 
@@ -58,8 +58,7 @@ export async function startCommand(name: string) {
   }
   await state.branches.update(project.id, branch);
 
-  // Get public IP for remote connection info
-  const publicIP = await getPublicIP();
+  const publicIP = await getPublicIPForBranch(branch);
 
   console.log();
   console.log(chalk.bold('Branch started'));

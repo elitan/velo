@@ -31,6 +31,7 @@ export interface Branch {
   port: number;
   createdAt: string;
   status: 'running' | 'stopped' | 'created';
+  publicAccess?: boolean;                    // true binds PostgreSQL to all host interfaces
   sizeBytes?: number;                        // Dataset size in bytes (optional, populated on create/reset)
   idleStop?: IdleStopPolicy;
   snapshotPolicy?: SnapshotPolicy;

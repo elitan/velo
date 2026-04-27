@@ -5,7 +5,7 @@ import { parseNamespace, getMainBranch } from '../../utils/namespace';
 import { parseRecoveryTime, formatDate } from '../../utils/time';
 import { UserError } from '../../errors';
 import { getBranchContainerName, getContainerName, getDatasetName, getDatasetPathFromName } from '../../utils/naming';
-import { getPublicIP, formatConnectionString } from '../../utils/network';
+import { getPublicIPForBranch, formatConnectionString } from '../../utils/network';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 import { selectSnapshotForPITR } from '../../services/pitr-service';
 import { createApplicationConsistentSnapshot } from '../../services/snapshot-service';
@@ -14,6 +14,7 @@ import { OperationRunner } from '../../utils/operation-runner';
 export interface BranchCreateOptions {
   parent?: string;
   pitr?: string;  // Point-in-time recovery target
+  public?: boolean;
 }
 
 export async function branchCreateCommand(targetName: string, options: BranchCreateOptions = {}) {
@@ -75,6 +76,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
   let mountpoint: string;
   let port = 0;
   let containerID: string | undefined;
+  let branch: Branch | null = null;
 
   await operation.run(async function runOperation() {
     if (options.pitr && recoveryTarget) {
@@ -157,6 +159,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
         password: sourceProject.credentials.password,
         username: sourceProject.credentials.username,
         database: sourceProject.credentials.database,
+        publicAccess: options.public === true,
       });
 
       operation.addRollback(async function rollbackContainer() {
@@ -174,7 +177,7 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
 
     const sizeBytes = await zfs.getUsedSpace(targetDatasetName);
 
-    const branch: Branch = {
+    branch = {
       id: generateUUID(),
       name: target.full,
       projectName: target.project,
@@ -187,13 +190,17 @@ export async function branchCreateCommand(targetName: string, options: BranchCre
       createdAt: new Date().toISOString(),
       sizeBytes,
       status: 'running',
+      publicAccess: options.public === true,
     };
 
     await state.branches.add(sourceProject.id, branch);
   });
 
-  // Get public IP for remote connection info
-  const publicIP = await getPublicIP();
+  if (!branch) {
+    throw new UserError('Branch state was not created');
+  }
+
+  const publicIP = await getPublicIPForBranch(branch);
 
   console.log();
   console.log(chalk.bold(`Branch '${target.full}' created`));

@@ -16,7 +16,7 @@ import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
 import * as fs from 'fs/promises';
 import { getContainerName, getDatasetName } from '../../utils/naming';
-import { getPublicIP, formatConnectionString } from '../../utils/network';
+import { getPublicIPForBranch, formatConnectionString } from '../../utils/network';
 import { ResourceService } from '../../services/resource-service';
 import { OperationRunner } from '../../utils/operation-runner';
 
@@ -24,6 +24,7 @@ interface CreateOptions {
   pool?: string;
   version?: string;
   image?: string;
+  public?: boolean;
 }
 
 export async function projectCreateCommand(name: string, options: CreateOptions = {}) {
@@ -118,6 +119,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
   let certPaths: { certDir: string };
   let containerID: string;
   let sizeBytes: number;
+  let mainBranch: Branch | null = null;
 
   await operation.run(async function runOperation() {
     await operation.step(`Create dataset ${mainBranchName}`, async function createDataset() {
@@ -174,6 +176,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
         password,
         username: 'postgres',
         database: 'postgres',
+        publicAccess: options.public === true,
       });
 
       operation.addRollback(async function rollbackContainer() {
@@ -193,7 +196,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
     sizeBytes = await zfs.getUsedSpace(mainDatasetName);
 
     // Create main branch
-    const mainBranch: Branch = {
+    mainBranch = {
       id: generateUUID(),
       name: mainBranchName,
       projectName: name,
@@ -206,6 +209,7 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
       createdAt: new Date().toISOString(),
       sizeBytes,
       status: 'running',
+      publicAccess: options.public === true,
     };
 
     // Create project record with main branch
@@ -226,8 +230,11 @@ export async function projectCreateCommand(name: string, options: CreateOptions 
     await state.projects.add(project);
   });
 
-  // Get public IP for remote connection info
-  const publicIP = await getPublicIP();
+  if (!mainBranch) {
+    throw new UserError('Project branch state was not created');
+  }
+
+  const publicIP = await getPublicIPForBranch(mainBranch);
 
   console.log();
   console.log(chalk.bold(`Project '${name}' created`));

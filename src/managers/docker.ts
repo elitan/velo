@@ -12,6 +12,7 @@ export interface PostgresConfig {
   password: string;
   username: string;
   database: string;
+  publicAccess?: boolean;
 }
 
 export interface ContainerStatus {
@@ -63,10 +64,9 @@ export class DockerManager {
       },
       HostConfig: {
         PortBindings: {
-          // Bind to all interfaces (0.0.0.0) to make databases publicly accessible
           // Use port 0 to let Docker assign an available port, or use specific port if provided
           '5432/tcp': [{
-            HostIp: '0.0.0.0',
+            HostIp: getPostgresHostIp(config),
             HostPort: config.port === 0 ? '' : config.port.toString()
           }],
         },
@@ -305,4 +305,12 @@ export class DockerManager {
       throw error;
     }
   }
+}
+
+export function getPostgresHostIp(config: Pick<PostgresConfig, 'publicAccess'>): string {
+  if (config.publicAccess === true) {
+    return '0.0.0.0';
+  }
+
+  return '127.0.0.1';
 }

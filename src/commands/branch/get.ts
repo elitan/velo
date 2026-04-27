@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import { formatBytes } from '../../utils/helpers';
 import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
-import { getPublicIP, formatConnectionString } from '../../utils/network';
+import { getPublicIPForBranch, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices } from '../../utils/service-factory';
 import { getBranchHealth } from '../../services/branch-health-service';
@@ -51,8 +51,7 @@ export async function branchGetCommand(name: string) {
     const snapshotShortName = branch.snapshotName.split('@')[1];
     console.log(chalk.dim('  Snapshot     '), snapshotShortName);
   }
-  // Get public IP for remote connection info
-  const publicIP = await getPublicIP();
+  const publicIP = await getPublicIPForBranch(branch);
 
   console.log();
   console.log(chalk.bold('Connection:'));

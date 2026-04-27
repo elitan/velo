@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { parseNamespace } from '../../utils/namespace';
 import { UserError } from '../../errors';
-import { getPublicIP, formatConnectionString } from '../../utils/network';
+import { getPublicIPForBranch, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices } from '../../utils/service-factory';
 
@@ -20,8 +20,7 @@ export async function branchPasswordCommand(name: string) {
 
   const { branch, project } = result;
 
-  // Get public IP for remote connection info
-  const publicIP = await getPublicIP();
+  const publicIP = await getPublicIPForBranch(branch);
 
   console.log();
   console.log(chalk.bold(`Connection details for ${name}`));
