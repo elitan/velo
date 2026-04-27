@@ -240,8 +240,8 @@ zpool list  # Check existing pools
 # For testing: sudo truncate -s 10G /tmp/zfs-pool.img && sudo zpool create tank /tmp/zfs-pool.img
 # For production: sudo zpool create tank /dev/sdb
 
-# 2. Run velo setup (grants permissions, configures Docker)
-sudo velo setup
+# 2. Run velo setup (uses sudo internally)
+velo setup
 
 # 3. Log out and log back in (required for group membership to take effect)
 
@@ -253,6 +253,7 @@ velo project create myapp
 **What `velo setup` does:**
 - Auto-detects ZFS pool (or prompts if multiple exist)
 - Grants ZFS delegation permissions (90% of operations run without sudo)
+- Uses sudo internally for setup tasks that need elevated permissions
 - Adds user to docker group
 - Creates `velo` group and adds current user
 - Installs minimal sudoers config for mount/unmount operations only
@@ -270,15 +271,16 @@ velo project create myapp
 
 **Permission setup** (one-time, required before first use):
 ```bash
-sudo velo setup
+velo setup
 ```
 
 The setup command:
 1. Auto-detects ZFS pool (or prompts if multiple exist)
 2. Grants ZFS delegation permissions (90% of operations run without sudo)
-3. Adds user to docker group
-4. Creates `velo` group and adds current user
-5. Installs minimal sudoers config for mount/unmount operations only
+3. Uses sudo internally for setup tasks that need elevated permissions
+4. Adds user to docker group
+5. Creates `velo` group and adds current user
+6. Installs minimal sudoers config for mount/unmount operations only
 
 **Security model:**
 - 90% of ZFS operations use delegation (no sudo)

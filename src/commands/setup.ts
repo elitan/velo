@@ -8,16 +8,31 @@ import { DEFAULTS } from '../config/defaults';
  * Setup command - grants ZFS permissions and configures Docker access
  * This command runs as a normal user and uses sudo internally for operations that need elevated privileges
  */
-export async function setupCommand() {
-  // Get the current user
-  const actualUser = process.env.USER;
+export function getSetupUser(
+  env: Record<string, string | undefined> = process.env,
+  getuid: (() => number) | undefined = process.getuid,
+) {
+  const effectiveUid = getuid?.();
+  const user = env.USER;
 
-  if (!actualUser || actualUser === 'root') {
+  if (effectiveUid === 0 || !user || user === 'root') {
+    return null;
+  }
+
+  return user;
+}
+
+export async function setupCommand() {
+  const actualUser = getSetupUser();
+
+  if (!actualUser) {
     console.log();
     console.log('✗ Please run this command as a regular user, not as root');
     console.log();
-    console.log('Usage:');
+    console.log('Run:');
     console.log(`  ${CLI_NAME} setup`);
+    console.log();
+    console.log('Setup uses sudo internally when needed.');
     console.log();
     process.exit(1);
   }
