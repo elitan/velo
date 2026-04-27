@@ -3,7 +3,7 @@ import { createApplicationConsistentSnapshot } from '../../services/snapshot-ser
 import { getBranchContainerName, getDatasetPathFromName } from '../../utils/naming';
 import { UserError } from '../../errors';
 import { withProgress } from '../../utils/progress';
-import { getPublicIP, formatConnectionString } from '../../utils/network';
+import { getPublicIPForBranch, formatConnectionString } from '../../utils/network';
 import { CLI_NAME } from '../../config/constants';
 import { initializeServices, getBranchWithProject } from '../../utils/service-factory';
 import { OperationRunner } from '../../utils/operation-runner';
@@ -113,6 +113,7 @@ export async function branchResetCommand(name: string, options: { force?: boolea
         password: project.credentials.password,
         username: project.credentials.username,
         database: project.credentials.database,
+        publicAccess: originalBranch.publicAccess === true,
       });
 
       await docker.startContainer(id);
@@ -163,6 +164,7 @@ export async function branchResetCommand(name: string, options: { force?: boolea
         password: project.credentials.password,
         username: project.credentials.username,
         database: project.credentials.database,
+        publicAccess: branch.publicAccess === true,
       });
 
       operation.addRollback(async function rollbackNewContainer() {
@@ -202,8 +204,7 @@ export async function branchResetCommand(name: string, options: { force?: boolea
     await resources.destroyDataset(backupDatasetName).catch(function ignoreError() {});
   });
 
-  // Get public IP for remote connection info
-  const publicIP = await getPublicIP();
+  const publicIP = await getPublicIPForBranch(branch);
 
   console.log();
   console.log(chalk.bold('Branch reset'));

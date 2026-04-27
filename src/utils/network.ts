@@ -1,4 +1,4 @@
-import { $ } from 'bun';
+import type { Branch } from '../types/state';
 
 // Cache public IP for the session to avoid repeated network lookups
 let cachedPublicIP: string | null | undefined = undefined;
@@ -52,6 +52,14 @@ export async function getPublicIP(): Promise<string | null> {
     cachedPublicIP = null;
     return null;
   }
+}
+
+export async function getPublicIPForBranch(branch: Branch): Promise<string | null> {
+  if (branch.publicAccess !== true) {
+    return null;
+  }
+
+  return await getPublicIP();
 }
 
 /**

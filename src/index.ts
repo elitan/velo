@@ -68,7 +68,11 @@ projectCommand
   .option('--pool <name>', 'ZFS pool to use (auto-detected if not specified)')
   .option('--pg-version <version>', 'PostgreSQL version (e.g., 17, 16)')
   .option('--image <image>', 'Custom Docker image (e.g., ankane/pgvector:17)')
-  .action(wrapCommand(async (name: string, options: { pool?: string; pgVersion?: string; image?: string }) => {
+  .option('--public', 'bind PostgreSQL to all host interfaces')
+  .action(wrapCommand(async function createProjectAction(
+    name: string,
+    options: { pool?: string; pgVersion?: string; image?: string; public?: boolean }
+  ) {
     // Map pgVersion to version for backwards compat
     const opts = { ...options, version: options.pgVersion };
     await projectCreateCommand(name, opts);
@@ -113,7 +117,11 @@ branchCommand
   .argument('<name>', 'branch name in format: <project>/<branch>')
   .option('--parent <parent>', 'parent branch (defaults to <project>/main)')
   .option('--pitr <time>', 'recover to point in time (e.g., "2025-10-07T14:30:00Z", "2 hours ago")')
-  .action(wrapCommand(async (name: string, options: { parent?: string; pitr?: string }) => {
+  .option('--public', 'bind PostgreSQL to all host interfaces')
+  .action(wrapCommand(async function createBranchAction(
+    name: string,
+    options: { parent?: string; pitr?: string; public?: boolean }
+  ) {
     await branchCreateCommand(name, options);
   }));
 
