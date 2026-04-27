@@ -28,6 +28,12 @@ import { cleanupCommand } from './commands/cleanup';
 import { setupCommand } from './commands/setup';
 import { stateRestoreCommand } from './commands/state/restore';
 import { stateInfoCommand } from './commands/state/info';
+import {
+  idleStopDisableCommand,
+  idleStopEnableCommand,
+  idleStopListCommand,
+  idleStopRunCommand,
+} from './commands/lifecycle/idle-stop';
 import { wrapCommand } from './utils/command-wrapper';
 import packageJson from '../package.json';
 
@@ -277,6 +283,49 @@ program
   .description('One-time setup: grant ZFS permissions and configure Docker (requires sudo)')
   .action(wrapCommand(async () => {
     await setupCommand();
+  }));
+
+const lifecycleCommand = program
+  .command('lifecycle')
+  .description('Manage branch lifecycle policies');
+
+const idleStopCommand = lifecycleCommand
+  .command('idle-stop')
+  .description('Manage idle auto-stop policies');
+
+idleStopCommand
+  .command('enable')
+  .description('Enable idle auto-stop for a branch')
+  .argument('<branch>', 'branch name in format: <project>/<branch>')
+  .requiredOption('--minutes <minutes>', 'idle minutes before stopping')
+  .action(wrapCommand(async (branch: string, options: { minutes: string }) => {
+    await idleStopEnableCommand(branch, {
+      minutes: parseInt(options.minutes, 10),
+    });
+  }));
+
+idleStopCommand
+  .command('disable')
+  .description('Disable idle auto-stop for a branch')
+  .argument('<branch>', 'branch name in format: <project>/<branch>')
+  .action(wrapCommand(async (branch: string) => {
+    await idleStopDisableCommand(branch);
+  }));
+
+idleStopCommand
+  .command('list')
+  .description('List idle auto-stop policies')
+  .action(wrapCommand(async () => {
+    await idleStopListCommand();
+  }));
+
+idleStopCommand
+  .command('run')
+  .description('Apply idle auto-stop policies')
+  .argument('[branch]', 'branch name in format: <project>/<branch>')
+  .option('--dry-run', 'show what would happen without stopping branches')
+  .action(wrapCommand(async (branch: string | undefined, options: { dryRun?: boolean }) => {
+    await idleStopRunCommand(branch, options);
   }));
 
 // ============================================================================

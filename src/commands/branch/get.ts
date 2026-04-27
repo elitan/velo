@@ -37,6 +37,7 @@ export async function branchGetCommand(name: string) {
   console.log(chalk.dim('  Observed     '), health.observedStatus);
   console.log(chalk.dim('  Port         '), branch.port.toString());
   console.log(chalk.dim('  Size         '), health.sizeBytes === null ? 'unknown' : formatBytes(health.sizeBytes));
+  console.log(chalk.dim('  Idle stop    '), formatIdleStop(branch.idleStop));
   console.log(chalk.dim('  Created      '), new Date(branch.createdAt).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC'));
   if (branch.parentBranchId) {
     const parentBranch = project.branches.find(b => b.id === branch.parentBranchId);
@@ -61,4 +62,22 @@ export async function branchGetCommand(name: string) {
     publicIP
   ));
   console.log();
+}
+
+function formatIdleStop(idleStop: { enabled: boolean; idleMinutes: number; lastActiveAt?: string; stoppedReason?: string } | undefined): string {
+  if (!idleStop?.enabled) {
+    return 'disabled';
+  }
+
+  const parts = [`enabled (${idleStop.idleMinutes}m)`];
+
+  if (idleStop.lastActiveAt) {
+    parts.push(`last active ${idleStop.lastActiveAt}`);
+  }
+
+  if (idleStop.stoppedReason) {
+    parts.push(`stopped: ${idleStop.stoppedReason}`);
+  }
+
+  return parts.join(', ');
 }

@@ -44,6 +44,10 @@ export async function restartCommand(name: string) {
 
   branch.status = 'running';
   branch.port = actualPort;
+  if (branch.idleStop) {
+    branch.idleStop.lastActiveAt = new Date().toISOString();
+    branch.idleStop.stoppedReason = undefined;
+  }
   await state.branches.update(project.id, branch);
 
   // Get public IP for remote connection info

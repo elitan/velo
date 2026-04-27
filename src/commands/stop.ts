@@ -43,6 +43,9 @@ export async function stopCommand(name: string) {
 
   // Update state
   branch.status = 'stopped';
+  if (branch.idleStop) {
+    branch.idleStop.stoppedReason = 'manual';
+  }
   await state.branches.update(project.id, branch);
 
   console.log();

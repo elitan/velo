@@ -23,7 +23,7 @@ describe('State migration', function () {
     await state.initialize('tank', 'velo/databases');
 
     const stateData = state.getState();
-    expect(stateData.schemaVersion).toBe(2);
+    expect(stateData.schemaVersion).toBe(3);
   });
 
   test('migrates legacy state on load and keeps a backup', async function () {
@@ -69,13 +69,13 @@ describe('State migration', function () {
     const stateData = state.getState();
     const branch = stateData.projects[0]!.branches[0]!;
 
-    expect(stateData.schemaVersion).toBe(2);
+    expect(stateData.schemaVersion).toBe(3);
     expect(stateData.zfsDatasetBase).toBe('velo/databases');
     expect(branch.zfsDataset).toBe('api-main');
     expect(branch.containerName).toBe('velo-api-main');
 
     const persisted = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-    expect(persisted.schemaVersion).toBe(2);
+    expect(persisted.schemaVersion).toBe(3);
     expect(persisted.projects[0].branches[0].containerName).toBe('velo-api-main');
 
     const backup = JSON.parse(await fs.readFile(backupFile, 'utf-8'));

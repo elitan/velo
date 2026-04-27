@@ -72,7 +72,7 @@ export async function statusCommand() {
 
   // Create table for all instances (primaries + branches)
   const instanceTable = new Table({
-    head: ['', 'Name', 'State', 'Health', 'Image / Port', 'Branches / Size', 'Created'],
+    head: ['', 'Name', 'State', 'Health', 'Lifecycle', 'Image / Port', 'Branches / Size', 'Created'],
     style: {
       head: [],
       border: ['gray']
@@ -85,6 +85,7 @@ export async function statusCommand() {
       '●',
       chalk.bold(proj.name),
       'project',
+      chalk.dim('—'),
       chalk.dim('—'),
       chalk.dim(proj.dockerImage),
       proj.branches.length.toString(),
@@ -110,6 +111,7 @@ export async function statusCommand() {
         chalk.dim('  ↳ ') + branch.name,
         stateText,
         healthText,
+        formatLifecycle(branch.idleStop),
         portText ? `Port ${portText}` : chalk.dim('missing'),
         sizeText,
         formatDate(branch.createdAt)
@@ -139,4 +141,16 @@ function formatHealth(health: BranchHealth): string {
   }
 
   return chalk.yellow(health.reason);
+}
+
+function formatLifecycle(idleStop: { enabled: boolean; idleMinutes: number; stoppedReason?: string } | undefined): string {
+  if (!idleStop?.enabled) {
+    return chalk.dim('—');
+  }
+
+  if (idleStop.stoppedReason) {
+    return `idle-stop ${idleStop.idleMinutes}m (${idleStop.stoppedReason})`;
+  }
+
+  return `idle-stop ${idleStop.idleMinutes}m`;
 }

@@ -193,7 +193,7 @@ async function getDatasetSize(branch: Branch, zfs: HealthZfs): Promise<number | 
 
 async function defaultFileExists(path: string): Promise<boolean> {
   try {
-    await fs.access(path);
+    await fs.stat(path);
     return true;
   } catch {
     return false;

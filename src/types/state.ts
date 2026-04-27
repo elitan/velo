@@ -32,6 +32,14 @@ export interface Branch {
   createdAt: string;
   status: 'running' | 'stopped' | 'created';
   sizeBytes?: number;                        // Dataset size in bytes (optional, populated on create/reset)
+  idleStop?: IdleStopPolicy;
+}
+
+export interface IdleStopPolicy {
+  enabled: boolean;
+  idleMinutes: number;
+  lastActiveAt?: string;
+  stoppedReason?: 'idle-timeout' | 'manual';
 }
 
 export interface Credentials {
