@@ -9,6 +9,7 @@ import { CURRENT_STATE_SCHEMA_VERSION, migrateState } from './state-migration';
 export class StateManager {
   private state: State | null = null;
   private lockFile: string;
+  private operationLockFile: string;
 
   // Lazy-initialized repositories
   private _projects: ProjectRepository | null = null;
@@ -17,6 +18,7 @@ export class StateManager {
 
   constructor(private filePath: string) {
     this.lockFile = `${filePath}.lock`;
+    this.operationLockFile = `${filePath}.operation.lock`;
   }
 
   // Repository accessors (lazy initialization)
@@ -161,6 +163,20 @@ export class StateManager {
     }
   }
 
+  async withOperationLock<T>(operation: () => Promise<T>): Promise<T> {
+    await this.acquireFileLock(
+      this.operationLockFile,
+      'Another velo command is changing state',
+      'Wait for it to finish, then try again.'
+    );
+
+    try {
+      return await operation();
+    } finally {
+      await this.releaseFileLock(this.operationLockFile);
+    }
+  }
+
   async hasBackup(): Promise<boolean> {
     const backupFile = `${this.filePath}.backup`;
     try {
@@ -257,23 +273,36 @@ export class StateManager {
   }
 
   private async acquireLock(): Promise<void> {
+    await this.acquireFileLock(
+      this.lockFile,
+      'Failed to acquire state lock after 5 seconds',
+      'Another velo process may be running. Try again in a moment.'
+    );
+  }
+
+  private async acquireFileLock(lockFile: string, message: string, hint: string): Promise<void> {
     const maxAttempts = 50; // 5 seconds total (50 * 100ms)
+    const dir = lockFile.substring(0, lockFile.lastIndexOf('/'));
+
+    if (dir) {
+      await fs.mkdir(dir, { recursive: true });
+    }
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        await fs.writeFile(this.lockFile, process.pid.toString(), { flag: 'wx' });
+        await fs.writeFile(lockFile, process.pid.toString(), { flag: 'wx' });
         return;
       } catch (error: any) {
         if (error.code === 'EEXIST') {
           // Check if lock is stale
           try {
-            const lockPid = parseInt(await fs.readFile(this.lockFile, 'utf-8'), 10);
+            const lockPid = parseInt(await fs.readFile(lockFile, 'utf-8'), 10);
             if (!isNaN(lockPid)) {
               try {
                 process.kill(lockPid, 0); // Check if process exists
               } catch {
                 // Process doesn't exist, remove stale lock
-                await fs.unlink(this.lockFile).catch(() => {});
+                await fs.unlink(lockFile).catch(() => {});
                 continue; // Try again immediately
               }
             }
@@ -287,15 +316,16 @@ export class StateManager {
       }
     }
 
-    throw new SystemError(
-      'Failed to acquire state lock after 5 seconds',
-      'Another velo process may be running. Try again in a moment.'
-    );
+    throw new SystemError(message, hint);
   }
 
   private async releaseLock(): Promise<void> {
+    await this.releaseFileLock(this.lockFile);
+  }
+
+  private async releaseFileLock(lockFile: string): Promise<void> {
     try {
-      await fs.unlink(this.lockFile);
+      await fs.unlink(lockFile);
     } catch (error) {
       // Ignore errors
     }

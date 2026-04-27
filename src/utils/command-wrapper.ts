@@ -1,5 +1,11 @@
 import chalk from 'chalk';
 import { UserError, SystemError } from '../errors';
+import { StateManager } from '../managers/state';
+import { PATHS } from './paths';
+
+export interface CommandWrapperOptions {
+  operationLock?: boolean;
+}
 
 /**
  * Wraps command functions with consistent error handling.
@@ -19,11 +25,19 @@ import { UserError, SystemError } from '../errors';
  * ```
  */
 export function wrapCommand<T extends any[]>(
-  fn: (...args: T) => Promise<void>
+  fn: (...args: T) => Promise<void>,
+  options: CommandWrapperOptions = {}
 ): (...args: T) => Promise<void> {
-  return async (...args: T) => {
+  return async function wrappedCommand(...args: T) {
     try {
-      await fn(...args);
+      if (options.operationLock) {
+        const state = new StateManager(PATHS.STATE);
+        await state.withOperationLock(async function runLockedCommand() {
+          await fn(...args);
+        });
+      } else {
+        await fn(...args);
+      }
     } catch (error) {
       if (error instanceof UserError) {
         console.error(chalk.red('✗'), error.message);
