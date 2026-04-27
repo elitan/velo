@@ -370,8 +370,8 @@ program
 
 program
   .command('setup')
-  .description('One-time setup: grant ZFS permissions and configure Docker (requires sudo)')
-  .action(wrapCommand(async () => {
+  .description('One-time setup: grant ZFS permissions and configure Docker (uses sudo internally)')
+  .action(wrapCommand(async function () {
     await setupCommand();
   }));
 

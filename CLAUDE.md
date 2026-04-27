@@ -128,7 +128,7 @@ A **project** is a logical grouping of branches (like a Git repo), and each **br
 **Global commands**:
 - `status` - Show status of all projects and branches
 - `doctor` - Run comprehensive health checks and diagnostics
-- `setup` - One-time setup: grant ZFS permissions and configure Docker (requires sudo)
+- `setup` - One-time setup: grant ZFS permissions and configure Docker (uses sudo internally)
 
 ### Manager Classes
 
