@@ -27,6 +27,10 @@ export interface DockerManagerOptions {
   socketPath?: string;
 }
 
+export function buildPostgresArchiveCommand(archivePath: string): string {
+  return `if [ ! -f ${archivePath}/%f ]; then cp %p ${archivePath}/%f; else cmp -s %p ${archivePath}/%f; fi`;
+}
+
 export class DockerManager {
   private docker: Dockerode;
 
@@ -51,7 +55,7 @@ export class DockerManager {
         'postgres',
         '-c', 'wal_level=replica',
         '-c', 'archive_mode=on',
-        '-c', "archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f",
+        '-c', `archive_command=${buildPostgresArchiveCommand('/wal-archive')}`,
         '-c', 'max_wal_senders=3',
         '-c', 'wal_keep_size=1GB',
         '-c', 'restore_command=cp /wal-archive/%f %p',
