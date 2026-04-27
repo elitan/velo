@@ -76,7 +76,7 @@ projectCommand
     // Map pgVersion to version for backwards compat
     const opts = { ...options, version: options.pgVersion };
     await projectCreateCommand(name, opts);
-  }));
+  }, { operationLock: true }));
 
 projectCommand
   .command('list')
@@ -100,7 +100,7 @@ projectCommand
   .option('-f, --force', 'force delete even if branches exist')
   .action(wrapCommand(async (name: string, options: { force?: boolean }) => {
     await projectDeleteCommand(name, options);
-  }));
+  }, { operationLock: true }));
 
 
 // ============================================================================
@@ -123,7 +123,7 @@ branchCommand
     options: { parent?: string; pitr?: string; public?: boolean }
   ) {
     await branchCreateCommand(name, options);
-  }));
+  }, { operationLock: true }));
 
 branchCommand
   .command('list')
@@ -148,7 +148,7 @@ branchCommand
   .option('-f, --force', 'delete branch and all child branches')
   .action(wrapCommand(async (name: string, options: { force?: boolean }) => {
     await branchDeleteCommand(name, options);
-  }));
+  }, { operationLock: true }));
 
 branchCommand
   .command('reset')
@@ -157,7 +157,7 @@ branchCommand
   .option('-f, --force', 'force reset even if dependent branches exist (will destroy them)')
   .action(wrapCommand(async (name: string, options: { force?: boolean }) => {
     await branchResetCommand(name, options);
-  }));
+  }, { operationLock: true }));
 
 branchCommand
   .command('password')
@@ -173,7 +173,7 @@ branchCommand
   .argument('<name>', 'branch name in format: <project>/<branch>')
   .action(wrapCommand(async (name: string) => {
     await startCommand(name);
-  }));
+  }, { operationLock: true }));
 
 branchCommand
   .command('stop')
@@ -181,7 +181,7 @@ branchCommand
   .argument('<name>', 'branch name in format: <project>/<branch>')
   .action(wrapCommand(async (name: string) => {
     await stopCommand(name);
-  }));
+  }, { operationLock: true }));
 
 branchCommand
   .command('restart')
@@ -189,7 +189,7 @@ branchCommand
   .argument('<name>', 'branch name in format: <project>/<branch>')
   .action(wrapCommand(async (name: string) => {
     await restartCommand(name);
-  }));
+  }, { operationLock: true }));
 
 // ============================================================================
 // WAL commands
@@ -218,7 +218,7 @@ walCommand
       days: options.days ? parseInt(options.days, 10) : 7,
       dryRun: options.dryRun,
     });
-  }));
+  }, { operationLock: true }));
 
 // ============================================================================
 // Snapshot commands
@@ -235,7 +235,7 @@ snapshotCommand
   .option('--label <label>', 'optional label for the snapshot')
   .action(wrapCommand(async (branch: string, options: { label?: string }) => {
     await snapshotCreateCommand(branch, options);
-  }));
+  }, { operationLock: true }));
 
 snapshotCommand
   .command('list')
@@ -251,7 +251,7 @@ snapshotCommand
   .argument('<snapshot-id>', 'snapshot ID')
   .action(wrapCommand(async (snapshotId: string) => {
     await snapshotDeleteCommand(snapshotId);
-  }));
+  }, { operationLock: true }));
 
 snapshotCommand
   .command('cleanup')
@@ -266,7 +266,7 @@ snapshotCommand
       dryRun: options.dryRun,
       all: options.all,
     });
-  }));
+  }, { operationLock: true }));
 
 const snapshotScheduleCommand = snapshotCommand
   .command('schedule')
@@ -285,7 +285,7 @@ snapshotScheduleCommand
       retentionDays: parseInt(options.retentionDays, 10),
       walRetentionDays: parseInt(options.walRetentionDays, 10),
     });
-  }));
+  }, { operationLock: true }));
 
 snapshotScheduleCommand
   .command('disable')
@@ -293,7 +293,7 @@ snapshotScheduleCommand
   .argument('<branch>', 'branch name in format: <project>/<branch>')
   .action(wrapCommand(async function (branch: string) {
     await snapshotScheduleDisableCommand(branch);
-  }));
+  }, { operationLock: true }));
 
 snapshotScheduleCommand
   .command('list')
@@ -309,7 +309,7 @@ snapshotScheduleCommand
   .option('--dry-run', 'show what would happen without creating or deleting files')
   .action(wrapCommand(async function (branch: string | undefined, options: { dryRun?: boolean }) {
     await snapshotScheduleRunCommand(branch, options);
-  }));
+  }, { operationLock: true }));
 
 const snapshotScheduleCronCommand = snapshotScheduleCommand
   .command('cron')
@@ -366,7 +366,7 @@ program
   .option('-f, --force', 'skip confirmation prompt')
   .action(wrapCommand(async (options: { dryRun?: boolean; force?: boolean }) => {
     await cleanupCommand(options);
-  }));
+  }, { operationLock: true }));
 
 program
   .command('setup')
@@ -392,7 +392,7 @@ idleStopCommand
     await idleStopEnableCommand(branch, {
       minutes: parseInt(options.minutes, 10),
     });
-  }));
+  }, { operationLock: true }));
 
 idleStopCommand
   .command('disable')
@@ -400,7 +400,7 @@ idleStopCommand
   .argument('<branch>', 'branch name in format: <project>/<branch>')
   .action(wrapCommand(async (branch: string) => {
     await idleStopDisableCommand(branch);
-  }));
+  }, { operationLock: true }));
 
 idleStopCommand
   .command('list')
@@ -416,7 +416,7 @@ idleStopCommand
   .option('--dry-run', 'show what would happen without stopping branches')
   .action(wrapCommand(async (branch: string | undefined, options: { dryRun?: boolean }) => {
     await idleStopRunCommand(branch, options);
-  }));
+  }, { operationLock: true }));
 
 // ============================================================================
 // State commands
@@ -438,6 +438,6 @@ stateCommand
   .description('Restore state from backup')
   .action(wrapCommand(async () => {
     await stateRestoreCommand();
-  }));
+  }, { operationLock: true }));
 
 program.parse();
