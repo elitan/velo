@@ -1,0 +1,98 @@
+import { z } from 'zod';
+import { publicProcedure, router } from '../trpc';
+import { checkServer, getDashboardState, saveServer } from '../services/setup-state-service';
+import { runDevBootstrap, runProdBootstrap } from '../services/bootstrap-service';
+import { createBranchFromBase } from '../services/branch-service';
+import { createReplicaBase } from '../services/replica-service';
+import { createJob, getJob, listJobs, runJob } from '../services/job-service';
+import { saveBackupSettings } from '../services/settings-service';
+
+const serverInput = z.object({
+  role: z.enum(['prod', 'dev']),
+  host: z.string().min(1),
+  sshUser: z.string().min(1),
+  sshKeyPath: z.string().min(1),
+});
+
+const backupInput = z.object({
+  enabled: z.boolean(),
+  endpoint: z.string(),
+  bucket: z.string(),
+  region: z.string(),
+  accessKeyId: z.string(),
+  secretAccessKey: z.string().optional(),
+  path: z.string(),
+});
+
+export const setupRouter = router({
+  getState: publicProcedure.query(async function getState() {
+    return getDashboardState();
+  }),
+  listJobs: publicProcedure.query(async function listJobsQuery() {
+    return listJobs();
+  }),
+  getJob: publicProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .query(async function getJobQuery({ input }) {
+      return getJob(input.id);
+    }),
+  saveServer: publicProcedure.input(serverInput).mutation(async function saveServerMutation({ input }) {
+    return saveServer(input);
+  }),
+  saveBackupSettings: publicProcedure.input(backupInput).mutation(async function saveBackupSettingsMutation({ input }) {
+    return saveBackupSettings(input);
+  }),
+  checkServer: publicProcedure
+    .input(z.object({ role: z.enum(['prod', 'dev']) }))
+    .mutation(async function checkServerMutation({ input }) {
+      return checkServer(input.role);
+    }),
+  runDevBootstrap: publicProcedure.mutation(async function runDevBootstrapMutation() {
+    return runDevBootstrap();
+  }),
+  runProdBootstrap: publicProcedure.mutation(async function runProdBootstrapMutation() {
+    return runProdBootstrap();
+  }),
+  createBranch: publicProcedure
+    .input(z.object({ name: z.string().min(1) }))
+    .mutation(async function createBranchMutation({ input }) {
+      return createBranchFromBase(input);
+    }),
+  createReplicaBase: publicProcedure.mutation(async function createReplicaBaseMutation() {
+    return createReplicaBase();
+  }),
+  startDevBootstrap: publicProcedure.mutation(async function startDevBootstrapMutation() {
+    const job = await createJob('dev-bootstrap');
+    runJob(job, async function runDevBootstrapJob(context) {
+      await context.log('installing dev prerequisites');
+      await runDevBootstrap();
+    });
+    return job;
+  }),
+  startProdBootstrap: publicProcedure.mutation(async function startProdBootstrapMutation() {
+    const job = await createJob('prod-bootstrap');
+    runJob(job, async function runProdBootstrapJob(context) {
+      await context.log('installing prod Postgres and backups');
+      await runProdBootstrap();
+    });
+    return job;
+  }),
+  startReplicaBase: publicProcedure.mutation(async function startReplicaBaseMutation() {
+    const job = await createJob('replica-base');
+    runJob(job, async function runReplicaBaseJob(context) {
+      await context.log('creating dev replica base');
+      await createReplicaBase();
+    });
+    return job;
+  }),
+  startCreateBranch: publicProcedure
+    .input(z.object({ name: z.string().min(1) }))
+    .mutation(async function startCreateBranchMutation({ input }) {
+      const job = await createJob('create-branch', input);
+      runJob(job, async function runCreateBranchJob(context) {
+        await context.log(`creating branch ${input.name}`);
+        await createBranchFromBase(input);
+      });
+      return job;
+    }),
+});

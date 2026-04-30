@@ -56,7 +56,7 @@ export class DockerManager {
         '-c', 'wal_level=replica',
         '-c', 'archive_mode=on',
         '-c', `archive_command=${buildPostgresArchiveCommand('/wal-archive')}`,
-        '-c', 'max_wal_senders=3',
+        '-c', 'max_wal_senders=10',
         '-c', 'wal_keep_size=1GB',
         '-c', 'restore_command=cp /wal-archive/%f %p',
         '-c', 'ssl=on',

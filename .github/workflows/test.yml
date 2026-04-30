@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  typecheck:
+  fast:
     runs-on: ubuntu-22.04
 
     steps:
@@ -25,8 +25,18 @@ jobs:
     - name: Run typecheck
       run: bun run typecheck
 
+    - name: Run control plane tests
+      run: bun run test:control
+
+    - name: Build web UI
+      run: bun run web:build
+
+    - name: Check shell scripts
+      run: bash -n scripts/install.sh scripts/deploy-dev.sh
+
   test:
     runs-on: ubuntu-22.04
+    needs: fast
 
     steps:
     - name: Checkout code

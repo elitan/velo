@@ -35,6 +35,7 @@ import { statusCommand } from './commands/status';
 import { doctorCommand } from './commands/doctor';
 import { cleanupCommand } from './commands/cleanup';
 import { setupCommand } from './commands/setup';
+import { webCommand } from './commands/web';
 import { stateRestoreCommand } from './commands/state/restore';
 import { stateInfoCommand } from './commands/state/info';
 import {
@@ -373,6 +374,15 @@ program
   .description('One-time setup: grant ZFS permissions and configure Docker (uses sudo internally)')
   .action(wrapCommand(async function () {
     await setupCommand();
+  }));
+
+program
+  .command('web')
+  .description('Start the Velo web UI')
+  .option('--host <host>', 'host to bind', '0.0.0.0')
+  .option('--port <port>', 'port to bind', '3000')
+  .action(wrapCommand(async function webAction(options: { host?: string; port?: string }) {
+    await webCommand(options);
   }));
 
 const lifecycleCommand = program

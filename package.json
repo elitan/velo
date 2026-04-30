@@ -50,9 +50,16 @@
   ],
   "scripts": {
     "test": "./scripts/test.sh",
+    "test:control": "bun test src/server/control-plane.test.ts",
     "test:watch": "sudo NODE_ENV=test $(which bun) test --watch",
     "build": "bun build --compile --minify --sourcemap src/index.ts --outfile dist/velo",
     "dev": "bun run src/index.ts",
+    "web": "bun --bun vite dev --host 0.0.0.0 --port 3000",
+    "web:build": "bun --bun vite build",
+    "web:start": "bun dist/server/server.js",
+    "deploy:dev": "scripts/deploy-dev.sh",
+    "db:migrate": "bun run src/db/migrate.ts",
+    "db:generate": "bun run db:migrate && kysely-codegen --dialect bun-sqlite --url ${VELO_DB:-$HOME/.velo/velo.sqlite} --out-file src/db/generated.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "bun run build",
     "release": "./scripts/release.sh patch",
@@ -62,18 +69,35 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/dockerode": "^3.3.44",
-    "@types/node": "^24.6.2"
+    "@types/node": "^24.6.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "kysely-codegen": "^0.20.0"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
     "@clack/prompts": "^0.11.0",
+    "@tanstack/react-query": "^5.100.6",
+    "@tanstack/react-router": "^1.169.0",
+    "@tanstack/react-start": "^1.167.53",
+    "@tanstack/router-plugin": "^1.167.30",
+    "@trpc/client": "^11.17.0",
+    "@trpc/react-query": "^11.17.0",
+    "@trpc/server": "^11.17.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "better-auth": "^1.6.9",
     "chalk": "^5.6.2",
     "cli-table3": "^0.6.5",
     "commander": "^14.0.1",
     "date-fns": "^4.1.0",
     "dockerode": "^4.0.9",
-    "ora": "^9.0.0"
+    "kysely": "^0.28.16",
+    "ora": "^9.0.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "vite": "^8.0.10",
+    "zod": "^4.4.1"
   }
 }
