@@ -1,10 +1,11 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import type { FormEvent, ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  ArchiveRestore,
   CheckCircle2,
   Clock3,
   Copy,
@@ -17,7 +18,6 @@ import {
   Server,
   Settings2,
   ShieldCheck,
-  TerminalSquare,
   Trash2,
 } from 'lucide-react';
 import { Badge, type BadgeProps } from '../components/ui/badge';
@@ -53,16 +53,7 @@ export const Route = createFileRoute('/')({
   component: HomePage,
 });
 
-type ServerRole = 'prod' | 'dev';
-
-interface ConnectionItem {
-  id: string;
-  name: string;
-  scope: string;
-  status: string;
-  url: string | null;
-  port: number | null;
-}
+export type ServerRole = 'prod' | 'dev';
 
 function HomePage() {
   const state = Route.useLoaderData();
@@ -172,6 +163,9 @@ function HomePage() {
     return server.status === 'ok';
   }).length;
   const setupComplete = doneSteps === state.setupSteps.length;
+  const backupsStep = state.setupSteps.find(function findBackupsStep(step) {
+    return step.key === 'backups';
+  });
 
   useEffect(function pollActiveJobs() {
     if (activeJobs === 0) {
@@ -187,28 +181,7 @@ function HomePage() {
     };
   }, [activeJobs, router]);
 
-  const connectionItems = useMemo(function buildConnections(): ConnectionItem[] {
-    return [
-      {
-        id: 'production',
-        name: 'Production',
-        scope: 'primary database',
-        status: state.prodConnectionUrl ? 'ready' : 'pending',
-        url: state.prodConnectionUrl,
-        port: 5432,
-      },
-      ...state.branches.map(function mapBranch(branch) {
-        return {
-          id: `branch-${branch.id}`,
-          name: branch.name,
-          scope: 'branch',
-          status: branch.status,
-          url: branch.connectionUrl,
-          port: branch.port,
-        };
-      }),
-    ];
-  }, [state.branches, state.prodConnectionUrl]);
+  const backupMode = state.backup.enabled ? 'S3/R2' : 'local';
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -225,9 +198,9 @@ function HomePage() {
           </div>
 
           <div className="mt-7 grid gap-1 text-sm">
-            <NavItem icon={Activity} label="Overview" href="#overview" active />
-            <NavItem icon={Database} label="Connections" href="#connections" />
-            <NavItem icon={GitBranch} label="Branches" href="#branches" />
+            <NavItem icon={Activity} label="Overview" href="/" active />
+            <NavItem icon={Database} label="Production" href="/prod" />
+            <NavItem icon={GitBranch} label="Development" href="/dev" />
             <NavItem icon={Settings2} label="Settings" href="#settings" />
           </div>
 
@@ -268,7 +241,7 @@ function HomePage() {
                   Hosted Postgres, made quiet.
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Production lives on its own server. Dev branches stay fast on ZFS. Every database connection is here.
+                  Production is the stable database with pgBackRest backups. Development is disposable ZFS branches.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -294,16 +267,22 @@ function HomePage() {
             </header>
 
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricCard title="Setup" value={`${doneSteps}/${state.setupSteps.length}`} detail="steps done" icon={ShieldCheck} tone="emerald" />
-              <MetricCard title="Servers" value={`${okServers}/2`} detail="healthy hosts" icon={Server} tone="blue" />
-              <MetricCard title="Branches" value={String(state.branches.length)} detail="dev databases" icon={GitBranch} tone="violet" />
+              <MetricCard title="Production" value={state.prodConnectionUrl ? 'Ready' : 'Pending'} detail={prodServer?.host || 'no host'} icon={Database} tone="emerald" />
+              <MetricCard title="Backups" value={backupMode} detail={backupsStep?.status || 'pending'} icon={ArchiveRestore} tone="blue" />
+              <MetricCard title="Dev branches" value={String(state.branches.length)} detail="disposable databases" icon={GitBranch} tone="violet" />
               <MetricCard title="Jobs" value={String(activeJobs)} detail="active now" icon={Activity} tone="amber" />
             </section>
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
               <div className="grid min-w-0 gap-6">
-                <div id="connections" className="scroll-mt-6">
-                  <ConnectionsPanel connections={connectionItems} />
+                <div id="production" className="scroll-mt-6">
+                  <ProductionPanel
+                    connectionUrl={state.prodConnectionUrl}
+                    backup={state.backup}
+                    serverHost={prodServer?.host || null}
+                    backupStatus={backupsStep?.status || 'pending'}
+                    backupMessage={backupsStep?.message || null}
+                  />
                 </div>
 
                 <SetupPanel
@@ -314,7 +293,7 @@ function HomePage() {
                   onCreateReplica={handleCreateReplica}
                 />
 
-                <div id="branches" className="scroll-mt-6">
+                <div id="development" className="scroll-mt-6">
                   <BranchesPanel
                     branches={state.branches}
                     busy={busy}
@@ -356,14 +335,14 @@ function HomePage() {
   );
 }
 
-interface NavItemProps {
+export interface NavItemProps {
   icon: typeof Activity;
   label: string;
   href: string;
   active?: boolean;
 }
 
-function NavItem(props: NavItemProps) {
+export function NavItem(props: NavItemProps) {
   const Icon = props.icon;
 
   return (
@@ -381,7 +360,7 @@ function NavItem(props: NavItemProps) {
   );
 }
 
-interface MetricCardProps {
+export interface MetricCardProps {
   title: string;
   value: string;
   detail: string;
@@ -389,7 +368,7 @@ interface MetricCardProps {
   tone: 'emerald' | 'blue' | 'violet' | 'amber';
 }
 
-function MetricCard(props: MetricCardProps) {
+export function MetricCard(props: MetricCardProps) {
   const Icon = props.icon;
   const toneClass = {
     emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
@@ -414,54 +393,96 @@ function MetricCard(props: MetricCardProps) {
   );
 }
 
-interface ConnectionsPanelProps {
-  connections: ConnectionItem[];
+export interface ProductionPanelProps {
+  connectionUrl: string | null;
+  backup: {
+    enabled: boolean;
+    endpoint: string;
+    bucket: string;
+    region: string;
+    accessKeyId: string;
+    secretConfigured: boolean;
+    path: string;
+  };
+  serverHost: string | null;
+  backupStatus: string;
+  backupMessage: string | null;
 }
 
-function ConnectionsPanel(props: ConnectionsPanelProps) {
-  const readyCount = props.connections.filter(function countReady(connection) {
-    return Boolean(connection.url);
-  }).length;
+export function ProductionPanel(props: ProductionPanelProps) {
+  const repoLabel = props.backup.enabled ? 'S3 compatible storage' : 'local disk';
+  const target = '2026-04-30 12:00:00+00';
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <CardTitle>Connections</CardTitle>
-          <CardDescription>{readyCount} database URLs available</CardDescription>
+          <CardTitle>Production database</CardTitle>
+          <CardDescription>Stable Postgres host, backup repo, and restore commands.</CardDescription>
         </div>
-        <Badge variant="secondary">
-          <TerminalSquare className="size-3" />
-          psql ready
-        </Badge>
+        <StatusBadge status={props.connectionUrl ? 'ready' : 'pending'} />
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="divide-y">
-          {props.connections.map(function renderConnection(connection) {
-            return (
-              <div className="grid gap-3 px-5 py-4 lg:grid-cols-[190px_1fr] lg:items-center" key={connection.id}>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium">{connection.name}</p>
-                    <StatusBadge status={connection.status} />
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <span>{connection.scope}</span>
-                    <span className="text-border">/</span>
-                    <span>{connection.port ? `:${connection.port}` : 'no port'}</span>
-                  </div>
-                </div>
-                <ConnectionString value={connection.url} />
-              </div>
-            );
-          })}
+      <CardContent className="grid gap-5">
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Label>Production connection string</Label>
+            <Badge variant="secondary">{props.serverHost || 'no host'}</Badge>
+          </div>
+          <ConnectionString value={props.connectionUrl} />
+        </div>
+
+        <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 md:grid-cols-3">
+          <InfoCell label="Backup engine" value="pgBackRest" />
+          <InfoCell label="Repo" value={repoLabel} />
+          <InfoCell label="Status" value={props.backupMessage || props.backupStatus} />
+          {props.backup.enabled ? (
+            <>
+              <InfoCell label="Bucket" value={props.backup.bucket || 'not set'} />
+              <InfoCell label="Region" value={props.backup.region || 'auto'} />
+              <InfoCell label="Path" value={props.backup.path || '/prod'} />
+            </>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <CommandBlock
+            title="Backup commands"
+            commands={[
+              'sudo -u postgres pgbackrest --stanza=main info',
+              'sudo -u postgres pgbackrest --stanza=main backup --type=full',
+              'sudo -u postgres pgbackrest --stanza=main backup --type=diff',
+              'sudo -u postgres pgbackrest --stanza=main backup --type=incr',
+            ]}
+          />
+          <CommandBlock
+            title="PITR restore template"
+            commands={[
+              'sudo systemctl stop postgresql',
+              `sudo -u postgres pgbackrest --stanza=main --type=time "--target=${target}" restore`,
+              'sudo systemctl start postgresql',
+            ]}
+          />
         </div>
       </CardContent>
     </Card>
   );
 }
 
-interface SetupPanelProps {
+interface InfoCellProps {
+  label: string;
+  value: string;
+}
+
+function InfoCell(props: InfoCellProps) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-medium text-muted-foreground">{props.label}</p>
+      <p className="mt-1 truncate text-sm">{props.value}</p>
+    </div>
+  );
+}
+
+export interface SetupPanelProps {
   steps: Array<{
     key: string;
     label: string;
@@ -474,7 +495,7 @@ interface SetupPanelProps {
   onCreateReplica: () => Promise<void>;
 }
 
-function SetupPanel(props: SetupPanelProps) {
+export function SetupPanel(props: SetupPanelProps) {
   return (
     <Card>
       <CardHeader className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
@@ -541,7 +562,7 @@ function SetupPanel(props: SetupPanelProps) {
   );
 }
 
-interface BranchesPanelProps {
+export interface BranchesPanelProps {
   branches: Array<{
     id: number;
     name: string;
@@ -554,7 +575,7 @@ interface BranchesPanelProps {
   onDelete: (id: number, name: string) => Promise<void>;
 }
 
-function BranchesPanel(props: BranchesPanelProps) {
+export function BranchesPanel(props: BranchesPanelProps) {
   return (
     <Card>
       <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -640,7 +661,7 @@ function BranchCreateForm(props: BranchCreateFormProps) {
   );
 }
 
-interface ServerPanelProps {
+export interface ServerPanelProps {
   title: string;
   role: ServerRole;
   server: {
@@ -655,7 +676,7 @@ interface ServerPanelProps {
   onCheck: (role: ServerRole) => Promise<void>;
 }
 
-function ServerPanel(props: ServerPanelProps) {
+export function ServerPanel(props: ServerPanelProps) {
   const isSaving = props.busy === `save-${props.role}`;
   const isChecking = props.busy === `check-${props.role}`;
 
@@ -710,7 +731,7 @@ function ServerPanel(props: ServerPanelProps) {
   );
 }
 
-interface BackupPanelProps {
+export interface BackupPanelProps {
   backup: {
     enabled: boolean;
     endpoint: string;
@@ -724,7 +745,7 @@ interface BackupPanelProps {
   onSave: (formData: FormData) => Promise<void>;
 }
 
-function BackupPanel(props: BackupPanelProps) {
+export function BackupPanel(props: BackupPanelProps) {
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await props.onSave(new FormData(event.currentTarget));
@@ -782,7 +803,7 @@ function BackupPanel(props: BackupPanelProps) {
   );
 }
 
-interface JobsPanelProps {
+export interface JobsPanelProps {
   jobs: Array<{
     id: number;
     type: string;
@@ -798,7 +819,7 @@ interface JobsPanelProps {
   activeJobs: number;
 }
 
-function JobsPanel(props: JobsPanelProps) {
+export function JobsPanel(props: JobsPanelProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -848,6 +869,38 @@ function JobsPanel(props: JobsPanelProps) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface CommandBlockProps {
+  title: string;
+  commands: string[];
+}
+
+function CommandBlock(props: CommandBlockProps) {
+  const [copied, setCopied] = useState(false);
+  const value = props.commands.join('\n');
+
+  async function copyCommands() {
+    await copyToClipboard(value);
+    setCopied(true);
+    window.setTimeout(function resetCopied() {
+      setCopied(false);
+    }, 1200);
+  }
+
+  return (
+    <div className="min-w-0 rounded-lg border bg-muted/20">
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+        <p className="text-sm font-medium">{props.title}</p>
+        <Button type="button" size="icon" variant="outline" onClick={copyCommands} title="Copy commands">
+          {copied ? <CheckCircle2 className="text-emerald-600" /> : <Copy />}
+        </Button>
+      </div>
+      <pre className="overflow-x-auto p-4 text-xs leading-6 text-muted-foreground">
+        <code>{value}</code>
+      </pre>
+    </div>
   );
 }
 
@@ -966,7 +1019,7 @@ function StepIcon(props: { status: string; index: number }) {
   );
 }
 
-function StatusBadge(props: { status: string }) {
+export function StatusBadge(props: { status: string }) {
   const variant = getStatusVariant(props.status);
   const Icon = getStatusIcon(props.status);
 
