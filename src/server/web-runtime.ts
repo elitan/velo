@@ -4,7 +4,12 @@ import { join, normalize, relative } from 'node:path';
 const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 3000);
 const clientDir = join(process.cwd(), 'dist/client');
-const serverEntry = await import('../../dist/server/server.js');
+const serverEntryPath = new URL('../../dist/server/server.js', import.meta.url).href;
+const serverEntry = (await import(serverEntryPath)) as {
+  default: {
+    fetch(request: Request): Response | Promise<Response>;
+  };
+};
 
 Bun.serve({
   hostname: host,
