@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import type { FormEvent, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -18,6 +18,7 @@ import {
   Settings2,
   ShieldCheck,
   TerminalSquare,
+  Trash2,
 } from 'lucide-react';
 import { Badge, type BadgeProps } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -37,6 +38,7 @@ import {
   checkServerAction,
   createBranchAction,
   createReplicaBaseAction,
+  deleteBranchAction,
   getSetupState,
   runDevBootstrapAction,
   runProdBootstrapAction,
@@ -71,6 +73,7 @@ function HomePage() {
   const runProdBootstrap = useServerFn(runProdBootstrapAction);
   const saveBackupSettings = useServerFn(saveBackupSettingsAction);
   const createBranch = useServerFn(createBranchAction);
+  const deleteBranch = useServerFn(deleteBranchAction);
   const createReplicaBase = useServerFn(createReplicaBaseAction);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -127,6 +130,16 @@ function HomePage() {
     });
   }
 
+  async function handleDeleteBranch(id: number, name: string) {
+    if (!window.confirm(`Delete branch "${name}"?`)) {
+      return;
+    }
+
+    await runBusy(`delete-branch-${id}`, async function deleteBranchClick() {
+      await deleteBranch({ data: { id } });
+    });
+  }
+
   async function handleCreateReplica() {
     await runBusy('create-replica', async function createReplica() {
       await createReplicaBase();
@@ -159,6 +172,21 @@ function HomePage() {
     return server.status === 'ok';
   }).length;
   const setupComplete = doneSteps === state.setupSteps.length;
+
+  useEffect(function pollActiveJobs() {
+    if (activeJobs === 0) {
+      return;
+    }
+
+    const interval = window.setInterval(function refreshActiveJobs() {
+      void router.invalidate();
+    }, 2000);
+
+    return function clearPoll() {
+      window.clearInterval(interval);
+    };
+  }, [activeJobs, router]);
+
   const connectionItems = useMemo(function buildConnections(): ConnectionItem[] {
     return [
       {
@@ -286,8 +314,9 @@ function HomePage() {
 
                 <BranchesPanel
                   branches={state.branches}
-                  busy={busy === 'create-branch'}
+                  busy={busy}
                   onCreate={handleCreateBranch}
+                  onDelete={handleDeleteBranch}
                 />
               </div>
 
@@ -513,8 +542,9 @@ interface BranchesPanelProps {
     port: number | null;
     connectionUrl: string | null;
   }>;
-  busy: boolean;
+  busy: string | null;
   onCreate: (formData: FormData) => Promise<void>;
+  onDelete: (id: number, name: string) => Promise<void>;
 }
 
 function BranchesPanel(props: BranchesPanelProps) {
@@ -525,7 +555,7 @@ function BranchesPanel(props: BranchesPanelProps) {
           <CardTitle>Branches</CardTitle>
           <CardDescription>Writable ZFS clones from the dev base.</CardDescription>
         </div>
-        <BranchCreateForm busy={props.busy} onCreate={props.onCreate} />
+        <BranchCreateForm busy={props.busy === 'create-branch'} onCreate={props.onCreate} />
       </CardHeader>
       <CardContent className="p-0">
         {props.branches.length === 0 ? (
@@ -537,8 +567,14 @@ function BranchesPanel(props: BranchesPanelProps) {
         ) : (
           <div className="divide-y">
             {props.branches.map(function renderBranch(branch) {
+              const isDeleting = props.busy === `delete-branch-${branch.id}`;
+
+              async function deleteClick() {
+                await props.onDelete(branch.id, branch.name);
+              }
+
               return (
-                <div className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_120px_90px] md:items-center" key={branch.id}>
+                <div className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_120px_80px_auto] md:items-center" key={branch.id}>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <GitBranch className="size-4 text-muted-foreground" />
@@ -550,7 +586,17 @@ function BranchesPanel(props: BranchesPanelProps) {
                   </div>
                   <StatusBadge status={branch.status} />
                   <div className="text-sm text-muted-foreground">{branch.port || '-'}</div>
-                  <div className="hidden md:col-span-3 md:block">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    onClick={deleteClick}
+                    disabled={isDeleting}
+                    title="Delete branch"
+                  >
+                    {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                  </Button>
+                  <div className="hidden md:col-span-4 md:block">
                     <ConnectionString value={branch.connectionUrl} />
                   </div>
                 </div>
@@ -571,7 +617,9 @@ interface BranchCreateFormProps {
 function BranchCreateForm(props: BranchCreateFormProps) {
   async function submitForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await props.onCreate(new FormData(event.currentTarget));
+    const form = event.currentTarget;
+    await props.onCreate(new FormData(form));
+    form.reset();
   }
 
   return (

@@ -24,6 +24,15 @@ export interface CreateBranchResult {
   connectionUrl: string;
 }
 
+export interface DeleteBranchInput {
+  id: number;
+}
+
+export interface DeleteBranchResult {
+  id: number;
+  name: string;
+}
+
 export async function createBranchFromBase(input: CreateBranchInput): Promise<CreateBranchResult> {
   const branchName = normalizeBranchName(input.name);
   await setStepStatus('first-branch', 'running', `creating ${branchName}`);
@@ -126,6 +135,80 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
     name: row.name,
     connectionUrl: row.connection_url || connectionUrl,
   };
+}
+
+export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBranchResult> {
+  const db = getDb();
+  const branch = await db
+    .selectFrom('branches')
+    .selectAll()
+    .where('id', '=', input.id)
+    .executeTakeFirstOrThrow();
+
+  const pool = await getZFSPool();
+  const zfs = new ZFSManager(pool, DEFAULTS.zfs.datasetBase);
+  const docker = new DockerManager();
+  const wal = new WALManager();
+  const containerName = getContainerName(PROJECT_NAME, branch.name);
+  const containerId = await docker.getContainerByName(containerName);
+  const originSnapshot = await getOriginSnapshot(zfs, branch.dataset);
+
+  if (containerId) {
+    try {
+      await docker.stopContainer(containerId);
+    } catch (error: any) {
+      if (error.statusCode !== 304) {
+        throw error;
+      }
+    }
+
+    await docker.removeContainer(containerId);
+  }
+
+  if (await zfs.datasetExists(branch.dataset)) {
+    await zfs.unmountDataset(branch.dataset);
+    await zfs.destroyDataset(branch.dataset, true);
+  }
+
+  if (originSnapshot) {
+    await zfs.destroySnapshot(originSnapshot).catch(function ignoreSnapshotCleanupError() {});
+  }
+
+  await wal.deleteArchiveDir(branch.dataset);
+
+  await db
+    .deleteFrom('branches')
+    .where('id', '=', branch.id)
+    .execute();
+
+  const remaining = await db
+    .selectFrom('branches')
+    .select('id')
+    .limit(1)
+    .executeTakeFirst();
+
+  if (!remaining) {
+    await setStepStatus('first-branch', 'pending', 'no branches yet');
+  }
+
+  return {
+    id: branch.id,
+    name: branch.name,
+  };
+}
+
+async function getOriginSnapshot(zfs: ZFSManager, dataset: string): Promise<string | null> {
+  if (!(await zfs.datasetExists(dataset))) {
+    return null;
+  }
+
+  const origin = await zfs.getProperty(dataset, 'origin');
+
+  if (!origin || origin === '-') {
+    return null;
+  }
+
+  return origin;
 }
 
 async function ensureProject() {
