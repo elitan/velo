@@ -270,4 +270,16 @@ Config values are stored locally on the dev server for MVP. They must not be pri
 - backup secret is stored server-side only and is not returned to the browser
 - prod setup stores a generated production connection URL after successful bootstrap
 - branch creation binds branch Postgres containers publicly on the dev host and stores a direct connection URL
-- UI now starts with status metrics, copyable connections, setup actions, branch list, server config, backup config, and job history
+- UI uses a shadcn-style shell with status metrics, copyable connections, setup actions, branch list, server config, backup config, and job history
+- production serving now uses `src/server/web-runtime.ts` so built JS/CSS assets work behind the Bun server
+
+## Active Todo
+
+- [x] make production and branch connection strings visible and copyable
+- [x] revamp UI with simple shadcn-style components
+- [x] deploy current worktree to `157.180.22.136`
+- [x] QA live desktop and mobile views with `agent-browser`
+- [x] verify production CSS asset returns `200`
+- [ ] add HTTPS or proxy in front of the dev UI
+- [ ] add deeper browser tests for setup buttons and branch creation
+- [ ] commit UI/runtime changes after final QA pass

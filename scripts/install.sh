@@ -61,7 +61,7 @@ Environment=PORT=$VELO_PORT
 Environment=VELO_DB=$VELO_DIR/.velo/velo.sqlite
 Environment=NODE_ENV=production
 EnvironmentFile=/etc/velo.env
-ExecStart=$(command -v bun) dist/server/server.js
+ExecStart=$(command -v bun) src/server/web-runtime.ts
 Restart=always
 RestartSec=3
 

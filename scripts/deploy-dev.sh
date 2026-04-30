@@ -65,7 +65,7 @@ Environment=PORT=$VELO_PORT
 Environment=VELO_DB=$VELO_DB
 Environment=NODE_ENV=production
 EnvironmentFile=/etc/velo.env
-ExecStart=/root/.bun/bin/bun dist/server/server.js
+ExecStart=/root/.bun/bin/bun src/server/web-runtime.ts
 Restart=always
 RestartSec=3
 
