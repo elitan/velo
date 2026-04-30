@@ -5,21 +5,15 @@ import { Activity, ArchiveRestore, Database, GitBranch, RefreshCw, Settings2 } f
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import {
-  checkServerAction,
   getSetupState,
   runProdBootstrapAction,
-  saveBackupSettingsAction,
-  saveServerAction,
 } from '../lib/actions';
 import {
-  BackupPanel,
   JobsPanel,
   MetricCard,
   NavItem,
   ProductionPanel,
-  ServerPanel,
   StatusBadge,
-  type ServerRole,
 } from './index';
 
 export const Route = createFileRoute('/prod')({
@@ -32,10 +26,7 @@ export const Route = createFileRoute('/prod')({
 function ProdPage() {
   const state = Route.useLoaderData();
   const router = useRouter();
-  const saveServer = useServerFn(saveServerAction);
-  const checkServer = useServerFn(checkServerAction);
   const runProdBootstrap = useServerFn(runProdBootstrapAction);
-  const saveBackupSettings = useServerFn(saveBackupSettingsAction);
   const prodServer = state.servers.find(function findProd(server) {
     return server.role === 'prod';
   });
@@ -61,41 +52,6 @@ function ProdPage() {
     }
   }
 
-  async function handleSave(formData: FormData) {
-    await runBusy('save-prod', async function saveProdServer() {
-      await saveServer({
-        data: {
-          role: 'prod',
-          host: String(formData.get('host') || ''),
-          sshUser: String(formData.get('sshUser') || ''),
-          sshKeyPath: String(formData.get('sshKeyPath') || ''),
-        },
-      });
-    });
-  }
-
-  async function handleCheck(role: ServerRole) {
-    await runBusy('check-prod', async function checkProdServer() {
-      await checkServer({ data: { role } });
-    });
-  }
-
-  async function handleSaveBackup(formData: FormData) {
-    await runBusy('save-backup', async function saveBackupForm() {
-      await saveBackupSettings({
-        data: {
-          enabled: formData.get('enabled') === 'on',
-          endpoint: String(formData.get('endpoint') || ''),
-          bucket: String(formData.get('bucket') || ''),
-          region: String(formData.get('region') || 'auto'),
-          accessKeyId: String(formData.get('accessKeyId') || ''),
-          secretAccessKey: String(formData.get('secretAccessKey') || ''),
-          path: String(formData.get('path') || '/prod'),
-        },
-      });
-    });
-  }
-
   async function handleSetupProd() {
     await runBusy('bootstrap-prod', async function bootstrapProd() {
       await runProdBootstrap();
@@ -119,7 +75,7 @@ function ProdPage() {
             <NavItem icon={Activity} label="Overview" href="/" />
             <NavItem icon={Database} label="Production" href="/prod" active />
             <NavItem icon={GitBranch} label="Development" href="/dev" />
-            <NavItem icon={Settings2} label="Settings" href="/prod#settings" />
+            <NavItem icon={Settings2} label="Settings" href="/settings" />
           </div>
         </aside>
 
@@ -164,9 +120,7 @@ function ProdPage() {
                   backupMessage={backupsStep?.message || null}
                 />
               </div>
-              <div id="settings" className="grid content-start gap-6">
-                <ServerPanel title="Production" role="prod" server={prodServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
-                <BackupPanel backup={state.backup} busy={busy === 'save-backup'} onSave={handleSaveBackup} />
+              <div className="grid content-start gap-6">
                 <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
               </div>
             </div>

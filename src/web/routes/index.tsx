@@ -15,7 +15,6 @@ import {
   Loader2,
   Play,
   RefreshCw,
-  Server,
   Settings2,
   ShieldCheck,
   Trash2,
@@ -35,15 +34,12 @@ import { Label } from '../components/ui/label';
 import { Separator } from '../components/ui/separator';
 import { cn } from '@/lib/utils';
 import {
-  checkServerAction,
   createBranchAction,
   createReplicaBaseAction,
   deleteBranchAction,
   getSetupState,
   runDevBootstrapAction,
   runProdBootstrapAction,
-  saveBackupSettingsAction,
-  saveServerAction,
 } from '../lib/actions';
 
 export const Route = createFileRoute('/')({
@@ -58,51 +54,12 @@ export type ServerRole = 'prod' | 'dev';
 function HomePage() {
   const state = Route.useLoaderData();
   const router = useRouter();
-  const saveServer = useServerFn(saveServerAction);
-  const checkServer = useServerFn(checkServerAction);
   const runDevBootstrap = useServerFn(runDevBootstrapAction);
   const runProdBootstrap = useServerFn(runProdBootstrapAction);
-  const saveBackupSettings = useServerFn(saveBackupSettingsAction);
   const createBranch = useServerFn(createBranchAction);
   const deleteBranch = useServerFn(deleteBranchAction);
   const createReplicaBase = useServerFn(createReplicaBaseAction);
   const [busy, setBusy] = useState<string | null>(null);
-
-  async function handleSave(formData: FormData) {
-    const role = formData.get('role') === 'prod' ? 'prod' : 'dev';
-    await runBusy(`save-${role}`, async function saveServerForm() {
-      await saveServer({
-        data: {
-          role,
-          host: String(formData.get('host') || ''),
-          sshUser: String(formData.get('sshUser') || ''),
-          sshKeyPath: String(formData.get('sshKeyPath') || ''),
-        },
-      });
-    });
-  }
-
-  async function handleSaveBackup(formData: FormData) {
-    await runBusy('save-backup', async function saveBackupForm() {
-      await saveBackupSettings({
-        data: {
-          enabled: formData.get('enabled') === 'on',
-          endpoint: String(formData.get('endpoint') || ''),
-          bucket: String(formData.get('bucket') || ''),
-          region: String(formData.get('region') || 'auto'),
-          accessKeyId: String(formData.get('accessKeyId') || ''),
-          secretAccessKey: String(formData.get('secretAccessKey') || ''),
-          path: String(formData.get('path') || '/prod'),
-        },
-      });
-    });
-  }
-
-  async function handleCheck(role: ServerRole) {
-    await runBusy(`check-${role}`, async function checkServerRole() {
-      await checkServer({ data: { role } });
-    });
-  }
 
   async function handleBootstrap(kind: ServerRole) {
     await runBusy(`bootstrap-${kind}`, async function bootstrapServer() {
@@ -201,7 +158,7 @@ function HomePage() {
             <NavItem icon={Activity} label="Overview" href="/" active />
             <NavItem icon={Database} label="Production" href="/prod" />
             <NavItem icon={GitBranch} label="Development" href="/dev" />
-            <NavItem icon={Settings2} label="Settings" href="#settings" />
+            <NavItem icon={Settings2} label="Settings" href="/settings" />
           </div>
 
           <div className="mt-7 rounded-lg border bg-background p-3">
@@ -303,27 +260,14 @@ function HomePage() {
                 </div>
               </div>
 
-              <div id="settings" className="grid scroll-mt-6 content-start gap-6">
-                <ServerPanel
-                  title="Production"
-                  role="prod"
-                  server={prodServer}
-                  busy={busy}
-                  onSave={handleSave}
-                  onCheck={handleCheck}
-                />
-                <ServerPanel
-                  title="Development"
-                  role="dev"
-                  server={devServer}
-                  busy={busy}
-                  onSave={handleSave}
-                  onCheck={handleCheck}
-                />
-                <BackupPanel
-                  backup={state.backup}
-                  busy={busy === 'save-backup'}
-                  onSave={handleSaveBackup}
+              <div className="grid content-start gap-6">
+                <SystemPanel
+                  setupDone={doneSteps}
+                  setupTotal={state.setupSteps.length}
+                  healthyServers={okServers}
+                  totalServers={state.servers.length}
+                  backupMode={backupMode}
+                  activeJobs={activeJobs}
                 />
                 <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
               </div>
@@ -332,6 +276,32 @@ function HomePage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export interface SystemPanelProps {
+  setupDone: number;
+  setupTotal: number;
+  healthyServers: number;
+  totalServers: number;
+  backupMode: string;
+  activeJobs: number;
+}
+
+export function SystemPanel(props: SystemPanelProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>System</CardTitle>
+        <CardDescription>Control plane summary</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <InfoCell label="Setup" value={`${props.setupDone}/${props.setupTotal} complete`} />
+        <InfoCell label="Servers" value={`${props.healthyServers}/${props.totalServers} healthy`} />
+        <InfoCell label="Backups" value={props.backupMode} />
+        <InfoCell label="Jobs" value={`${props.activeJobs} active`} />
+      </CardContent>
+    </Card>
   );
 }
 

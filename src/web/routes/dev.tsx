@@ -5,20 +5,17 @@ import { Activity, Database, GitBranch, HardDrive, RefreshCw, Settings2 } from '
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import {
-  checkServerAction,
   createBranchAction,
   createReplicaBaseAction,
   deleteBranchAction,
   getSetupState,
   runDevBootstrapAction,
-  saveServerAction,
 } from '../lib/actions';
 import {
   BranchesPanel,
   JobsPanel,
   MetricCard,
   NavItem,
-  ServerPanel,
   SetupPanel,
   StatusBadge,
   type ServerRole,
@@ -34,8 +31,6 @@ export const Route = createFileRoute('/dev')({
 function DevPage() {
   const state = Route.useLoaderData();
   const router = useRouter();
-  const saveServer = useServerFn(saveServerAction);
-  const checkServer = useServerFn(checkServerAction);
   const runDevBootstrap = useServerFn(runDevBootstrapAction);
   const createReplicaBase = useServerFn(createReplicaBaseAction);
   const createBranch = useServerFn(createBranchAction);
@@ -76,25 +71,6 @@ function DevPage() {
     } finally {
       setBusy(null);
     }
-  }
-
-  async function handleSave(formData: FormData) {
-    await runBusy('save-dev', async function saveDevServer() {
-      await saveServer({
-        data: {
-          role: 'dev',
-          host: String(formData.get('host') || ''),
-          sshUser: String(formData.get('sshUser') || ''),
-          sshKeyPath: String(formData.get('sshKeyPath') || ''),
-        },
-      });
-    });
-  }
-
-  async function handleCheck(role: ServerRole) {
-    await runBusy('check-dev', async function checkDevServer() {
-      await checkServer({ data: { role } });
-    });
   }
 
   async function handleBootstrap(kind: ServerRole) {
@@ -145,7 +121,7 @@ function DevPage() {
             <NavItem icon={Activity} label="Overview" href="/" />
             <NavItem icon={Database} label="Production" href="/prod" />
             <NavItem icon={GitBranch} label="Development" href="/dev" active />
-            <NavItem icon={Settings2} label="Settings" href="/dev#settings" />
+            <NavItem icon={Settings2} label="Settings" href="/settings" />
           </div>
         </aside>
 
@@ -191,8 +167,7 @@ function DevPage() {
                   onCreateReplica={handleCreateReplica}
                 />
               </div>
-              <div id="settings" className="grid content-start gap-6">
-                <ServerPanel title="Development" role="dev" server={devServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
+              <div className="grid content-start gap-6">
                 <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
               </div>
             </div>
