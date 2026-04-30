@@ -225,10 +225,10 @@ function HomePage() {
           </div>
 
           <div className="mt-7 grid gap-1 text-sm">
-            <NavItem icon={Activity} label="Overview" active />
-            <NavItem icon={Database} label="Connections" />
-            <NavItem icon={GitBranch} label="Branches" />
-            <NavItem icon={Settings2} label="Settings" />
+            <NavItem icon={Activity} label="Overview" href="#overview" active />
+            <NavItem icon={Database} label="Connections" href="#connections" />
+            <NavItem icon={GitBranch} label="Branches" href="#branches" />
+            <NavItem icon={Settings2} label="Settings" href="#settings" />
           </div>
 
           <div className="mt-7 rounded-lg border bg-background p-3">
@@ -256,7 +256,7 @@ function HomePage() {
               <StatusBadge status={setupComplete ? 'done' : activeJobs > 0 ? 'running' : 'pending'} />
             </div>
 
-            <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <header id="overview" className="scroll-mt-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">MVP</Badge>
@@ -302,7 +302,9 @@ function HomePage() {
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
               <div className="grid min-w-0 gap-6">
-                <ConnectionsPanel connections={connectionItems} />
+                <div id="connections" className="scroll-mt-6">
+                  <ConnectionsPanel connections={connectionItems} />
+                </div>
 
                 <SetupPanel
                   steps={state.setupSteps}
@@ -312,15 +314,17 @@ function HomePage() {
                   onCreateReplica={handleCreateReplica}
                 />
 
-                <BranchesPanel
-                  branches={state.branches}
-                  busy={busy}
-                  onCreate={handleCreateBranch}
-                  onDelete={handleDeleteBranch}
-                />
+                <div id="branches" className="scroll-mt-6">
+                  <BranchesPanel
+                    branches={state.branches}
+                    busy={busy}
+                    onCreate={handleCreateBranch}
+                    onDelete={handleDeleteBranch}
+                  />
+                </div>
               </div>
 
-              <div className="grid content-start gap-6">
+              <div id="settings" className="grid scroll-mt-6 content-start gap-6">
                 <ServerPanel
                   title="Production"
                   role="prod"
@@ -355,6 +359,7 @@ function HomePage() {
 interface NavItemProps {
   icon: typeof Activity;
   label: string;
+  href: string;
   active?: boolean;
 }
 
@@ -362,15 +367,17 @@ function NavItem(props: NavItemProps) {
   const Icon = props.icon;
 
   return (
-    <div
+    <a
+      href={props.href}
       className={cn(
         'flex h-9 items-center gap-2 rounded-md px-3 text-muted-foreground',
+        'transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
         props.active && 'bg-sidebar-accent text-sidebar-accent-foreground'
       )}
     >
       <Icon className="size-4" />
       <span>{props.label}</span>
-    </div>
+    </a>
   );
 }
 
