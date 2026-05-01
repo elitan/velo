@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import { useEffect, useState } from 'react';
-import { Activity, ArchiveRestore, Database, GitBranch, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react';
+import { Activity, ArchiveRestore, Database, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import {
@@ -11,10 +11,10 @@ import {
   saveServerAction,
 } from '../lib/actions';
 import {
+  AppSidebar,
   BackupPanel,
   JobsPanel,
   MetricCard,
-  NavItem,
   ServerPanel,
   StatusBadge,
   SystemPanel,
@@ -118,23 +118,7 @@ function SettingsPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
-        <aside className="hidden bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <Database className="size-4" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold leading-none">Velo</div>
-              <div className="mt-1 text-xs text-muted-foreground">Control plane</div>
-            </div>
-          </div>
-          <div className="mt-7 grid gap-1 text-sm">
-            <NavItem icon={Activity} label="Overview" href="/" />
-            <NavItem icon={Database} label="Production" href="/prod" />
-            <NavItem icon={GitBranch} label="Development" href="/dev" />
-            <NavItem icon={Settings2} label="Settings" href="/settings" active />
-          </div>
-        </aside>
+        <AppSidebar branches={state.branches} activeProject="settings" selectedBranch="prod" />
 
         <section className="min-w-0">
           <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">

@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
-import type { FormEvent, ReactNode } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import {
   Activity,
@@ -12,6 +12,7 @@ import {
   Database,
   GitBranch,
   HardDrive,
+  LayoutDashboard,
   Loader2,
   Play,
   RefreshCw,
@@ -141,33 +142,7 @@ function HomePage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
-        <aside className="hidden bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
-          <div className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <Database className="size-4" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold leading-none">Velo</div>
-              <div className="mt-1 text-xs text-muted-foreground">Control plane</div>
-            </div>
-          </div>
-
-          <div className="mt-7 grid gap-1 text-sm">
-            <NavItem icon={Activity} label="Overview" href="/" active />
-            <NavItem icon={Database} label="Production" href="/prod" />
-            <NavItem icon={GitBranch} label="Development" href="/dev" />
-            <NavItem icon={Settings2} label="Settings" href="/settings" />
-          </div>
-
-          <div className="mt-7 rounded-lg border bg-background p-3">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-medium text-muted-foreground">System</span>
-              <StatusBadge status={setupComplete ? 'done' : activeJobs > 0 ? 'running' : 'pending'} />
-            </div>
-            <div className="mt-3 text-2xl font-semibold">{doneSteps}/{state.setupSteps.length}</div>
-            <div className="mt-1 text-xs text-muted-foreground">setup steps complete</div>
-          </div>
-        </aside>
+        <AppSidebar branches={state.branches} activeProject="dashboard" />
 
         <section className="min-w-0">
           <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -351,6 +326,86 @@ export interface NavItemProps {
   active?: boolean;
 }
 
+export interface AppSidebarProps {
+  branches: Array<{
+    id: number;
+    name: string;
+  }>;
+  activeProject?: 'dashboard' | 'settings';
+  activeBranchPage?: 'overview' | 'backup';
+  selectedBranch?: string;
+}
+
+export function AppSidebar(props: AppSidebarProps) {
+  const selectedBranch = props.selectedBranch || 'prod';
+  const overviewHref = selectedBranch === 'prod' ? '/prod' : '/dev';
+  const backupHref = selectedBranch === 'prod' ? '/prod#backup-restore' : '/dev#backup-restore';
+
+  function changeBranch(event: ChangeEvent<HTMLSelectElement>) {
+    const value = event.currentTarget.value;
+    window.location.href = value === 'prod' ? '/prod' : '/dev';
+  }
+
+  return (
+    <aside className="hidden bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
+      <div className="flex items-center gap-3">
+        <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+          <Database className="size-4" />
+        </div>
+        <div>
+          <div className="text-sm font-semibold leading-none">Velo</div>
+          <div className="mt-1 text-xs text-muted-foreground">Control plane</div>
+        </div>
+      </div>
+
+      <SidebarSection label="Project" className="mt-8">
+        <NavItem icon={LayoutDashboard} label="Dashboard" href="/" active={props.activeProject === 'dashboard'} />
+        <NavItem icon={Settings2} label="Settings" href="/settings" active={props.activeProject === 'settings'} />
+      </SidebarSection>
+
+      <SidebarSection label="Branch" className="mt-8">
+        <label className="sr-only" htmlFor="branch-select">Branch</label>
+        <select
+          id="branch-select"
+          className="h-10 w-full rounded-md border bg-background px-3 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
+          value={selectedBranch}
+          onChange={changeBranch}
+        >
+          <option value="prod">prod</option>
+          {props.branches.map(function renderBranchOption(branch) {
+            return (
+              <option key={branch.id} value={branch.name}>
+                {branch.name}
+              </option>
+            );
+          })}
+        </select>
+        <div className="mt-3 grid gap-1">
+          <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} />
+          <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} />
+        </div>
+      </SidebarSection>
+    </aside>
+  );
+}
+
+interface SidebarSectionProps {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}
+
+function SidebarSection(props: SidebarSectionProps) {
+  return (
+    <div className={props.className}>
+      <div className="mb-3 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {props.label}
+      </div>
+      <div className="grid gap-1 text-sm">{props.children}</div>
+    </div>
+  );
+}
+
 export function NavItem(props: NavItemProps) {
   const Icon = props.icon;
 
@@ -424,7 +479,7 @@ export function ProductionPanel(props: ProductionPanelProps) {
   const repoLabel = props.backup.enabled ? 'S3 compatible storage' : 'local disk';
 
   return (
-    <Card>
+    <Card id="backup-restore" className="scroll-mt-6">
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <CardTitle>Production database</CardTitle>
