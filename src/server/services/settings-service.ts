@@ -9,7 +9,12 @@ const BACKUP_SETTING_KEYS = [
   'backup.s3.accessKeyId',
   'backup.s3.secretAccessKey',
   'backup.s3.path',
+  'backup.pitr.days',
+  'backup.fullRetention.days',
 ] as const;
+
+const DEFAULT_PITR_DAYS = 7;
+const DEFAULT_FULL_BACKUP_RETENTION_DAYS = 90;
 
 export interface BackupSettingsInput {
   enabled: boolean;
@@ -19,6 +24,8 @@ export interface BackupSettingsInput {
   accessKeyId: string;
   secretAccessKey?: string;
   path: string;
+  pitrDays?: number;
+  fullBackupRetentionDays?: number;
 }
 
 export interface BackupSettings {
@@ -29,6 +36,8 @@ export interface BackupSettings {
   accessKeyId: string;
   secretConfigured: boolean;
   path: string;
+  pitrDays: number;
+  fullBackupRetentionDays: number;
 }
 
 export async function getSetting(key: string): Promise<string | null> {
@@ -81,6 +90,8 @@ export async function saveBackupSettings(input: BackupSettingsInput): Promise<Ba
     setSetting('backup.s3.region', input.region.trim() || 'auto'),
     setSetting('backup.s3.accessKeyId', input.accessKeyId.trim()),
     setSetting('backup.s3.path', normalizeBackupPath(input.path)),
+    setSetting('backup.pitr.days', String(normalizePositiveInteger(input.pitrDays, DEFAULT_PITR_DAYS))),
+    setSetting('backup.fullRetention.days', String(normalizePositiveInteger(input.fullBackupRetentionDays, DEFAULT_FULL_BACKUP_RETENTION_DAYS))),
   ]);
 
   if (input.secretAccessKey && input.secretAccessKey.trim()) {
@@ -101,6 +112,8 @@ export async function getBackupSettings(): Promise<BackupSettings> {
     accessKeyId: settings['backup.s3.accessKeyId'] || '',
     secretConfigured: Boolean(settings['backup.s3.secretAccessKey']),
     path: settings['backup.s3.path'] || '/prod',
+    pitrDays: normalizePositiveInteger(Number(settings['backup.pitr.days']), DEFAULT_PITR_DAYS),
+    fullBackupRetentionDays: normalizePositiveInteger(Number(settings['backup.fullRetention.days']), DEFAULT_FULL_BACKUP_RETENTION_DAYS),
   };
 }
 
@@ -112,4 +125,12 @@ function normalizeBackupPath(path: string): string {
   }
 
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+function normalizePositiveInteger(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value) || !value || value < 1) {
+    return fallback;
+  }
+
+  return Math.floor(value);
 }

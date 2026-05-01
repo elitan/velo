@@ -76,6 +76,8 @@ describe('control plane database', function controlPlaneDatabase() {
       accessKeyId: 'access-key',
       secretConfigured: true,
       path: '/prod',
+      pitrDays: 7,
+      fullBackupRetentionDays: 90,
     });
     expect(JSON.stringify(state)).not.toContain('super-secret');
     expect(state.prodConnectionUrl).toBe('postgresql://postgres:secret@example.com:5432/postgres');

@@ -412,6 +412,8 @@ export interface ProductionPanelProps {
     accessKeyId: string;
     secretConfigured: boolean;
     path: string;
+    pitrDays: number;
+    fullBackupRetentionDays: number;
   };
   serverHost: string | null;
   backupStatus: string;
@@ -420,14 +422,13 @@ export interface ProductionPanelProps {
 
 export function ProductionPanel(props: ProductionPanelProps) {
   const repoLabel = props.backup.enabled ? 'S3 compatible storage' : 'local disk';
-  const target = '2026-04-30 12:00:00+00';
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <CardTitle>Production database</CardTitle>
-          <CardDescription>Stable Postgres host, backup repo, and restore commands.</CardDescription>
+          <CardDescription>Connection, backup policy, and recovery paths.</CardDescription>
         </div>
         <StatusBadge status={props.connectionUrl ? 'ready' : 'pending'} />
       </CardHeader>
@@ -444,36 +445,45 @@ export function ProductionPanel(props: ProductionPanelProps) {
           <InfoCell label="Backup engine" value="pgBackRest" />
           <InfoCell label="Repo" value={repoLabel} />
           <InfoCell label="Status" value={props.backupMessage || props.backupStatus} />
+          <InfoCell label="PITR window" value={`${props.backup.pitrDays} days`} />
+          <InfoCell label="Full backups" value="daily" />
+          <InfoCell label="Retention" value={`${props.backup.fullBackupRetentionDays} days`} />
           {props.backup.enabled ? (
             <>
               <InfoCell label="Bucket" value={props.backup.bucket || 'not set'} />
-              <InfoCell label="Region" value={props.backup.region || 'auto'} />
               <InfoCell label="Path" value={props.backup.path || '/prod'} />
             </>
           ) : null}
         </div>
 
         <div className="grid gap-3 lg:grid-cols-2">
-          <CommandBlock
-            title="Backup commands"
-            commands={[
-              'sudo -u postgres pgbackrest --stanza=main info',
-              'sudo -u postgres pgbackrest --stanza=main backup --type=full',
-              'sudo -u postgres pgbackrest --stanza=main backup --type=diff',
-              'sudo -u postgres pgbackrest --stanza=main backup --type=incr',
-            ]}
+          <RecoveryTargetCard
+            title="Recover to branch"
+            detail="Restore prod at a point in time into a new dev branch. Prod is untouched."
+            action="Safest default"
           />
-          <CommandBlock
-            title="PITR restore template"
-            commands={[
-              'sudo systemctl stop postgresql',
-              `sudo -u postgres pgbackrest --stanza=main --type=time "--target=${target}" restore`,
-              'sudo systemctl start postgresql',
-            ]}
+          <RecoveryTargetCard
+            title="Restore production"
+            detail="Restore prod itself to a point in time. Requires an explicit confirmation flow."
+            action="High risk"
           />
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function RecoveryTargetCard(props: { title: string; detail: string; action: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">{props.title}</p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">{props.detail}</p>
+        </div>
+        <Badge variant="secondary">{props.action}</Badge>
+      </div>
+    </div>
   );
 }
 
@@ -749,6 +759,8 @@ export interface BackupPanelProps {
     accessKeyId: string;
     secretConfigured: boolean;
     path: string;
+    pitrDays: number;
+    fullBackupRetentionDays: number;
   };
   busy: boolean;
   onSave: (formData: FormData) => Promise<void>;
@@ -765,7 +777,7 @@ export function BackupPanel(props: BackupPanelProps) {
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
           <CardTitle>Backups</CardTitle>
-          <CardDescription>pgBackRest storage</CardDescription>
+          <CardDescription>S3 storage, PITR, and retention</CardDescription>
         </div>
         <Badge variant={props.backup.enabled ? 'success' : 'secondary'}>
           {props.backup.enabled ? 'S3' : 'local'}
@@ -789,6 +801,14 @@ export function BackupPanel(props: BackupPanelProps) {
             </Field>
             <Field label="Path">
               <Input name="path" defaultValue={props.backup.path} placeholder="/prod" />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="PITR days">
+              <Input name="pitrDays" type="number" min={1} defaultValue={props.backup.pitrDays} />
+            </Field>
+            <Field label="Full backup retention days">
+              <Input name="fullBackupRetentionDays" type="number" min={1} defaultValue={props.backup.fullBackupRetentionDays} />
             </Field>
           </div>
           <Field label="Access key">
@@ -878,38 +898,6 @@ export function JobsPanel(props: JobsPanelProps) {
         )}
       </CardContent>
     </Card>
-  );
-}
-
-interface CommandBlockProps {
-  title: string;
-  commands: string[];
-}
-
-function CommandBlock(props: CommandBlockProps) {
-  const [copied, setCopied] = useState(false);
-  const value = props.commands.join('\n');
-
-  async function copyCommands() {
-    await copyToClipboard(value);
-    setCopied(true);
-    window.setTimeout(function resetCopied() {
-      setCopied(false);
-    }, 1200);
-  }
-
-  return (
-    <div className="min-w-0 rounded-lg border bg-muted/20">
-      <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
-        <p className="text-sm font-medium">{props.title}</p>
-        <Button type="button" size="icon" variant="outline" onClick={copyCommands} title="Copy commands">
-          {copied ? <CheckCircle2 className="text-emerald-600" /> : <Copy />}
-        </Button>
-      </div>
-      <pre className="overflow-x-auto p-4 text-xs leading-6 text-muted-foreground">
-        <code>{value}</code>
-      </pre>
-    </div>
   );
 }
 

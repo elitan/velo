@@ -105,6 +105,9 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
       'sudo -u postgres pgbackrest --stanza=main stanza-create',
       'sudo -u postgres pgbackrest --stanza=main check',
       'sudo -u postgres pgbackrest --stanza=main backup --type=full',
+      'CRON_FILE=/etc/cron.d/velo-pgbackrest',
+      `printf %s ${shellQuote(buildPgBackRestCron())} | sudo tee "$CRON_FILE" >/dev/null`,
+      'sudo chmod 644 "$CRON_FILE"',
       "sudo -u postgres psql -tAc 'select version();'",
       'command -v pgbackrest',
     ].join('\n'),
@@ -150,12 +153,23 @@ async function buildPgBackRestConfig(): Promise<string> {
   return [
     '[global]',
     ...repoLines,
-    'repo1-retention-full=2',
+    `repo1-retention-full=${backup.fullBackupRetentionDays}`,
+    `repo1-retention-archive=${backup.pitrDays}`,
+    'repo1-retention-archive-type=full',
     'start-fast=y',
     'log-level-console=info',
     '',
     '[main]',
     'pg1-path=__PGDATA__',
+    '',
+  ].join('\n');
+}
+
+function buildPgBackRestCron(): string {
+  return [
+    'SHELL=/bin/sh',
+    'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+    '15 2 * * * postgres pgbackrest --stanza=main backup --type=full',
     '',
   ].join('\n');
 }

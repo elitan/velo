@@ -22,6 +22,8 @@ const backupInput = z.object({
   accessKeyId: z.string(),
   secretAccessKey: z.string().optional(),
   path: z.string(),
+  pitrDays: z.number().int().positive().optional(),
+  fullBackupRetentionDays: z.number().int().positive().optional(),
 });
 
 export const setupRouter = router({

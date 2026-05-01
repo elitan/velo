@@ -108,6 +108,8 @@ function SettingsPage() {
           accessKeyId: String(formData.get('accessKeyId') || ''),
           secretAccessKey: String(formData.get('secretAccessKey') || ''),
           path: String(formData.get('path') || '/prod'),
+          pitrDays: Number(formData.get('pitrDays') || 7),
+          fullBackupRetentionDays: Number(formData.get('fullBackupRetentionDays') || 90),
         },
       });
     });
