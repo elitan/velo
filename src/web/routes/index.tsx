@@ -116,9 +116,6 @@ function HomePage() {
   const activeJobs = state.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
   }).length;
-  const okServers = state.servers.filter(function countOk(server) {
-    return server.status === 'ok';
-  }).length;
   const setupComplete = doneSteps === state.setupSteps.length;
   const backupsStep = state.setupSteps.find(function findBackupsStep(step) {
     return step.key === 'backups';
@@ -227,49 +224,35 @@ function HomePage() {
               <MetricCard title="Production" value={state.prodConnectionUrl ? 'Ready' : 'Pending'} detail={prodServer?.host || 'no host'} icon={Database} tone="emerald" />
               <MetricCard title="Backups" value={backupMode} detail={backupsStep?.status || 'pending'} icon={ArchiveRestore} tone="blue" />
               <MetricCard title="Dev branches" value={String(state.branches.length)} detail="disposable databases" icon={GitBranch} tone="violet" />
-              <MetricCard title="Jobs" value={String(activeJobs)} detail="active now" icon={Activity} tone="amber" />
+              <MetricCard title="Setup" value={`${doneSteps}/${state.setupSteps.length}`} detail="steps complete" icon={Activity} tone="amber" />
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-              <div className="grid min-w-0 gap-6">
-                <div id="production" className="scroll-mt-6">
-                  <ProductionPanel
-                    connectionUrl={state.prodConnectionUrl}
-                    backup={state.backup}
-                    serverHost={prodServer?.host || null}
-                    backupStatus={backupsStep?.status || 'pending'}
-                    backupMessage={backupsStep?.message || null}
-                  />
-                </div>
-
-                <SetupPanel
-                  steps={state.setupSteps}
-                  busy={busy}
-                  prodServerReady={Boolean(prodServer)}
-                  onBootstrap={handleBootstrap}
-                  onCreateReplica={handleCreateReplica}
+            <div className="grid min-w-0 gap-6">
+              <div id="production" className="scroll-mt-6">
+                <ProductionPanel
+                  connectionUrl={state.prodConnectionUrl}
+                  backup={state.backup}
+                  serverHost={prodServer?.host || null}
+                  backupStatus={backupsStep?.status || 'pending'}
+                  backupMessage={backupsStep?.message || null}
                 />
-
-                <div id="development" className="scroll-mt-6">
-                  <BranchesPanel
-                    branches={state.branches}
-                    busy={busy}
-                    onCreate={handleCreateBranch}
-                    onDelete={handleDeleteBranch}
-                  />
-                </div>
               </div>
 
-              <div className="grid content-start gap-6">
-                <SystemPanel
-                  setupDone={doneSteps}
-                  setupTotal={state.setupSteps.length}
-                  healthyServers={okServers}
-                  totalServers={state.servers.length}
-                  backupMode={backupMode}
-                  activeJobs={activeJobs}
+              <SetupPanel
+                steps={state.setupSteps}
+                busy={busy}
+                prodServerReady={Boolean(prodServer)}
+                onBootstrap={handleBootstrap}
+                onCreateReplica={handleCreateReplica}
+              />
+
+              <div id="development" className="scroll-mt-6">
+                <BranchesPanel
+                  branches={state.branches}
+                  busy={busy}
+                  onCreate={handleCreateBranch}
+                  onDelete={handleDeleteBranch}
                 />
-                <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
               </div>
             </div>
           </div>
@@ -795,7 +778,7 @@ export function JobsPanel(props: JobsPanelProps) {
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
           <CardTitle>Jobs</CardTitle>
-          <CardDescription>Recent background work</CardDescription>
+          <CardDescription>Background setup and branch activity</CardDescription>
         </div>
         <Badge variant={props.activeJobs > 0 ? 'info' : 'secondary'}>{props.activeJobs} active</Badge>
       </CardHeader>

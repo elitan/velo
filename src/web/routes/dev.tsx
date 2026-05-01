@@ -13,7 +13,6 @@ import {
 } from '../lib/actions';
 import {
   BranchesPanel,
-  JobsPanel,
   MetricCard,
   NavItem,
   SetupPanel,
@@ -156,20 +155,15 @@ function DevPage() {
               <MetricCard title="Dev host" value={devServer?.status || 'unknown'} detail={devServer?.host || 'no host'} icon={HardDrive} tone="emerald" />
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-              <div className="grid min-w-0 gap-6">
-                <BranchesPanel branches={state.branches} busy={busy} onCreate={handleCreateBranch} onDelete={handleDeleteBranch} />
-                <SetupPanel
-                  steps={state.setupSteps}
-                  busy={busy}
-                  prodServerReady={Boolean(prodServer)}
-                  onBootstrap={handleBootstrap}
-                  onCreateReplica={handleCreateReplica}
-                />
-              </div>
-              <div className="grid content-start gap-6">
-                <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
-              </div>
+            <div className="grid min-w-0 gap-6">
+              <BranchesPanel branches={state.branches} busy={busy} onCreate={handleCreateBranch} onDelete={handleDeleteBranch} />
+              <SetupPanel
+                steps={state.setupSteps}
+                busy={busy}
+                prodServerReady={Boolean(prodServer)}
+                onBootstrap={handleBootstrap}
+                onCreateReplica={handleCreateReplica}
+              />
             </div>
           </div>
         </section>

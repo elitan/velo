@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, ArchiveRestore, Database, GitBranch, RefreshCw, Settings2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -9,7 +9,6 @@ import {
   runProdBootstrapAction,
 } from '../lib/actions';
 import {
-  JobsPanel,
   MetricCard,
   NavItem,
   ProductionPanel,
@@ -57,6 +56,20 @@ function ProdPage() {
       await runProdBootstrap();
     });
   }
+
+  useEffect(function pollActiveJobs() {
+    if (activeJobs === 0) {
+      return;
+    }
+
+    const interval = window.setInterval(function refreshActiveJobs() {
+      void router.invalidate();
+    }, 2000);
+
+    return function clearPoll() {
+      window.clearInterval(interval);
+    };
+  }, [activeJobs, router]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -110,20 +123,13 @@ function ProdPage() {
               <MetricCard title="Prod setup" value={prodStep?.status || 'pending'} detail={prodStep?.message || 'waiting'} icon={Activity} tone="amber" />
             </section>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-              <div className="grid min-w-0 gap-6">
-                <ProductionPanel
-                  connectionUrl={state.prodConnectionUrl}
-                  backup={state.backup}
-                  serverHost={prodServer?.host || null}
-                  backupStatus={backupsStep?.status || 'pending'}
-                  backupMessage={backupsStep?.message || null}
-                />
-              </div>
-              <div className="grid content-start gap-6">
-                <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
-              </div>
-            </div>
+            <ProductionPanel
+              connectionUrl={state.prodConnectionUrl}
+              backup={state.backup}
+              serverHost={prodServer?.host || null}
+              backupStatus={backupsStep?.status || 'pending'}
+              backupMessage={backupsStep?.message || null}
+            />
           </div>
         </section>
       </div>
