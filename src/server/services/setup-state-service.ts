@@ -46,6 +46,7 @@ export async function getDashboardState(): Promise<DashboardState> {
     db
       .selectFrom('branches')
       .select(['id', 'name', 'status', 'port', 'connection_url as connectionUrl', 'created_at as createdAt'])
+      .where('name', 'not like', 'preview-%')
       .orderBy('created_at', 'desc')
       .execute(),
     listJobs(10),

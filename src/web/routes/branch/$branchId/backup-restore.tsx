@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { useServerFn } from '@tanstack/react-start';
 import type { ComponentType } from 'react';
 import { useState } from 'react';
 import {
@@ -9,6 +10,7 @@ import {
   GitBranch,
   GitCompareArrows,
   Info,
+  Loader2,
   Search,
   Table2,
   X,
@@ -25,7 +27,11 @@ import {
 } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
-import { getSetupState } from '../../../lib/actions';
+import {
+  createPreviewBranchAction,
+  deletePreviewBranchAction,
+  getSetupState,
+} from '../../../lib/actions';
 import {
   AppSidebar,
   StatusBadge,
@@ -40,6 +46,8 @@ export const Route = createFileRoute('/branch/$branchId/backup-restore')({
 
 function BackupRestorePage() {
   const state = Route.useLoaderData();
+  const createPreviewBranch = useServerFn(createPreviewBranchAction);
+  const deletePreviewBranch = useServerFn(deletePreviewBranchAction);
   const params = Route.useParams();
   const branchId = params.branchId;
   const isProd = branchId === 'prod';
@@ -52,6 +60,45 @@ function BackupRestorePage() {
   const [sourceBranch, setSourceBranch] = useState(selectedBranch);
   const [restoreTime, setRestoreTime] = useState(getDefaultRestoreTime());
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  async function handleOpenPreview() {
+    setPreviewBusy(true);
+    setPreviewError(null);
+
+    try {
+      const created = await createPreviewBranch({
+        data: {
+          sourceBranch,
+          restoreTime,
+        },
+      });
+      setPreviewBranch(created);
+      setPreviewOpen(true);
+    } catch (error: any) {
+      setPreviewError(error?.message || 'Could not create preview branch');
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  async function handleClosePreview() {
+    const branchToDelete = previewBranch;
+    setPreviewOpen(false);
+    setPreviewBranch(null);
+
+    if (!branchToDelete) {
+      return;
+    }
+
+    try {
+      await deletePreviewBranch({ data: { id: branchToDelete.id } });
+    } catch (error: any) {
+      setPreviewError(error?.message || `Could not delete preview branch ${branchToDelete.name}`);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -144,18 +191,25 @@ function BackupRestorePage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={function openPreview() {
-                        setPreviewOpen(true);
+                      disabled={previewBusy}
+                      onClick={function previewDataClick() {
+                        void handleOpenPreview();
                       }}
                     >
-                      <Search />
-                      Preview data
+                      {previewBusy ? <Loader2 className="animate-spin" /> : <Search />}
+                      {previewBusy ? 'Creating preview' : 'Preview data'}
                     </Button>
                     <Button type="button" disabled>
                       Restore to point in time
                     </Button>
                   </div>
                 </div>
+
+                {previewError ? (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                    {previewError}
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
           </div>
@@ -166,10 +220,11 @@ function BackupRestorePage() {
         <HistoricPreviewModal
           branch={sourceBranch}
           branchOptions={branchOptions}
+          previewBranch={previewBranch}
           restoreTime={restoreTime}
           onBranchChange={setSourceBranch}
           onClose={function closePreview() {
-            setPreviewOpen(false);
+            void handleClosePreview();
           }}
         />
       ) : null}
@@ -180,6 +235,7 @@ function BackupRestorePage() {
 function HistoricPreviewModal(props: {
   branch: string;
   branchOptions: BranchOption[];
+  previewBranch: PreviewBranch | null;
   restoreTime: string;
   onBranchChange: (branch: string) => void;
   onClose: () => void;
@@ -201,6 +257,7 @@ function HistoricPreviewModal(props: {
                   onChange={function changePreviewBranch(event) {
                     props.onBranchChange(event.target.value);
                   }}
+                  disabled
                 >
                   {props.branchOptions.map(function renderBranchOption(option) {
                     return (
@@ -224,6 +281,9 @@ function HistoricPreviewModal(props: {
                 <PreviewTab active={tab === 'query'} label="Query data" onClick={function selectQuery() { setTab('query'); }} />
                 <PreviewTab active={tab === 'compare'} label="Compare schemas" onClick={function selectCompare() { setTab('compare'); }} />
               </div>
+              {props.previewBranch ? (
+                <Badge variant="info">Preview branch: {props.previewBranch.name}</Badge>
+              ) : null}
             </div>
           </div>
 
@@ -366,6 +426,12 @@ function PreviewEmptyState(props: {
 type BranchOption = {
   value: string;
   label: string;
+};
+
+type PreviewBranch = {
+  id: number;
+  name: string;
+  connectionUrl: string;
 };
 
 function getBranchOptions(state: Awaited<ReturnType<typeof getSetupState>>) {

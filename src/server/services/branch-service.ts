@@ -8,7 +8,6 @@ import { getZFSPool } from '../../utils/zfs-pool';
 import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
-import { getSetting } from './settings-service';
 import { setStepStatus } from './setup-state-service';
 
 const PROJECT_NAME = 'prod';
@@ -16,6 +15,11 @@ const BASE_BRANCH_NAME = 'base';
 
 export interface CreateBranchInput {
   name: string;
+}
+
+export interface CreatePreviewBranchInput {
+  sourceBranch: string;
+  restoreTime: string;
 }
 
 export interface CreateBranchResult {
@@ -37,6 +41,45 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
   const branchName = normalizeBranchName(input.name);
   await setStepStatus('first-branch', 'running', `creating ${branchName}`);
 
+  const result = await createBranchClone({
+    name: branchName,
+    sourceBranch: 'prod',
+    sourceDataset: getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME),
+    sourceReplayAt: new Date().toISOString(),
+    publicAccess: true,
+    readOnly: false,
+  });
+
+  await setStepStatus('first-branch', 'done', `${branchName} ready`);
+
+  return result;
+}
+
+export async function createPreviewBranch(input: CreatePreviewBranchInput): Promise<CreateBranchResult> {
+  const sourceBranch = normalizeSourceBranch(input.sourceBranch);
+  const restoreTime = parseRestoreTime(input.restoreTime);
+  const branchName = buildPreviewBranchName(sourceBranch);
+  const sourceDataset = await getSourceDataset(sourceBranch);
+
+  return createBranchClone({
+    name: branchName,
+    sourceBranch,
+    sourceDataset,
+    sourceReplayAt: restoreTime.toISOString(),
+    publicAccess: false,
+    readOnly: true,
+  });
+}
+
+async function createBranchClone(options: {
+  name: string;
+  sourceBranch: string;
+  sourceDataset: string;
+  sourceReplayAt: string;
+  publicAccess: boolean;
+  readOnly: boolean;
+}): Promise<CreateBranchResult> {
+  const branchName = normalizeBranchName(options.name);
   const db = getDb();
   const project = await ensureProject();
   const devServer = await db
@@ -50,13 +93,14 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
   const wal = new WALManager();
   const cert = new CertManager();
 
-  const baseDataset = getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME);
   const targetDataset = getDatasetName(PROJECT_NAME, branchName);
   const targetContainer = getContainerName(PROJECT_NAME, branchName);
 
-  if (!(await zfs.datasetExists(baseDataset))) {
-    await setStepStatus('replica', 'error', `missing ZFS base dataset ${baseDataset}`);
-    throw new Error(`Missing ZFS base dataset ${baseDataset}`);
+  if (!(await zfs.datasetExists(options.sourceDataset))) {
+    if (options.sourceBranch === 'prod') {
+      await setStepStatus('replica', 'error', `missing ZFS base dataset ${options.sourceDataset}`);
+    }
+    throw new Error(`Missing ZFS source dataset ${options.sourceDataset}`);
   }
 
   if (await zfs.datasetExists(targetDataset)) {
@@ -64,77 +108,109 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
   }
 
   const snapshotName = `branch-${formatTimestamp(new Date())}`;
-  const fullSnapshotName = `${pool}/${DEFAULTS.zfs.datasetBase}/${baseDataset}@${snapshotName}`;
+  const fullSnapshotName = `${pool}/${DEFAULTS.zfs.datasetBase}/${options.sourceDataset}@${snapshotName}`;
+  let containerId: string | null = null;
 
-  await zfs.createSnapshot(baseDataset, snapshotName);
-  await zfs.cloneSnapshot(fullSnapshotName, targetDataset);
-  await zfs.mountDataset(targetDataset);
+  try {
+    await zfs.createSnapshot(options.sourceDataset, snapshotName);
+    await zfs.cloneSnapshot(fullSnapshotName, targetDataset);
+    await zfs.mountDataset(targetDataset);
 
-  const mountpoint = await zfs.getMountpoint(targetDataset);
-  await prepareWritableClone(mountpoint);
+    const mountpoint = await zfs.getMountpoint(targetDataset);
+    await prepareWritableClone(mountpoint);
 
-  const certPaths = await cert.generateCerts(PROJECT_NAME);
-  const walArchivePath = wal.getArchivePath(targetDataset);
-  await wal.ensureArchiveDir(targetDataset);
+    const certPaths = await cert.generateCerts(PROJECT_NAME);
+    const walArchivePath = wal.getArchivePath(targetDataset);
+    await wal.ensureArchiveDir(targetDataset);
 
-  const password = generatePassword();
-  const image = await getSetting('replica.postgresImage') || DEFAULTS.postgres.defaultImage;
+    const password = generatePassword();
+    const pgVersion = await readPgVersion(`${mountpoint}/pgdata`);
+    const image = `postgres:${pgVersion}-alpine`;
 
-  if (!(await docker.imageExists(image))) {
-    await docker.pullImage(image);
+    if (!(await docker.imageExists(image))) {
+      await docker.pullImage(image);
+    }
+
+    containerId = await docker.createContainer({
+      name: targetContainer,
+      image,
+      port: 0,
+      dataPath: mountpoint,
+      walArchivePath,
+      sslCertDir: certPaths.certDir,
+      password,
+      username: 'postgres',
+      database: 'postgres',
+      publicAccess: options.publicAccess,
+      readOnly: options.readOnly,
+    });
+
+    await docker.startContainer(containerId);
+    await docker.waitForHealthy(containerId);
+    const port = await docker.getContainerPort(containerId);
+    const connectionUrl = formatPostgresConnectionUrl(
+      'postgres',
+      password,
+      devServer?.host || 'localhost',
+      port,
+      'postgres'
+    );
+
+    await db
+      .insertInto('branches')
+      .values({
+        project_id: project.id,
+        name: branchName,
+        dataset: targetDataset,
+        port,
+        status: 'running',
+        connection_url: connectionUrl,
+        source_replay_at: options.sourceReplayAt,
+      })
+      .execute();
+
+    const row = await db
+      .selectFrom('branches')
+      .select(['id', 'name', 'connection_url'])
+      .where('project_id', '=', project.id)
+      .where('name', '=', branchName)
+      .executeTakeFirstOrThrow();
+
+    return {
+      id: row.id,
+      name: row.name,
+      connectionUrl: row.connection_url || connectionUrl,
+    };
+  } catch (error) {
+    await cleanupFailedClone({
+      docker,
+      zfs,
+      wal,
+      containerId,
+      containerName: targetContainer,
+      dataset: targetDataset,
+      snapshot: fullSnapshotName,
+    });
+    throw error;
+  }
+}
+
+async function getSourceDataset(sourceBranch: string): Promise<string> {
+  if (sourceBranch === 'prod') {
+    return getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME);
   }
 
-  const containerId = await docker.createContainer({
-    name: targetContainer,
-    image,
-    port: 0,
-    dataPath: mountpoint,
-    walArchivePath,
-    sslCertDir: certPaths.certDir,
-    password,
-    username: 'postgres',
-    database: 'postgres',
-    publicAccess: true,
-  });
-
-  await docker.startContainer(containerId);
-  await docker.waitForHealthy(containerId);
-  const port = await docker.getContainerPort(containerId);
-  const connectionUrl = formatPostgresConnectionUrl(
-    'postgres',
-    password,
-    devServer?.host || 'localhost',
-    port,
-    'postgres'
-  );
-
-  await db
-    .insertInto('branches')
-    .values({
-      project_id: project.id,
-      name: branchName,
-      dataset: targetDataset,
-      port,
-      status: 'running',
-      connection_url: connectionUrl,
-      source_replay_at: new Date().toISOString(),
-    })
-    .execute();
-
-  const row = await db
+  const branch = await getDb()
     .selectFrom('branches')
-    .select(['id', 'name', 'connection_url'])
-    .where('project_id', '=', project.id)
-    .where('name', '=', branchName)
-    .executeTakeFirstOrThrow();
+    .select(['dataset'])
+    .where('name', '=', sourceBranch)
+    .executeTakeFirst();
 
-  await setStepStatus('first-branch', 'done', `${branchName} ready`);
+  if (!branch) {
+    throw new Error(`Source branch not found: ${sourceBranch}`);
+  }
 
-  return {
-    id: row.id,
-    name: row.name,
-    connectionUrl: row.connection_url || connectionUrl,
-  };
+  return branch.dataset;
 }
 
 export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBranchResult> {
@@ -261,6 +337,41 @@ async function prepareWritableClone(mountpoint: string): Promise<void> {
   }
 }
 
+async function readPgVersion(pgdata: string): Promise<string> {
+  const result = await runCommand(['sh', '-lc', `cat ${shellQuote(pgdata)}/PG_VERSION`]);
+
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || 'could not read PG_VERSION');
+  }
+
+  return result.stdout.trim().split('.')[0] || DEFAULTS.postgres.defaultVersion;
+}
+
+async function cleanupFailedClone(options: {
+  docker: DockerManager;
+  zfs: ZFSManager;
+  wal: WALManager;
+  containerId: string | null;
+  containerName: string;
+  dataset: string;
+  snapshot: string;
+}): Promise<void> {
+  const containerId = options.containerId || await options.docker.getContainerByName(options.containerName);
+
+  if (containerId) {
+    await options.docker.removeContainer(containerId).catch(function ignoreContainerCleanupError() {});
+  }
+
+  await options.zfs.unmountDataset(options.dataset).catch(function ignoreUnmountCleanupError() {});
+
+  if (await options.zfs.datasetExists(options.dataset)) {
+    await options.zfs.destroyDataset(options.dataset, true).catch(function ignoreDatasetCleanupError() {});
+  }
+
+  await options.zfs.destroySnapshot(options.snapshot).catch(function ignoreSnapshotCleanupError() {});
+  await options.wal.deleteArchiveDir(options.dataset).catch(function ignoreWalCleanupError() {});
+}
+
 function normalizeBranchName(name: string): string {
   const normalized = name.trim().toLowerCase();
 
@@ -269,6 +380,31 @@ function normalizeBranchName(name: string): string {
   }
 
   return normalized;
+}
+
+function normalizeSourceBranch(name: string): string {
+  const normalized = name.trim().toLowerCase();
+
+  if (normalized === 'prod') {
+    return normalized;
+  }
+
+  return normalizeBranchName(normalized);
+}
+
+function buildPreviewBranchName(sourceBranch: string): string {
+  const safeSource = sourceBranch.replace(/[^a-z0-9_-]/g, '-').slice(0, 28);
+  return normalizeBranchName(`preview-${safeSource}-${formatTimestamp(new Date())}`.slice(0, 63));
+}
+
+function parseRestoreTime(value: string): Date {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error('Restore time is invalid');
+  }
+
+  return date;
 }
 
 function shellQuote(value: string): string {

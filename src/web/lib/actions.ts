@@ -19,6 +19,11 @@ const branchInput = z.object({
   name: z.string().min(1),
 });
 
+const previewBranchInput = z.object({
+  sourceBranch: z.string().min(1),
+  restoreTime: z.string().min(1),
+});
+
 const branchIdInput = z.object({
   id: z.number().int().positive(),
 });
@@ -101,6 +106,26 @@ export const deleteBranchAction = createServerFn({ method: 'POST' })
     migrateDatabase();
     const caller = appRouter.createCaller(createTrpcContext());
     return caller.setup.startDeleteBranch(data);
+  });
+
+export const createPreviewBranchAction = createServerFn({ method: 'POST' })
+  .inputValidator(function validatePreviewBranchInput(data: unknown) {
+    return previewBranchInput.parse(data);
+  })
+  .handler(async function createPreviewBranchHandler({ data }) {
+    migrateDatabase();
+    const caller = appRouter.createCaller(createTrpcContext());
+    return caller.setup.createPreviewBranch(data);
+  });
+
+export const deletePreviewBranchAction = createServerFn({ method: 'POST' })
+  .inputValidator(function validatePreviewBranchIdInput(data: unknown) {
+    return branchIdInput.parse(data);
+  })
+  .handler(async function deletePreviewBranchHandler({ data }) {
+    migrateDatabase();
+    const caller = appRouter.createCaller(createTrpcContext());
+    return caller.setup.deleteBranch(data);
   });
 
 export const createReplicaBaseAction = createServerFn({ method: 'POST' }).handler(async function createReplicaBaseHandler() {

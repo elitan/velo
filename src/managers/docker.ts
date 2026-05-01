@@ -13,6 +13,7 @@ export interface PostgresConfig {
   username: string;
   database: string;
   publicAccess?: boolean;
+  readOnly?: boolean;
 }
 
 export interface ContainerStatus {
@@ -62,6 +63,7 @@ export class DockerManager {
         '-c', 'ssl=on',
         '-c', 'ssl_cert_file=/etc/ssl/certs/postgresql/server.crt',
         '-c', 'ssl_key_file=/etc/ssl/certs/postgresql/server.key',
+        ...(config.readOnly ? ['-c', 'default_transaction_read_only=on'] : []),
       ],
       ExposedPorts: {
         '5432/tcp': {},

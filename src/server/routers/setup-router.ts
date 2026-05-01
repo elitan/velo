@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { publicProcedure, router } from '../trpc';
 import { checkServer, getDashboardState, saveServer } from '../services/setup-state-service';
 import { runDevBootstrap, runProdBootstrap } from '../services/bootstrap-service';
-import { createBranchFromBase, deleteBranch } from '../services/branch-service';
+import { createBranchFromBase, createPreviewBranch, deleteBranch } from '../services/branch-service';
 import { createReplicaBase } from '../services/replica-service';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from '../services/job-service';
 import { saveBackupSettings } from '../services/settings-service';
@@ -24,6 +24,11 @@ const backupInput = z.object({
   path: z.string(),
   pitrDays: z.number().int().positive().optional(),
   fullBackupRetentionDays: z.number().int().positive().optional(),
+});
+
+const previewBranchInput = z.object({
+  sourceBranch: z.string().min(1),
+  restoreTime: z.string().min(1),
 });
 
 export const setupRouter = router({
@@ -64,6 +69,11 @@ export const setupRouter = router({
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async function deleteBranchMutation({ input }) {
       return deleteBranch(input);
+    }),
+  createPreviewBranch: publicProcedure
+    .input(previewBranchInput)
+    .mutation(async function createPreviewBranchMutation({ input }) {
+      return createPreviewBranch(input);
     }),
   createReplicaBase: publicProcedure.mutation(async function createReplicaBaseMutation() {
     return createReplicaBase();
