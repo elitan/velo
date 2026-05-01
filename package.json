@@ -102,6 +102,7 @@
     "kysely": "^0.28.16",
     "lucide-react": "^1.14.0",
     "ora": "^9.0.0",
+    "radix-ui": "^1.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwind-merge": "^3.5.0",

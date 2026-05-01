@@ -4,7 +4,6 @@ import type { ComponentType } from 'react';
 import { useState } from 'react';
 import {
   Calendar,
-  ChevronsUpDown,
   Code2,
   Database,
   GitBranch,
@@ -27,6 +26,14 @@ import {
 } from '../../../components/ui/card';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../../components/ui/select';
 import {
   createPreviewBranchAction,
   deletePreviewBranchAction,
@@ -57,7 +64,10 @@ function BackupRestorePage() {
   const selectedBranch = isProd ? 'prod' : branch?.name || branchId;
   const status = isProd ? (state.prodConnectionUrl ? 'ready' : 'pending') : branch?.status || 'missing';
   const branchOptions = getBranchOptions(state);
+  const backupOptions = getBackupOptions(state.backup.fullBackupRetentionDays);
   const [sourceBranch, setSourceBranch] = useState(selectedBranch);
+  const [backupSourceBranch, setBackupSourceBranch] = useState(selectedBranch);
+  const [backupPoint, setBackupPoint] = useState(backupOptions[0]?.value || '');
   const [restoreTime, setRestoreTime] = useState(getDefaultRestoreTime());
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
@@ -118,7 +128,7 @@ function BackupRestorePage() {
                 <span>{selectedBranch}</span>
               </div>
               <p className="mt-6 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Choose a source branch and point in time, preview the historic data, then restore when ready.
+                Use point-in-time restore for exact recent recovery, or daily backups for older recovery.
               </p>
             </header>
 
@@ -132,7 +142,7 @@ function BackupRestorePage() {
                     <div className="min-w-0">
                       <CardTitle>Instant point-in-time restore</CardTitle>
                       <CardDescription className="mt-2 max-w-xl">
-                        Restore from any branch to any point in the past {state.backup.pitrDays} days.
+                        Restore to any exact moment in the last {state.backup.pitrDays} days.
                       </CardDescription>
                     </div>
                   </div>
@@ -144,25 +154,22 @@ function BackupRestorePage() {
                 <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="source-branch">Source branch</Label>
-                    <div className="relative">
-                      <select
-                        id="source-branch"
-                        className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
-                        value={sourceBranch}
-                        onChange={function changeSourceBranch(event) {
-                          setSourceBranch(event.target.value);
-                        }}
-                      >
-                        {branchOptions.map(function renderBranchOption(option) {
-                          return (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <ChevronsUpDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    </div>
+                    <Select value={sourceBranch} onValueChange={setSourceBranch}>
+                      <SelectTrigger id="source-branch" className="h-10 w-full bg-background font-medium">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {branchOptions.map(function renderBranchOption(option) {
+                            return (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="grid gap-2">
@@ -212,6 +219,85 @@ function BackupRestorePage() {
                 ) : null}
               </CardContent>
             </Card>
+
+            <Card className="max-w-5xl">
+              <CardHeader>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex gap-4">
+                    <div className="mt-1 grid size-10 shrink-0 place-items-center rounded-md border border-border bg-muted text-muted-foreground">
+                      <Database className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <CardTitle>Restore from daily backup</CardTitle>
+                      <CardDescription className="mt-2 max-w-xl">
+                        Restore from daily full backups retained for {state.backup.fullBackupRetentionDays} days.
+                      </CardDescription>
+                    </div>
+                  </div>
+                  <Badge variant="secondary">{state.backup.fullBackupRetentionDays} day retention</Badge>
+                </div>
+              </CardHeader>
+
+              <CardContent className="grid gap-5">
+                <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="backup-source-branch">Source branch</Label>
+                    <Select value={backupSourceBranch} onValueChange={setBackupSourceBranch}>
+                      <SelectTrigger id="backup-source-branch" className="h-10 w-full bg-background font-medium">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {branchOptions.map(function renderBackupBranchOption(option) {
+                            return (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="backup-point">Backup</Label>
+                    <Select value={backupPoint} onValueChange={setBackupPoint}>
+                      <SelectTrigger id="backup-point" className="h-10 w-full bg-background font-medium">
+                        <SelectValue placeholder="Select backup" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {backupOptions.map(function renderBackupOption(option) {
+                            return (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <div className="text-xs text-muted-foreground">Daily restore points, less precise than PITR.</div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+                    Use this when the recovery point is older than the PITR window. Backup preview and restore wiring comes next.
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button type="button" variant="outline" disabled>
+                      <Search />
+                      Preview backup
+                    </Button>
+                    <Button type="button" disabled>
+                      Restore from backup
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </section>
       </div>
@@ -250,25 +336,22 @@ function HistoricPreviewModal(props: {
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-normal">Preview historic data</h2>
             <div className="mt-3 flex flex-wrap items-start gap-2">
-              <div className="relative w-52">
-                <select
-                  className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm outline-none"
-                  value={props.branch}
-                  onChange={function changePreviewBranch(event) {
-                    props.onBranchChange(event.target.value);
-                  }}
-                  disabled
-                >
+              <Select value={props.branch} onValueChange={props.onBranchChange} disabled>
+                <SelectTrigger className="w-52 bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
                   {props.branchOptions.map(function renderBranchOption(option) {
                     return (
-                      <option key={option.value} value={option.value}>
+                      <SelectItem key={option.value} value={option.value}>
                         {option.label}
-                      </option>
+                      </SelectItem>
                     );
                   })}
-                </select>
-                <ChevronsUpDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              </div>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               <div>
                 <div className="relative w-64">
                   <Calendar className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -307,8 +390,8 @@ function HistoricPreviewModal(props: {
               </div>
 
               <div className="mt-5 grid gap-3">
-                <SelectShell icon={Database} label="postgres" />
-                <SelectShell icon={Table2} label="public" />
+                <SelectShell icon={Database} value="postgres" />
+                <SelectShell icon={Table2} value="public" />
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input className="pl-9" placeholder="Search..." />
@@ -388,18 +471,24 @@ function QueryPreviewPanel() {
 
 function SelectShell(props: {
   icon: ComponentType<{ className?: string }>;
-  label: string;
+  value: string;
 }) {
   const Icon = props.icon;
 
   return (
-    <div className="flex h-9 items-center justify-between rounded-md border border-input bg-background px-3 text-sm">
-      <span className="flex min-w-0 items-center gap-2">
-        <Icon className="size-4 text-muted-foreground" />
-        <span className="truncate">{props.label}</span>
-      </span>
-      <ChevronsUpDown className="size-4 text-muted-foreground" />
-    </div>
+    <Select value={props.value} disabled>
+      <SelectTrigger className="w-full bg-background">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value={props.value}>
+            <Icon className="size-4 text-muted-foreground" />
+            {props.value}
+          </SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -447,6 +536,26 @@ function getBranchOptions(state: Awaited<ReturnType<typeof getSetupState>>) {
       };
     }),
   ];
+}
+
+function getBackupOptions(retentionDays: number) {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+  const count = Math.max(1, Math.min(retentionDays, 90));
+
+  return Array.from({ length: count }, function createBackupOption(_, index) {
+    const date = new Date();
+    date.setDate(date.getDate() - index);
+    date.setHours(2, 15, 0, 0);
+
+    return {
+      value: date.toISOString().slice(0, 10),
+      label: `${formatter.format(date)} daily backup`,
+    };
+  });
 }
 
 function getDefaultRestoreTime() {

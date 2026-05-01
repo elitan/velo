@@ -1,13 +1,12 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
-import type { ChangeEvent, FormEvent, ReactNode } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   ArchiveRestore,
   CheckCircle2,
-  ChevronsUpDown,
   Clock3,
   Copy,
   Database,
@@ -34,6 +33,14 @@ import { Checkbox } from '../components/ui/checkbox';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Separator } from '../components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import { cn } from '@/lib/utils';
 import {
   createBranchAction,
@@ -343,8 +350,7 @@ export function AppSidebar(props: AppSidebarProps) {
   const overviewHref = `/branch/${selectedBranchParam}/overview`;
   const backupHref = `/branch/${selectedBranchParam}/backup-restore`;
 
-  function changeBranch(event: ChangeEvent<HTMLSelectElement>) {
-    const value = event.currentTarget.value;
+  function changeBranch(value: string) {
     window.location.href = `/branch/${encodeURIComponent(value)}/overview`;
   }
 
@@ -367,24 +373,23 @@ export function AppSidebar(props: AppSidebarProps) {
 
       <SidebarSection label="Branch" className="mt-8">
         <label className="sr-only" htmlFor="branch-select">Branch</label>
-        <div className="relative">
-          <select
-            id="branch-select"
-            className="h-10 w-full appearance-none rounded-md border border-border bg-background px-3 pr-9 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
-            value={selectedBranch}
-            onChange={changeBranch}
-          >
-            <option value="prod">prod</option>
-            {props.branches.map(function renderBranchOption(branch) {
-              return (
-                <option key={branch.id} value={branch.name}>
-                  {branch.name}
-                </option>
-              );
-            })}
-          </select>
-          <ChevronsUpDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        </div>
+        <Select value={selectedBranch} onValueChange={changeBranch}>
+          <SelectTrigger id="branch-select" className="h-10 w-full bg-background font-medium">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="prod">prod</SelectItem>
+              {props.branches.map(function renderBranchOption(branch) {
+                return (
+                  <SelectItem key={branch.id} value={branch.name}>
+                    {branch.name}
+                  </SelectItem>
+                );
+              })}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <div className="mt-3 grid gap-1">
           <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} />
           <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} />
