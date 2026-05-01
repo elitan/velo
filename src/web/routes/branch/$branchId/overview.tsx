@@ -1,7 +1,7 @@
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import { useEffect, useState } from 'react';
-import { Activity, ArchiveRestore, Database, GitBranch, HardDrive, RefreshCw } from 'lucide-react';
+import { ArchiveRestore, GitBranch, RefreshCw } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import { Badge } from '../../../components/ui/badge';
 import {
@@ -12,7 +12,6 @@ import {
 import {
   AppSidebar,
   BranchOverviewPanel,
-  MetricCard,
   StatusBadge,
 } from '../../index';
 
@@ -33,25 +32,12 @@ function BranchOverviewPage() {
   const prodServer = state.servers.find(function findProd(server) {
     return server.role === 'prod';
   });
-  const devServer = state.servers.find(function findDev(server) {
-    return server.role === 'dev';
-  });
-  const backupsStep = state.setupSteps.find(function findBackupsStep(step) {
-    return step.key === 'backups';
-  });
-  const prodStep = state.setupSteps.find(function findProdStep(step) {
-    return step.key === 'prod-setup';
-  });
-  const replicaStep = state.setupSteps.find(function findReplicaStep(step) {
-    return step.key === 'replica';
-  });
   const activeJobs = state.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
   }).length;
   const activeProdSetup = state.jobs.some(function isActiveProdSetup(job) {
     return job.type === 'prod-bootstrap' && (job.status === 'queued' || job.status === 'running');
   });
-  const backupMode = state.backup.enabled ? 'S3/R2' : 'local';
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(function pollActiveJobs() {
@@ -118,20 +104,6 @@ function BranchOverviewPage() {
                 </Button>
               </div>
             </header>
-
-            {branch.kind === 'prod' ? (
-              <section className="grid gap-3 sm:grid-cols-3">
-                <MetricCard title="Database" value={state.prodConnectionUrl ? 'Ready' : 'Pending'} detail={prodServer?.host || 'no host'} icon={Database} tone="emerald" />
-                <MetricCard title="Backups" value={backupMode} detail={backupsStep?.status || 'pending'} icon={ArchiveRestore} tone="blue" />
-                <MetricCard title="Prod setup" value={prodStep?.status || 'pending'} detail={prodStep?.message || 'waiting'} icon={Activity} tone="amber" />
-              </section>
-            ) : (
-              <section className="grid gap-3 sm:grid-cols-3">
-                <MetricCard title="Replica" value={replicaStep?.status || 'pending'} detail={replicaStep?.message || 'waiting'} icon={RefreshCw} tone="blue" />
-                <MetricCard title="Branches" value={String(state.branches.length)} detail="dev databases" icon={GitBranch} tone="violet" />
-                <MetricCard title="Dev host" value={devServer?.status || 'unknown'} detail={devServer?.host || 'no host'} icon={HardDrive} tone="emerald" />
-              </section>
-            )}
 
             <BranchOverviewPanel
               title={`${branch.name} database`}
