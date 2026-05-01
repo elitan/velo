@@ -284,7 +284,7 @@ function ProductionSummaryPanel(props: ProductionSummaryPanelProps) {
           <InfoCell label="Backup repo" value={props.backupMode} />
           <InfoCell label="Backup status" value={props.backupMessage || props.backupStatus} />
         </div>
-        <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href="/prod">
+        <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href="/branch/prod/overview">
           <Database />
           Open production
         </a>
@@ -339,12 +339,12 @@ export interface AppSidebarProps {
 export function AppSidebar(props: AppSidebarProps) {
   const selectedBranch = props.selectedBranch || 'prod';
   const selectedBranchParam = encodeURIComponent(selectedBranch);
-  const overviewHref = selectedBranch === 'prod' ? '/prod' : `/dev?branch=${selectedBranchParam}`;
-  const backupHref = selectedBranch === 'prod' ? '/prod#backup-restore' : `/dev?branch=${selectedBranchParam}#backup-restore`;
+  const overviewHref = `/branch/${selectedBranchParam}/overview`;
+  const backupHref = `/branch/${selectedBranchParam}/backup-restore`;
 
   function changeBranch(event: ChangeEvent<HTMLSelectElement>) {
     const value = event.currentTarget.value;
-    window.location.href = value === 'prod' ? '/prod' : `/dev?branch=${encodeURIComponent(value)}`;
+    window.location.href = `/branch/${encodeURIComponent(value)}/overview`;
   }
 
   return (
@@ -458,15 +458,15 @@ export function MetricCard(props: MetricCardProps) {
   );
 }
 
-export interface ProductionPanelProps {
+export interface BranchOverviewPanelProps {
   connectionUrl: string | null;
   title?: string;
   connectionLabel?: string;
 }
 
-export function ProductionPanel(props: ProductionPanelProps) {
+export function BranchOverviewPanel(props: BranchOverviewPanelProps) {
   return (
-    <Card id="backup-restore" className="scroll-mt-6">
+    <Card>
       <CardHeader>
         <CardTitle>{props.title || 'Production database'}</CardTitle>
         <CardDescription>Connection, backup policy, and recovery paths.</CardDescription>
