@@ -12,6 +12,9 @@ export default defineConfig({
       routesDirectory: './src/web/routes',
       generatedRouteTree: './src/web/routeTree.gen.ts',
       autoCodeSplitting: false,
+      codeSplittingOptions: {
+        addHmr: false,
+      },
     }),
     tanstackStart({
       srcDirectory: 'src/web',
