@@ -24,6 +24,12 @@ const previewBranchInput = z.object({
   restoreTime: z.string().min(1),
 });
 
+const restoreBranchInput = z.object({
+  targetBranch: z.string().min(1),
+  sourceBranch: z.string().min(1),
+  restoreTime: z.string().min(1),
+});
+
 const branchIdInput = z.object({
   id: z.number().int().positive(),
 });
@@ -126,6 +132,16 @@ export const deletePreviewBranchAction = createServerFn({ method: 'POST' })
     migrateDatabase();
     const caller = appRouter.createCaller(createTrpcContext());
     return caller.setup.deleteBranch(data);
+  });
+
+export const restoreBranchAction = createServerFn({ method: 'POST' })
+  .inputValidator(function validateRestoreBranchInput(data: unknown) {
+    return restoreBranchInput.parse(data);
+  })
+  .handler(async function restoreBranchHandler({ data }) {
+    migrateDatabase();
+    const caller = appRouter.createCaller(createTrpcContext());
+    return caller.setup.startRestoreBranch(data);
   });
 
 export const createReplicaBaseAction = createServerFn({ method: 'POST' }).handler(async function createReplicaBaseHandler() {

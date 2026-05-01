@@ -19,7 +19,7 @@ export async function runDevBootstrap(): Promise<BootstrapResult> {
       'set -e',
       'if command -v apt-get >/dev/null; then',
       '  sudo apt-get update',
-      '  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io zfsutils-linux postgresql-client',
+      '  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io zfsutils-linux postgresql-client pgbackrest',
       '  sudo systemctl enable --now docker || true',
       'fi',
       'if [ -z "$(sudo zpool list -H -o name 2>/dev/null)" ]; then',
@@ -127,7 +127,7 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
   return { ok, message };
 }
 
-async function buildPgBackRestConfig(): Promise<string> {
+export async function buildPgBackRestConfig(): Promise<string> {
   const backup = await getBackupSettings();
   const secretAccessKey = await getSetting('backup.s3.secretAccessKey') || '';
 

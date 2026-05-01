@@ -14,6 +14,7 @@ export interface PostgresConfig {
   database: string;
   publicAccess?: boolean;
   readOnly?: boolean;
+  restoreCommand?: string | null;
 }
 
 export interface ContainerStatus {
@@ -59,7 +60,7 @@ export class DockerManager {
         '-c', `archive_command=${buildPostgresArchiveCommand('/wal-archive')}`,
         '-c', 'max_wal_senders=10',
         '-c', 'wal_keep_size=1GB',
-        '-c', 'restore_command=cp /wal-archive/%f %p',
+        ...getRestoreCommandArgs(config),
         '-c', 'ssl=on',
         '-c', 'ssl_cert_file=/etc/ssl/certs/postgresql/server.crt',
         '-c', 'ssl_key_file=/etc/ssl/certs/postgresql/server.key',
@@ -319,4 +320,12 @@ export function getPostgresHostIp(config: Pick<PostgresConfig, 'publicAccess'>):
   }
 
   return '127.0.0.1';
+}
+
+function getRestoreCommandArgs(config: Pick<PostgresConfig, 'restoreCommand'>): string[] {
+  if (config.restoreCommand === null) {
+    return [];
+  }
+
+  return ['-c', `restore_command=${config.restoreCommand || 'cp /wal-archive/%f %p'}`];
 }

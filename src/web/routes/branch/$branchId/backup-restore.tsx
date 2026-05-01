@@ -1,8 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import type { ComponentType } from 'react';
 import { useState } from 'react';
 import {
+  AlertTriangle,
   Calendar,
   Code2,
   Database,
@@ -38,6 +39,7 @@ import {
   createPreviewBranchAction,
   deletePreviewBranchAction,
   getSetupState,
+  restoreBranchAction,
 } from '../../../lib/actions';
 import {
   AppSidebar,
@@ -53,8 +55,10 @@ export const Route = createFileRoute('/branch/$branchId/backup-restore')({
 
 function BackupRestorePage() {
   const state = Route.useLoaderData();
+  const router = useRouter();
   const createPreviewBranch = useServerFn(createPreviewBranchAction);
   const deletePreviewBranch = useServerFn(deletePreviewBranchAction);
+  const restoreBranch = useServerFn(restoreBranchAction);
   const params = Route.useParams();
   const branchId = params.branchId;
   const isProd = branchId === 'prod';
@@ -73,6 +77,10 @@ function BackupRestorePage() {
   const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [restorePromptOpen, setRestorePromptOpen] = useState(false);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   async function handleOpenPreview() {
     setPreviewBusy(true);
@@ -107,6 +115,29 @@ function BackupRestorePage() {
       await deletePreviewBranch({ data: { id: branchToDelete.id } });
     } catch (error: any) {
       setPreviewError(error?.message || `Could not delete preview branch ${branchToDelete.name}`);
+    }
+  }
+
+  async function handleRestore() {
+    setRestoreBusy(true);
+    setRestoreError(null);
+    setRestoreMessage(null);
+
+    try {
+      const job = await restoreBranch({
+        data: {
+          targetBranch: selectedBranch,
+          sourceBranch,
+          restoreTime,
+        },
+      });
+      setRestorePromptOpen(false);
+      setRestoreMessage(`Restore job ${job.id} started. Progress is available in Settings.`);
+      await router.invalidate();
+    } catch (error: any) {
+      setRestoreError(error?.message || 'Could not start restore');
+    } finally {
+      setRestoreBusy(false);
     }
   }
 
@@ -198,7 +229,7 @@ function BackupRestorePage() {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={previewBusy}
+                      disabled={previewBusy || restoreBusy}
                       onClick={function previewDataClick() {
                         void handleOpenPreview();
                       }}
@@ -206,15 +237,27 @@ function BackupRestorePage() {
                       {previewBusy ? <Loader2 className="animate-spin" /> : <Search />}
                       {previewBusy ? 'Creating preview' : 'Preview data'}
                     </Button>
-                    <Button type="button" disabled>
+                    <Button
+                      type="button"
+                      disabled={previewBusy || restoreBusy}
+                      onClick={function restoreClick() {
+                        setRestorePromptOpen(true);
+                      }}
+                    >
                       Restore to point in time
                     </Button>
                   </div>
                 </div>
 
-                {previewError ? (
+                {restoreMessage ? (
+                  <div className="rounded-md border border-emerald-500/30 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    {restoreMessage}
+                  </div>
+                ) : null}
+
+                {previewError || restoreError ? (
                   <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    {previewError}
+                    {previewError || restoreError}
                   </div>
                 ) : null}
               </CardContent>
@@ -312,9 +355,76 @@ function BackupRestorePage() {
           onClose={function closePreview() {
             void handleClosePreview();
           }}
+          onRestore={function restoreFromPreview() {
+            void handleRestore();
+          }}
+          restoreBusy={restoreBusy}
+        />
+      ) : null}
+
+      {restorePromptOpen ? (
+        <RestorePromptModal
+          branch={selectedBranch}
+          sourceBranch={sourceBranch}
+          restoreTime={restoreTime}
+          previewBusy={previewBusy}
+          restoreBusy={restoreBusy}
+          restoreError={restoreError}
+          onClose={function closeRestorePrompt() {
+            setRestorePromptOpen(false);
+          }}
+          onRestore={function confirmRestore() {
+            void handleRestore();
+          }}
         />
       ) : null}
     </main>
+  );
+}
+
+function RestorePromptModal(props: {
+  branch: string;
+  sourceBranch: string;
+  restoreTime: string;
+  previewBusy: boolean;
+  restoreBusy: boolean;
+  restoreError: string | null;
+  onClose: () => void;
+  onRestore: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl">
+        <div className="flex gap-3">
+          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-700">
+            <AlertTriangle className="size-5" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold tracking-normal">Restore branch</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              You are about to restore {props.branch} from {props.sourceBranch} at {formatHistoricTime(props.restoreTime)}.
+              This replaces the current branch data with the selected point in time.
+            </p>
+          </div>
+        </div>
+
+        {props.restoreError ? (
+          <div className="mt-5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {props.restoreError}
+          </div>
+        ) : null}
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={props.previewBusy || props.restoreBusy} onClick={props.onRestore}>
+            {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
+            Restore now
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -325,6 +435,8 @@ function HistoricPreviewModal(props: {
   restoreTime: string;
   onBranchChange: (branch: string) => void;
   onClose: () => void;
+  onRestore: () => void;
+  restoreBusy: boolean;
 }) {
   const [tab, setTab] = useState<'browse' | 'query' | 'compare'>('browse');
   const historicTime = formatHistoricTime(props.restoreTime);
@@ -425,7 +537,10 @@ function HistoricPreviewModal(props: {
 
         <div className="flex justify-end gap-2 border-t border-border px-4 py-4">
           <Button type="button" variant="outline" onClick={props.onClose}>Cancel</Button>
-          <Button type="button" disabled>Proceed to restore</Button>
+          <Button type="button" disabled={props.restoreBusy} onClick={props.onRestore}>
+            {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
+            Proceed to restore
+          </Button>
         </div>
       </div>
     </div>

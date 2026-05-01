@@ -6,6 +6,10 @@ import { createBranchFromBase, createPreviewBranch, deleteBranch } from '../serv
 import { createReplicaBase } from '../services/replica-service';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from '../services/job-service';
 import { saveBackupSettings } from '../services/settings-service';
+import {
+  restoreDevelopmentBranchFromPgBackRest,
+  restoreProductionFromPgBackRest,
+} from '../services/pgbackrest-restore-service';
 
 const serverInput = z.object({
   role: z.enum(['prod', 'dev']),
@@ -27,6 +31,12 @@ const backupInput = z.object({
 });
 
 const previewBranchInput = z.object({
+  sourceBranch: z.string().min(1),
+  restoreTime: z.string().min(1),
+});
+
+const restoreBranchInput = z.object({
+  targetBranch: z.string().min(1),
   sourceBranch: z.string().min(1),
   restoreTime: z.string().min(1),
 });
@@ -74,6 +84,24 @@ export const setupRouter = router({
     .input(previewBranchInput)
     .mutation(async function createPreviewBranchMutation({ input }) {
       return createPreviewBranch(input);
+    }),
+  startRestoreBranch: publicProcedure
+    .input(restoreBranchInput)
+    .mutation(async function startRestoreBranchMutation({ input }) {
+      const job = await createJob('restore-branch', input);
+      runJob(job, async function runRestoreBranchJob(context) {
+        await context.log(`restoring ${input.targetBranch} from ${input.sourceBranch}`);
+
+        if (input.targetBranch === 'prod') {
+          await restoreProductionFromPgBackRest(input);
+          await context.log('production restore completed');
+          return;
+        }
+
+        const result = await restoreDevelopmentBranchFromPgBackRest(input);
+        await context.log(`branch restored: ${result.name}`);
+      });
+      return job;
     }),
   createReplicaBase: publicProcedure.mutation(async function createReplicaBaseMutation() {
     return createReplicaBase();

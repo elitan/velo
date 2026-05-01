@@ -9,6 +9,7 @@ import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
+import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
@@ -59,6 +60,17 @@ export async function createPreviewBranch(input: CreatePreviewBranchInput): Prom
   const sourceBranch = normalizeSourceBranch(input.sourceBranch);
   const restoreTime = parseRestoreTime(input.restoreTime);
   const branchName = buildPreviewBranchName(sourceBranch);
+
+  if (sourceBranch === 'prod') {
+    return createBranchFromPgBackRest({
+      targetBranch: branchName,
+      sourceBranch,
+      restoreTime: restoreTime.toISOString(),
+      publicAccess: false,
+      readOnly: true,
+    });
+  }
+
   const sourceDataset = await getSourceDataset(sourceBranch);
 
   return createBranchClone({
