@@ -20,7 +20,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Badge, type BadgeProps } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
+import { Button, buttonVariants } from '../components/ui/button';
 import {
   Card,
   CardContent,
@@ -120,6 +120,7 @@ function HomePage() {
   const backupsStep = state.setupSteps.find(function findBackupsStep(step) {
     return step.key === 'backups';
   });
+  const dashboardTitle = setupComplete ? 'Production ready. Branching is live.' : 'Finish setup to start branching.';
 
   useEffect(function pollActiveJobs() {
     if (activeJobs === 0) {
@@ -186,19 +187,23 @@ function HomePage() {
             <header id="overview" className="scroll-mt-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">MVP</Badge>
+                  <Badge variant="outline">Overview</Badge>
                   <Badge variant={setupComplete ? 'success' : 'warning'}>
                     {setupComplete ? 'ready' : 'setup needed'}
                   </Badge>
                 </div>
                 <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">
-                  Hosted Postgres, made quiet.
+                  {dashboardTitle}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Production is the stable database with pgBackRest backups. Development is disposable ZFS branches.
+                  Create dev databases, copy connection strings, and confirm production is protected.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <a className={buttonVariants()} href="#branches">
+                  <GitBranch />
+                  New branch
+                </a>
                 <Button
                   variant="outline"
                   onClick={function refreshPage() {
@@ -223,30 +228,12 @@ function HomePage() {
             <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard title="Production" value={state.prodConnectionUrl ? 'Ready' : 'Pending'} detail={prodServer?.host || 'no host'} icon={Database} tone="emerald" />
               <MetricCard title="Backups" value={backupMode} detail={backupsStep?.status || 'pending'} icon={ArchiveRestore} tone="blue" />
-              <MetricCard title="Dev branches" value={String(state.branches.length)} detail="disposable databases" icon={GitBranch} tone="violet" />
-              <MetricCard title="Setup" value={`${doneSteps}/${state.setupSteps.length}`} detail="steps complete" icon={Activity} tone="amber" />
+              <MetricCard title="Branches" value={String(state.branches.length)} detail="ready to use" icon={GitBranch} tone="violet" />
+              <MetricCard title="Active work" value={String(activeJobs)} detail="running jobs" icon={Activity} tone="amber" />
             </section>
 
-            <div className="grid min-w-0 gap-6">
-              <div id="production" className="scroll-mt-6">
-                <ProductionPanel
-                  connectionUrl={state.prodConnectionUrl}
-                  backup={state.backup}
-                  serverHost={prodServer?.host || null}
-                  backupStatus={backupsStep?.status || 'pending'}
-                  backupMessage={backupsStep?.message || null}
-                />
-              </div>
-
-              <SetupPanel
-                steps={state.setupSteps}
-                busy={busy}
-                prodServerReady={Boolean(prodServer)}
-                onBootstrap={handleBootstrap}
-                onCreateReplica={handleCreateReplica}
-              />
-
-              <div id="development" className="scroll-mt-6">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
+              <div id="branches" className="scroll-mt-6">
                 <BranchesPanel
                   branches={state.branches}
                   busy={busy}
@@ -254,11 +241,80 @@ function HomePage() {
                   onDelete={handleDeleteBranch}
                 />
               </div>
+
+              <div className="grid content-start gap-6">
+                <ProductionSummaryPanel
+                  connectionUrl={state.prodConnectionUrl}
+                  serverHost={prodServer?.host || null}
+                  backupStatus={backupsStep?.status || 'pending'}
+                  backupMessage={backupsStep?.message || null}
+                  backupMode={backupMode}
+                />
+                <SystemPanel
+                  setupDone={doneSteps}
+                  setupTotal={state.setupSteps.length}
+                  healthyServers={state.servers.filter(function countOk(server) {
+                    return server.status === 'ok';
+                  }).length}
+                  totalServers={state.servers.length}
+                  backupMode={backupMode}
+                  activeJobs={activeJobs}
+                />
+              </div>
             </div>
+
+            {!setupComplete ? (
+              <SetupPanel
+                steps={state.setupSteps}
+                busy={busy}
+                prodServerReady={Boolean(prodServer)}
+                onBootstrap={handleBootstrap}
+                onCreateReplica={handleCreateReplica}
+              />
+            ) : null}
           </div>
         </section>
       </div>
     </main>
+  );
+}
+
+export interface ProductionSummaryPanelProps {
+  connectionUrl: string | null;
+  serverHost: string | null;
+  backupMode: string;
+  backupStatus: string;
+  backupMessage: string | null;
+}
+
+function ProductionSummaryPanel(props: ProductionSummaryPanelProps) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <div>
+          <CardTitle>Production</CardTitle>
+          <CardDescription>Connection and backup health</CardDescription>
+        </div>
+        <StatusBadge status={props.connectionUrl ? 'ready' : 'pending'} />
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <Label>Connection string</Label>
+            <Badge variant="secondary">{props.serverHost || 'no host'}</Badge>
+          </div>
+          <ConnectionString value={props.connectionUrl} />
+        </div>
+        <div className="grid gap-3 rounded-lg border bg-muted/20 p-4">
+          <InfoCell label="Backup repo" value={props.backupMode} />
+          <InfoCell label="Backup status" value={props.backupMessage || props.backupStatus} />
+        </div>
+        <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href="/prod">
+          <Database />
+          Open production
+        </a>
+      </CardContent>
+    </Card>
   );
 }
 
