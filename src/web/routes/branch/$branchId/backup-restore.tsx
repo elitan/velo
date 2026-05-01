@@ -71,7 +71,6 @@ function BackupRestorePage() {
   const backupOptions = getBackupOptions(state.backup.fullBackupRetentionDays);
   const restoreWindow = getRestoreWindow(state.backup.pitrDays);
   const [sourceBranch, setSourceBranch] = useState(selectedBranch);
-  const [backupSourceBranch, setBackupSourceBranch] = useState(selectedBranch);
   const [backupPoint, setBackupPoint] = useState(backupOptions[0]?.value || '');
   const [restoreTime, setRestoreTime] = useState(getDefaultRestoreTime());
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -277,7 +276,7 @@ function BackupRestorePage() {
                     <div className="min-w-0">
                       <CardTitle>Restore from daily backup</CardTitle>
                       <CardDescription className="mt-2 max-w-xl">
-                        Restore from daily full backups retained for {state.backup.fullBackupRetentionDays} days.
+                        Restore from production daily full backups retained for {state.backup.fullBackupRetentionDays} days.
                       </CardDescription>
                     </div>
                   </div>
@@ -288,23 +287,11 @@ function BackupRestorePage() {
               <CardContent className="grid gap-5">
                 <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-2">
                   <div className="grid gap-2">
-                    <Label htmlFor="backup-source-branch">Source branch</Label>
-                    <Select value={backupSourceBranch} onValueChange={setBackupSourceBranch}>
-                      <SelectTrigger id="backup-source-branch" className="h-10 w-full bg-background font-medium">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {branchOptions.map(function renderBackupBranchOption(option) {
-                            return (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
+                    <Label>Source branch</Label>
+                    <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 text-sm font-medium">
+                      prod
+                    </div>
+                    <div className="text-xs text-muted-foreground">Daily backups are taken only from production.</div>
                   </div>
 
                   <div className="grid gap-2">
@@ -331,7 +318,7 @@ function BackupRestorePage() {
 
                 <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
                   <p className="max-w-xl text-sm leading-6 text-muted-foreground">
-                    Use this when the recovery point is older than the PITR window. Backup preview and restore wiring comes next.
+                    Use this when the recovery point is older than the PITR window. The source is always production.
                   </p>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Button type="button" variant="outline" disabled>
