@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VELO_REMOTE_HOST="${VELO_REMOTE_HOST:-${VELO_DEPLOY_HOST:?Set VELO_REMOTE_HOST or VELO_DEPLOY_HOST}}"
+VELO_REMOTE_USER="${VELO_REMOTE_USER:-${VELO_DEPLOY_USER:-root}}"
+VELO_REMOTE_KEY="${VELO_REMOTE_KEY:-${VELO_DEPLOY_KEY:-$HOME/.ssh/frost-e2e-ci}}"
+VELO_REMOTE_DIR="${VELO_REMOTE_DIR:-/opt/velo-dev}"
+VELO_DATA_DIR="${VELO_DATA_DIR:-/opt/velo}"
+VELO_HOST="${VELO_HOST:-0.0.0.0}"
+VELO_PORT="${VELO_PORT:-3000}"
+VELO_DB="${VELO_DB:-$VELO_DATA_DIR/.velo/velo.sqlite}"
+VELO_PUBLIC_URL="${VELO_PUBLIC_URL:-http://$VELO_REMOTE_HOST:$VELO_PORT}"
+
+SSH_ARGS=(
+  -i "$VELO_REMOTE_KEY"
+  -o BatchMode=yes
+  -o StrictHostKeyChecking=accept-new
+)
+
+REMOTE="$VELO_REMOTE_USER@$VELO_REMOTE_HOST"
+
+echo "Starting remote dev server on $REMOTE:$VELO_REMOTE_DIR"
+"$(dirname "$0")/remote-sync.sh" --once
+
+ssh "${SSH_ARGS[@]}" "$REMOTE" "set -e
+cd '$VELO_REMOTE_DIR'
+export BUN_INSTALL=/root/.bun
+export PATH=\"\$BUN_INSTALL/bin:\$PATH\"
+
+if ! command -v bun >/dev/null 2>&1; then
+  curl -fsSL https://bun.sh/install | bash
+fi
+
+bun install --frozen-lockfile
+VELO_DB='$VELO_DB' bun run db:migrate
+
+if [ ! -f /etc/velo.env ]; then
+  umask 077
+  printf 'BETTER_AUTH_SECRET=%s\n' \"\$(openssl rand -base64 48)\" >/etc/velo.env
+fi
+
+grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' '$VELO_PUBLIC_URL' >>/etc/velo.env
+
+cat >/etc/systemd/system/velo-web-dev.service <<SERVICE
+[Unit]
+Description=Velo remote dev UI
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$VELO_REMOTE_DIR
+Environment=HOST=$VELO_HOST
+Environment=PORT=$VELO_PORT
+Environment=VELO_DB=$VELO_DB
+Environment=NODE_ENV=development
+EnvironmentFile=/etc/velo.env
+ExecStart=/root/.bun/bin/bun --bun vite dev --host $VELO_HOST --port $VELO_PORT --strictPort
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl daemon-reload
+systemctl stop velo-web || true
+systemctl enable velo-web-dev >/dev/null
+systemctl restart velo-web-dev
+
+for attempt in \$(seq 1 30); do
+  if curl -fsS -I 'http://127.0.0.1:$VELO_PORT' >/dev/null 2>&1; then
+    systemctl is-active --quiet velo-web-dev
+    exit 0
+  fi
+  sleep 1
+done
+
+systemctl status velo-web-dev --no-pager -l || true
+journalctl -u velo-web-dev -n 80 --no-pager || true
+exit 1
+"
+
+curl -fsS -I "http://$VELO_REMOTE_HOST:$VELO_PORT" >/dev/null
+echo "Remote dev ready: http://$VELO_REMOTE_HOST:$VELO_PORT"

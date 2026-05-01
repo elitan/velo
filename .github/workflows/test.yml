@@ -32,7 +32,7 @@ jobs:
       run: bun run web:build
 
     - name: Check shell scripts
-      run: bash -n scripts/install.sh scripts/deploy-dev.sh
+      run: bash -n scripts/*.sh
 
   test:
     runs-on: ubuntu-22.04
