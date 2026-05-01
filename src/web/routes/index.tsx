@@ -338,12 +338,13 @@ export interface AppSidebarProps {
 
 export function AppSidebar(props: AppSidebarProps) {
   const selectedBranch = props.selectedBranch || 'prod';
-  const overviewHref = selectedBranch === 'prod' ? '/prod' : '/dev';
-  const backupHref = selectedBranch === 'prod' ? '/prod#backup-restore' : '/dev#backup-restore';
+  const selectedBranchParam = encodeURIComponent(selectedBranch);
+  const overviewHref = selectedBranch === 'prod' ? '/prod' : `/dev?branch=${selectedBranchParam}`;
+  const backupHref = selectedBranch === 'prod' ? '/prod#backup-restore' : `/dev?branch=${selectedBranchParam}#backup-restore`;
 
   function changeBranch(event: ChangeEvent<HTMLSelectElement>) {
     const value = event.currentTarget.value;
-    window.location.href = value === 'prod' ? '/prod' : '/dev';
+    window.location.href = value === 'prod' ? '/prod' : `/dev?branch=${encodeURIComponent(value)}`;
   }
 
   return (
@@ -459,86 +460,24 @@ export function MetricCard(props: MetricCardProps) {
 
 export interface ProductionPanelProps {
   connectionUrl: string | null;
-  backup: {
-    enabled: boolean;
-    endpoint: string;
-    bucket: string;
-    region: string;
-    accessKeyId: string;
-    secretConfigured: boolean;
-    path: string;
-    pitrDays: number;
-    fullBackupRetentionDays: number;
-  };
-  serverHost: string | null;
-  backupStatus: string;
-  backupMessage: string | null;
+  title?: string;
+  connectionLabel?: string;
 }
 
 export function ProductionPanel(props: ProductionPanelProps) {
-  const repoLabel = props.backup.enabled ? 'S3 compatible storage' : 'local disk';
-
   return (
     <Card id="backup-restore" className="scroll-mt-6">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <CardTitle>Production database</CardTitle>
-          <CardDescription>Connection, backup policy, and recovery paths.</CardDescription>
-        </div>
-        <StatusBadge status={props.connectionUrl ? 'ready' : 'pending'} />
+      <CardHeader>
+        <CardTitle>{props.title || 'Production database'}</CardTitle>
+        <CardDescription>Connection, backup policy, and recovery paths.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
         <div className="grid gap-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Label>Production connection string</Label>
-            <Badge variant="secondary">{props.serverHost || 'no host'}</Badge>
-          </div>
+          <Label>{props.connectionLabel || 'Production connection string'}</Label>
           <ConnectionString value={props.connectionUrl} />
-        </div>
-
-        <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 md:grid-cols-3">
-          <InfoCell label="Backup engine" value="pgBackRest" />
-          <InfoCell label="Repo" value={repoLabel} />
-          <InfoCell label="Status" value={props.backupMessage || props.backupStatus} />
-          <InfoCell label="PITR window" value={`${props.backup.pitrDays} days`} />
-          <InfoCell label="Full backups" value="daily" />
-          <InfoCell label="Retention" value={`${props.backup.fullBackupRetentionDays} days`} />
-          {props.backup.enabled ? (
-            <>
-              <InfoCell label="Bucket" value={props.backup.bucket || 'not set'} />
-              <InfoCell label="Path" value={props.backup.path || '/prod'} />
-            </>
-          ) : null}
-        </div>
-
-        <div className="grid gap-3 lg:grid-cols-2">
-          <RecoveryTargetCard
-            title="Recover to branch"
-            detail="Restore prod at a point in time into a new dev branch. Prod is untouched."
-            action="Safest default"
-          />
-          <RecoveryTargetCard
-            title="Restore production"
-            detail="Restore prod itself to a point in time. Requires an explicit confirmation flow."
-            action="High risk"
-          />
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function RecoveryTargetCard(props: { title: string; detail: string; action: string }) {
-  return (
-    <div className="rounded-lg border bg-muted/20 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium">{props.title}</p>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">{props.detail}</p>
-        </div>
-        <Badge variant="secondary">{props.action}</Badge>
-      </div>
-    </div>
   );
 }
 

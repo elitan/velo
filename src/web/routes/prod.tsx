@@ -112,10 +112,6 @@ function ProdPage() {
 
             <ProductionPanel
               connectionUrl={state.prodConnectionUrl}
-              backup={state.backup}
-              serverHost={prodServer?.host || null}
-              backupStatus={backupsStep?.status || 'pending'}
-              backupMessage={backupsStep?.message || null}
             />
           </div>
         </section>

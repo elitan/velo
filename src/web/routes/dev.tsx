@@ -15,12 +15,18 @@ import {
   AppSidebar,
   BranchesPanel,
   MetricCard,
+  ProductionPanel,
   SetupPanel,
   StatusBadge,
   type ServerRole,
 } from './index';
 
 export const Route = createFileRoute('/dev')({
+  validateSearch: function validateSearch(search: Record<string, unknown>) {
+    return {
+      branch: typeof search.branch === 'string' ? search.branch : undefined,
+    };
+  },
   loader: function loader() {
     return getSetupState();
   },
@@ -29,6 +35,7 @@ export const Route = createFileRoute('/dev')({
 
 function DevPage() {
   const state = Route.useLoaderData();
+  const search = Route.useSearch();
   const router = useRouter();
   const runDevBootstrap = useServerFn(runDevBootstrapAction);
   const createReplicaBase = useServerFn(createReplicaBaseAction);
@@ -46,7 +53,10 @@ function DevPage() {
   const activeJobs = state.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
   }).length;
-  const selectedBranch = state.branches[0]?.name || 'prod';
+  const selectedBranchRecord = state.branches.find(function findSelectedBranch(branch) {
+    return branch.name === search.branch;
+  }) || state.branches[0];
+  const selectedBranch = selectedBranchRecord?.name || 'prod';
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(function pollActiveJobs() {
@@ -141,6 +151,11 @@ function DevPage() {
             </section>
 
             <div className="grid min-w-0 gap-6">
+              <ProductionPanel
+                title={selectedBranchRecord ? `${selectedBranchRecord.name} database` : 'Branch database'}
+                connectionLabel="Branch connection string"
+                connectionUrl={selectedBranchRecord?.connectionUrl || null}
+              />
               <BranchesPanel branches={state.branches} busy={busy} onCreate={handleCreateBranch} onDelete={handleDeleteBranch} />
               <SetupPanel
                 steps={state.setupSteps}
