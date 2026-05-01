@@ -5,13 +5,6 @@ import { Activity, ArchiveRestore, Database, GitBranch, RefreshCw, Settings2, Sl
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../components/ui/card';
-import {
   checkServerAction,
   getSetupState,
   saveBackupSettingsAction,
@@ -151,7 +144,7 @@ function SettingsPage() {
                 </div>
                 <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">Settings</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Configure servers, backup storage, and control plane defaults.
+                  Manage server access, backup storage, and background activity.
                 </p>
               </div>
               <Button variant="outline" onClick={function refreshPage() { void router.invalidate(); }}>
@@ -169,7 +162,6 @@ function SettingsPage() {
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
               <div className="grid min-w-0 gap-6">
-                <GeneralSettingsPanel backupMode={backupMode} />
                 <div className="grid gap-6 lg:grid-cols-2">
                   <ServerPanel title="Production" role="prod" server={prodServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
                   <ServerPanel title="Development" role="dev" server={devServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
@@ -192,31 +184,5 @@ function SettingsPage() {
         </section>
       </div>
     </main>
-  );
-}
-
-function GeneralSettingsPanel(props: { backupMode: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>General</CardTitle>
-        <CardDescription>Current control plane defaults</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <SettingCell label="State" value="SQLite" />
-        <SettingCell label="Web" value="TanStack Start" />
-        <SettingCell label="Branching" value="ZFS COW" />
-        <SettingCell label="Backups" value={props.backupMode} />
-      </CardContent>
-    </Card>
-  );
-}
-
-function SettingCell(props: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border bg-muted/20 p-4">
-      <p className="text-xs font-medium text-muted-foreground">{props.label}</p>
-      <p className="mt-1 text-sm font-medium">{props.value}</p>
-    </div>
   );
 }
