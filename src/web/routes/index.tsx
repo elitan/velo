@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   ArchiveRestore,
   CheckCircle2,
+  ChevronsUpDown,
   Clock3,
   Copy,
   Database,
@@ -366,21 +367,24 @@ export function AppSidebar(props: AppSidebarProps) {
 
       <SidebarSection label="Branch" className="mt-8">
         <label className="sr-only" htmlFor="branch-select">Branch</label>
-        <select
-          id="branch-select"
-          className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
-          value={selectedBranch}
-          onChange={changeBranch}
-        >
-          <option value="prod">prod</option>
-          {props.branches.map(function renderBranchOption(branch) {
-            return (
-              <option key={branch.id} value={branch.name}>
-                {branch.name}
-              </option>
-            );
-          })}
-        </select>
+        <div className="relative">
+          <select
+            id="branch-select"
+            className="h-10 w-full appearance-none rounded-md border border-border bg-background px-3 pr-9 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
+            value={selectedBranch}
+            onChange={changeBranch}
+          >
+            <option value="prod">prod</option>
+            {props.branches.map(function renderBranchOption(branch) {
+              return (
+                <option key={branch.id} value={branch.name}>
+                  {branch.name}
+                </option>
+              );
+            })}
+          </select>
+          <ChevronsUpDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        </div>
         <div className="mt-3 grid gap-1">
           <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} />
           <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} />
