@@ -77,6 +77,16 @@ export async function getJob(jobId: number): Promise<JobRecord> {
   return mapJob(job, logs);
 }
 
+export async function getActiveJob(type: string): Promise<Job | undefined> {
+  return getDb()
+    .selectFrom('jobs')
+    .selectAll()
+    .where('type', '=', type)
+    .where('status', 'in', ['queued', 'running'])
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+}
+
 async function runJobInternal(job: Job, handler: (context: JobContext) => Promise<void>): Promise<void> {
   await updateJob(job.id, 'running', null, {
     startedAt: new Date().toISOString(),

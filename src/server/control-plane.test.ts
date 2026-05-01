@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
-import { createJob, getJob, listJobs, runJob } from './services/job-service';
+import { createJob, getActiveJob, getJob, listJobs, runJob } from './services/job-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getDashboardState, saveServer } from './services/setup-state-service';
 
@@ -148,6 +148,19 @@ describe('control plane jobs', function controlPlaneJobs() {
     expect(record.error).toContain('access_key_id=***');
     expect(record.error).toContain('password=***');
     expect(jobs[0]?.id).toBe(job.id);
+  });
+
+  test('finds only queued or running jobs by type', async function testActiveJob() {
+    const finished = await createJob('prod-bootstrap');
+    runJob(finished, async function handleJob() {});
+    await waitForJob(finished.id);
+
+    const active = await createJob('prod-bootstrap');
+    const ignored = await createJob('dev-bootstrap');
+
+    expect(await getActiveJob('prod-bootstrap')).toMatchObject({ id: active.id });
+    expect(await getActiveJob('dev-bootstrap')).toMatchObject({ id: ignored.id });
+    expect(await getActiveJob('missing-job')).toBeUndefined();
   });
 });
 

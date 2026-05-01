@@ -4,7 +4,7 @@ import { checkServer, getDashboardState, saveServer } from '../services/setup-st
 import { runDevBootstrap, runProdBootstrap } from '../services/bootstrap-service';
 import { createBranchFromBase, deleteBranch } from '../services/branch-service';
 import { createReplicaBase } from '../services/replica-service';
-import { createJob, getJob, listJobs, runJob } from '../services/job-service';
+import { createJob, getActiveJob, getJob, listJobs, runJob } from '../services/job-service';
 import { saveBackupSettings } from '../services/settings-service';
 
 const serverInput = z.object({
@@ -69,26 +69,38 @@ export const setupRouter = router({
     return createReplicaBase();
   }),
   startDevBootstrap: publicProcedure.mutation(async function startDevBootstrapMutation() {
+    const active = await getActiveJob('dev-bootstrap');
+    if (active) {
+      return active;
+    }
     const job = await createJob('dev-bootstrap');
     runJob(job, async function runDevBootstrapJob(context) {
       await context.log('installing dev prerequisites');
-      await runDevBootstrap();
+      assertOk(await runDevBootstrap());
     });
     return job;
   }),
   startProdBootstrap: publicProcedure.mutation(async function startProdBootstrapMutation() {
+    const active = await getActiveJob('prod-bootstrap');
+    if (active) {
+      return active;
+    }
     const job = await createJob('prod-bootstrap');
     runJob(job, async function runProdBootstrapJob(context) {
       await context.log('installing prod Postgres and backups');
-      await runProdBootstrap();
+      assertOk(await runProdBootstrap());
     });
     return job;
   }),
   startReplicaBase: publicProcedure.mutation(async function startReplicaBaseMutation() {
+    const active = await getActiveJob('replica-base');
+    if (active) {
+      return active;
+    }
     const job = await createJob('replica-base');
     runJob(job, async function runReplicaBaseJob(context) {
       await context.log('creating dev replica base');
-      await createReplicaBase();
+      assertOk(await createReplicaBase());
     });
     return job;
   }),
@@ -114,3 +126,9 @@ export const setupRouter = router({
       return job;
     }),
 });
+
+function assertOk(result: { ok: boolean; message: string }): void {
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+}

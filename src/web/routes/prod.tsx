@@ -38,6 +38,9 @@ function ProdPage() {
   const activeJobs = state.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
   }).length;
+  const activeProdSetup = state.jobs.some(function isActiveProdSetup(job) {
+    return job.type === 'prod-bootstrap' && (job.status === 'queued' || job.status === 'running');
+  });
   const backupMode = state.backup.enabled ? 'S3/R2' : 'local';
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -110,9 +113,9 @@ function ProdPage() {
                   <RefreshCw />
                   Refresh
                 </Button>
-                <Button onClick={function setupProdClick() { void handleSetupProd(); }} disabled={busy === 'bootstrap-prod' || !prodServer}>
+                <Button onClick={function setupProdClick() { void handleSetupProd(); }} disabled={busy === 'bootstrap-prod' || activeProdSetup || !prodServer}>
                   <ArchiveRestore />
-                  Setup backups
+                  {activeProdSetup ? 'Setup running' : 'Setup backups'}
                 </Button>
               </div>
             </header>

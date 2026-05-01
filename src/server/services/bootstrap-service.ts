@@ -102,7 +102,7 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
       'HBA_FILE=$(sudo -u postgres psql -tAc "show hba_file" | xargs)',
       `grep -q "velo prod access ${allowedCidr}" "$HBA_FILE" || echo "hostssl all postgres ${allowedCidr} scram-sha-256 # velo prod access ${allowedCidr}" | sudo tee -a "$HBA_FILE" >/dev/null`,
       'sudo systemctl restart postgresql',
-      'sudo -u postgres pgbackrest --stanza=main stanza-create',
+      'sudo -u postgres pgbackrest --stanza=main stanza-create || sudo -u postgres pgbackrest --stanza=main info',
       'sudo -u postgres pgbackrest --stanza=main check',
       'sudo -u postgres pgbackrest --stanza=main backup --type=full',
       'CRON_FILE=/etc/cron.d/velo-pgbackrest',
