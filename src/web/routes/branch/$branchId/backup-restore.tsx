@@ -70,7 +70,7 @@ function BackupRestorePage() {
   const branchOptions = getBranchOptions(state);
   const backupOptions = getBackupOptions(state.backup.fullBackupRetentionDays);
   const restoreWindow = getRestoreWindow(state.backup.pitrDays);
-  const [sourceBranch, setSourceBranch] = useState(selectedBranch);
+  const sourceBranch = 'prod';
   const [backupPoint, setBackupPoint] = useState(backupOptions[0]?.value || '');
   const [restoreTime, setRestoreTime] = useState(getDefaultRestoreTime());
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -90,7 +90,7 @@ function BackupRestorePage() {
       const created = await createPreviewBranch({
         data: {
           sourceBranch,
-          restoreTime,
+          restoreTime: toRestoreIso(restoreTime),
         },
       });
       setPreviewBranch(created);
@@ -128,7 +128,7 @@ function BackupRestorePage() {
         data: {
           targetBranch: selectedBranch,
           sourceBranch,
-          restoreTime,
+          restoreTime: toRestoreIso(restoreTime),
         },
       });
       setRestorePromptOpen(false);
@@ -183,23 +183,11 @@ function BackupRestorePage() {
               <CardContent className="grid gap-5">
                 <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-2">
                   <div className="grid gap-2">
-                    <Label htmlFor="source-branch">Source branch</Label>
-                    <Select value={sourceBranch} onValueChange={setSourceBranch}>
-                      <SelectTrigger id="source-branch" className="h-10 w-full bg-background font-medium">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {branchOptions.map(function renderBranchOption(option) {
-                            return (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
+                    <Label>Source branch</Label>
+                    <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 text-sm font-medium">
+                      prod
+                    </div>
+                    <div className="text-xs text-muted-foreground">PITR uses production WAL history for any target branch.</div>
                   </div>
 
                   <div className="grid gap-2">
@@ -342,7 +330,6 @@ function BackupRestorePage() {
           branchOptions={branchOptions}
           previewBranch={previewBranch}
           restoreTime={restoreTime}
-          onBranchChange={setSourceBranch}
           onClose={function closePreview() {
             void handleClosePreview();
           }}
@@ -424,7 +411,6 @@ function HistoricPreviewModal(props: {
   branchOptions: BranchOption[];
   previewBranch: PreviewBranch | null;
   restoreTime: string;
-  onBranchChange: (branch: string) => void;
   onClose: () => void;
   onRestore: () => void;
   restoreBusy: boolean;
@@ -439,7 +425,7 @@ function HistoricPreviewModal(props: {
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-normal">Preview historic data</h2>
             <div className="mt-3 flex flex-wrap items-start gap-2">
-              <Select value={props.branch} onValueChange={props.onBranchChange} disabled>
+              <Select value={props.branch} disabled>
                 <SelectTrigger className="w-52 bg-background">
                   <SelectValue />
                 </SelectTrigger>
@@ -683,6 +669,10 @@ function toDateTimeLocalValue(date: Date) {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
 
   return offsetDate.toISOString().slice(0, 16);
+}
+
+function toRestoreIso(value: string) {
+  return new Date(value).toISOString();
 }
 
 function formatShortDateTime(value: string) {

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { getDb } from '../../db/client';
 import { publicProcedure, router } from '../trpc';
 import { checkServer, getDashboardState, saveServer } from '../services/setup-state-service';
 import { runDevBootstrap, runProdBootstrap } from '../services/bootstrap-service';
@@ -6,10 +7,7 @@ import { createBranchFromBase, createPreviewBranch, deleteBranch } from '../serv
 import { createReplicaBase } from '../services/replica-service';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from '../services/job-service';
 import { saveBackupSettings } from '../services/settings-service';
-import {
-  restoreDevelopmentBranchFromPgBackRest,
-  restoreProductionFromPgBackRest,
-} from '../services/pgbackrest-restore-service';
+import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest } from '../services/pgbackrest-restore-service';
 
 const serverInput = z.object({
   role: z.enum(['prod', 'dev']),
@@ -98,6 +96,13 @@ export const setupRouter = router({
           return;
         }
 
+        const existing = await findBranchByName(normalizeBranchLookup(input.targetBranch));
+
+        if (existing) {
+          await context.log(`replacing existing branch ${input.targetBranch}`);
+          await deleteBranch({ id: existing.id });
+        }
+
         const result = await restoreDevelopmentBranchFromPgBackRest(input);
         await context.log(`branch restored: ${result.name}`);
       });
@@ -164,6 +169,18 @@ export const setupRouter = router({
       return job;
     }),
 });
+
+async function findBranchByName(name: string): Promise<{ id: number } | undefined> {
+  return getDb()
+    .selectFrom('branches')
+    .select(['id'])
+    .where('name', '=', name)
+    .executeTakeFirst();
+}
+
+function normalizeBranchLookup(name: string): string {
+  return name.trim().toLowerCase();
+}
 
 function assertOk(result: { ok: boolean; message: string }): void {
   if (!result.ok) {

@@ -12,7 +12,7 @@ import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getZFSPool } from '../../utils/zfs-pool';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand, runSshCommand } from './command-service';
-import { getSetting, setSetting } from './settings-service';
+import { getBackupSettings, getSetting, setSetting } from './settings-service';
 
 const PROJECT_NAME = 'prod';
 
@@ -35,6 +35,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
 
   const branchName = normalizeBranchName(input.targetBranch);
   const restoreTime = parseRestoreTime(input.restoreTime);
+  await assertWithinPitrWindow(restoreTime);
   const db = getDb();
   const project = await ensureProject();
   const devServer = await db
@@ -161,18 +162,6 @@ export async function restoreDevelopmentBranchFromPgBackRest(input: RestoreBranc
     throw new Error('Use restoreProductionFromPgBackRest for production restores');
   }
 
-  const db = getDb();
-  const existing = await db
-    .selectFrom('branches')
-    .select(['id'])
-    .where('name', '=', targetBranch)
-    .executeTakeFirst();
-
-  if (existing) {
-    const { deleteBranch } = await import('./branch-service');
-    await deleteBranch({ id: existing.id });
-  }
-
   return createBranchFromPgBackRest({
     ...input,
     targetBranch,
@@ -184,6 +173,7 @@ export async function restoreDevelopmentBranchFromPgBackRest(input: RestoreBranc
 export async function restoreProductionFromPgBackRest(input: RestoreBranchInput): Promise<void> {
   assertProdSource(input.sourceBranch);
   const restoreTime = parseRestoreTime(input.restoreTime);
+  await assertWithinPitrWindow(restoreTime);
   const db = getDb();
   const prod = await db
     .selectFrom('servers')
@@ -422,6 +412,21 @@ function parseRestoreTime(value: string): Date {
   }
 
   return date;
+}
+
+async function assertWithinPitrWindow(restoreTime: Date): Promise<void> {
+  const backup = await getBackupSettings();
+  const now = Date.now();
+  const minTime = now - backup.pitrDays * 24 * 60 * 60 * 1000;
+  const restoreTimestamp = restoreTime.getTime();
+
+  if (restoreTimestamp > now) {
+    throw new Error('Restore time cannot be in the future');
+  }
+
+  if (restoreTimestamp < minTime) {
+    throw new Error(`Restore time is outside the ${backup.pitrDays} day PITR window`);
+  }
 }
 
 function formatPgBackRestTime(date: Date): string {

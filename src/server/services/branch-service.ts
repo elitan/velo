@@ -61,23 +61,14 @@ export async function createPreviewBranch(input: CreatePreviewBranchInput): Prom
   const restoreTime = parseRestoreTime(input.restoreTime);
   const branchName = buildPreviewBranchName(sourceBranch);
 
-  if (sourceBranch === 'prod') {
-    return createBranchFromPgBackRest({
-      targetBranch: branchName,
-      sourceBranch,
-      restoreTime: restoreTime.toISOString(),
-      publicAccess: false,
-      readOnly: true,
-    });
+  if (sourceBranch !== 'prod') {
+    throw new Error('PITR preview currently supports production as the source branch');
   }
 
-  const sourceDataset = await getSourceDataset(sourceBranch);
-
-  return createBranchClone({
-    name: branchName,
+  return createBranchFromPgBackRest({
+    targetBranch: branchName,
     sourceBranch,
-    sourceDataset,
-    sourceReplayAt: restoreTime.toISOString(),
+    restoreTime: restoreTime.toISOString(),
     publicAccess: false,
     readOnly: true,
   });
@@ -205,24 +196,6 @@ async function createBranchClone(options: {
     });
     throw error;
   }
-}
-
-async function getSourceDataset(sourceBranch: string): Promise<string> {
-  if (sourceBranch === 'prod') {
-    return getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME);
-  }
-
-  const branch = await getDb()
-    .selectFrom('branches')
-    .select(['dataset'])
-    .where('name', '=', sourceBranch)
-    .executeTakeFirst();
-
-  if (!branch) {
-    throw new Error(`Source branch not found: ${sourceBranch}`);
-  }
-
-  return branch.dataset;
 }
 
 export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBranchResult> {

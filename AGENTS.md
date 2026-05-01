@@ -21,6 +21,9 @@
 - Dev branches run on the dev/control server.
 - Branches are disposable ZFS COW clones.
 - Dashboard should feel like a light open source Neon alternative.
+- Current restore model: prod is the only pgBackRest backup/PITR source.
+- PITR can target prod or any dev branch. Dev branch targets are restored from prod history.
+- Daily backup restore is prod-source only.
 
 ## Fast Dev Loop
 
@@ -80,5 +83,8 @@ bun run test:control
 bun run web:build
 bash -n scripts/*.sh
 ```
+
+`bun run web:build` may add a TanStack footer to `src/web/routeTree.gen.ts`; remove that generated footer before committing unless routes changed.
+`scripts/test.sh` is destructive: it removes local `velo-*` containers, ZFS datasets, and `.velo` state. Do not run it without explicit approval.
 
 CI runs on `main`.
