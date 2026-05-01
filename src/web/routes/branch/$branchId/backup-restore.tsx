@@ -69,6 +69,7 @@ function BackupRestorePage() {
   const status = isProd ? (state.prodConnectionUrl ? 'ready' : 'pending') : branch?.status || 'missing';
   const branchOptions = getBranchOptions(state);
   const backupOptions = getBackupOptions(state.backup.fullBackupRetentionDays);
+  const restoreWindow = getRestoreWindow(state.backup.pitrDays);
   const [sourceBranch, setSourceBranch] = useState(selectedBranch);
   const [backupSourceBranch, setBackupSourceBranch] = useState(selectedBranch);
   const [backupPoint, setBackupPoint] = useState(backupOptions[0]?.value || '');
@@ -177,7 +178,6 @@ function BackupRestorePage() {
                       </CardDescription>
                     </div>
                   </div>
-                  <Badge variant="info">{state.backup.pitrDays} day PITR</Badge>
                 </div>
               </CardHeader>
 
@@ -211,13 +211,17 @@ function BackupRestorePage() {
                         id="restore-time"
                         type="datetime-local"
                         className="h-10 pl-9"
+                        min={restoreWindow.min}
+                        max={restoreWindow.max}
                         value={restoreTime}
                         onChange={function changeRestoreTime(event) {
                           setRestoreTime(event.target.value);
                         }}
                       />
                     </div>
-                    <div className="text-xs text-muted-foreground">Europe/Stockholm, GMT+02:00</div>
+                    <div className="text-xs text-muted-foreground">
+                      Europe/Stockholm. Available from {formatShortDateTime(restoreWindow.min)} to {formatShortDateTime(restoreWindow.max)}.
+                    </div>
                   </div>
                 </div>
 
@@ -675,9 +679,34 @@ function getBackupOptions(retentionDays: number) {
 
 function getDefaultRestoreTime() {
   const date = new Date(Date.now() - 5 * 60 * 1000);
+  return toDateTimeLocalValue(date);
+}
+
+function getRestoreWindow(days: number) {
+  const max = new Date();
+  const min = new Date(max.getTime() - days * 24 * 60 * 60 * 1000);
+
+  return {
+    min: toDateTimeLocalValue(min),
+    max: toDateTimeLocalValue(max),
+  };
+}
+
+function toDateTimeLocalValue(date: Date) {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
 
   return offsetDate.toISOString().slice(0, 16);
+}
+
+function formatShortDateTime(value: string) {
+  const date = new Date(value);
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
 }
 
 function formatHistoricTime(value: string) {
