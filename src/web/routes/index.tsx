@@ -280,7 +280,7 @@ function ProductionSummaryPanel(props: ProductionSummaryPanelProps) {
           </div>
           <ConnectionString value={props.connectionUrl} />
         </div>
-        <div className="grid gap-3 rounded-lg border bg-muted/20 p-4">
+        <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4">
           <InfoCell label="Backup repo" value={props.backupMode} />
           <InfoCell label="Backup status" value={props.backupMessage || props.backupStatus} />
         </div>
@@ -368,7 +368,7 @@ export function AppSidebar(props: AppSidebarProps) {
         <label className="sr-only" htmlFor="branch-select">Branch</label>
         <select
           id="branch-select"
-          className="h-10 w-full rounded-md border bg-background px-3 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
+          className="h-10 w-full rounded-md border border-border bg-background px-3 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
           value={selectedBranch}
           onChange={changeBranch}
         >
@@ -553,7 +553,7 @@ export function SetupPanel(props: SetupPanelProps) {
         <div className="grid gap-3 md:grid-cols-2">
           {props.steps.map(function renderStep(step, index) {
             return (
-              <div className="rounded-lg border bg-muted/20 p-4" key={step.key}>
+              <div className="rounded-lg border border-border bg-muted/20 p-4" key={step.key}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <StepIcon status={step.status} index={index + 1} />
@@ -859,7 +859,7 @@ export function JobsPanel(props: JobsPanelProps) {
           <div className="grid gap-3">
             {props.jobs.map(function renderJob(job) {
               return (
-                <div className="rounded-lg border bg-muted/20 p-3" key={job.id}>
+                <div className="rounded-lg border border-border bg-muted/20 p-3" key={job.id}>
                   <div className="flex items-center justify-between gap-3">
                     <p className="truncate text-sm font-medium">{job.type}</p>
                     <StatusBadge status={job.status} />
@@ -931,7 +931,7 @@ function ConnectionString(props: ConnectionStringProps) {
 
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-      <code className="min-w-0 truncate rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+      <code className="min-w-0 truncate rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
         {value || 'not ready'}
       </code>
       <Button type="button" size="icon" variant="outline" onClick={copyValue} disabled={!value} title="Copy connection string">
