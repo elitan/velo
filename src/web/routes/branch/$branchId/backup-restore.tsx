@@ -3,6 +3,7 @@ import type { ComponentType } from 'react';
 import { useState } from 'react';
 import {
   Calendar,
+  ChevronsUpDown,
   Code2,
   Database,
   GitBranch,
@@ -47,6 +48,8 @@ function BackupRestorePage() {
   });
   const selectedBranch = isProd ? 'prod' : branch?.name || branchId;
   const status = isProd ? (state.prodConnectionUrl ? 'ready' : 'pending') : branch?.status || 'missing';
+  const branchOptions = getBranchOptions(state);
+  const [sourceBranch, setSourceBranch] = useState(selectedBranch);
   const [restoreTime, setRestoreTime] = useState(getDefaultRestoreTime());
   const [previewOpen, setPreviewOpen] = useState(false);
 
@@ -67,40 +70,52 @@ function BackupRestorePage() {
                 <GitBranch className="size-4" />
                 <span>{selectedBranch}</span>
               </div>
-              <p className="mt-6 max-w-3xl text-sm leading-6 text-muted-foreground">
-                Restore this branch to a point in time, preview historic data first, and keep production recovery simple.
+              <p className="mt-6 max-w-2xl text-sm leading-6 text-muted-foreground">
+                Choose a source branch and point in time, preview the historic data, then restore when ready.
               </p>
             </header>
 
-            <Card>
-              <CardHeader className="border-b-0 pb-0">
-                <div className="flex gap-4">
-                  <div className="mt-1 grid size-10 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
-                    <Zap className="size-5" />
+            <Card className="max-w-5xl">
+              <CardHeader>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex gap-4">
+                    <div className="mt-1 grid size-10 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
+                      <Zap className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <CardTitle>Instant point-in-time restore</CardTitle>
+                      <CardDescription className="mt-2 max-w-xl">
+                        Restore from any branch to any point in the past {state.backup.pitrDays} days.
+                      </CardDescription>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <CardTitle>Instant point-in-time restore</CardTitle>
-                    <CardDescription className="mt-2">
-                      Restore this branch to any point in the past {state.backup.pitrDays} days.
-                    </CardDescription>
-                  </div>
+                  <Badge variant="info">{state.backup.pitrDays} day PITR</Badge>
                 </div>
               </CardHeader>
 
-              <CardContent className="grid gap-5 pt-5">
-                <div className="border-t border-border" />
-
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,300px)_1fr] lg:items-end">
+              <CardContent className="grid gap-5">
+                <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="source-branch">Source branch</Label>
-                    <select
-                      id="source-branch"
-                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ring-ring transition-shadow focus:ring-2"
-                      value={selectedBranch}
-                      disabled
-                    >
-                      <option>{selectedBranch}</option>
-                    </select>
+                    <div className="relative">
+                      <select
+                        id="source-branch"
+                        className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm font-medium outline-none ring-ring transition-shadow focus:ring-2"
+                        value={sourceBranch}
+                        onChange={function changeSourceBranch(event) {
+                          setSourceBranch(event.target.value);
+                        }}
+                      >
+                        {branchOptions.map(function renderBranchOption(option) {
+                          return (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <ChevronsUpDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    </div>
                   </div>
 
                   <div className="grid gap-2">
@@ -110,7 +125,7 @@ function BackupRestorePage() {
                       <Input
                         id="restore-time"
                         type="datetime-local"
-                        className="pl-9"
+                        className="h-10 pl-9"
                         value={restoreTime}
                         onChange={function changeRestoreTime(event) {
                           setRestoreTime(event.target.value);
@@ -119,8 +134,13 @@ function BackupRestorePage() {
                     </div>
                     <div className="text-xs text-muted-foreground">Europe/Stockholm, GMT+02:00</div>
                   </div>
+                </div>
 
-                  <div className="flex flex-col gap-2 sm:flex-row lg:justify-end">
+                <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+                    Preview creates a temporary read-only restore branch for the selected time. Production and dev branches stay untouched.
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                       type="button"
                       variant="outline"
@@ -144,8 +164,10 @@ function BackupRestorePage() {
 
       {previewOpen ? (
         <HistoricPreviewModal
-          branch={selectedBranch}
+          branch={sourceBranch}
+          branchOptions={branchOptions}
           restoreTime={restoreTime}
+          onBranchChange={setSourceBranch}
           onClose={function closePreview() {
             setPreviewOpen(false);
           }}
@@ -157,7 +179,9 @@ function BackupRestorePage() {
 
 function HistoricPreviewModal(props: {
   branch: string;
+  branchOptions: BranchOption[];
   restoreTime: string;
+  onBranchChange: (branch: string) => void;
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<'browse' | 'query' | 'compare'>('browse');
@@ -170,13 +194,24 @@ function HistoricPreviewModal(props: {
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-normal">Preview historic data</h2>
             <div className="mt-3 flex flex-wrap items-start gap-2">
-              <select
-                className="h-9 w-52 rounded-md border border-input bg-background px-3 text-sm outline-none"
-                value={props.branch}
-                disabled
-              >
-                <option>{props.branch}</option>
-              </select>
+              <div className="relative w-52">
+                <select
+                  className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm outline-none"
+                  value={props.branch}
+                  onChange={function changePreviewBranch(event) {
+                    props.onBranchChange(event.target.value);
+                  }}
+                >
+                  {props.branchOptions.map(function renderBranchOption(option) {
+                    return (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronsUpDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
               <div>
                 <div className="relative w-64">
                   <Calendar className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -303,7 +338,7 @@ function SelectShell(props: {
         <Icon className="size-4 text-muted-foreground" />
         <span className="truncate">{props.label}</span>
       </span>
-      <span className="text-muted-foreground">⌄</span>
+      <ChevronsUpDown className="size-4 text-muted-foreground" />
     </div>
   );
 }
@@ -326,6 +361,26 @@ function PreviewEmptyState(props: {
       </div>
     </div>
   );
+}
+
+type BranchOption = {
+  value: string;
+  label: string;
+};
+
+function getBranchOptions(state: Awaited<ReturnType<typeof getSetupState>>) {
+  return [
+    {
+      value: 'prod',
+      label: 'prod',
+    },
+    ...state.branches.map(function mapBranch(branch) {
+      return {
+        value: branch.name,
+        label: branch.name,
+      };
+    }),
+  ];
 }
 
 function getDefaultRestoreTime() {
