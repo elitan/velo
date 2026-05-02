@@ -8,6 +8,7 @@ import { createReplicaBase } from '../services/replica-service';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from '../services/job-service';
 import { saveBackupSettings } from '../services/settings-service';
 import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest } from '../services/pgbackrest-restore-service';
+import { runBranchSql } from '../services/sql-editor-service';
 
 const serverInput = z.object({
   role: z.enum(['prod', 'dev']),
@@ -37,6 +38,11 @@ const restoreBranchInput = z.object({
   targetBranch: z.string().min(1),
   sourceBranch: z.string().min(1),
   restoreTime: z.string().min(1),
+});
+
+const runSqlInput = z.object({
+  branchId: z.string().min(1),
+  sql: z.string().min(1).max(100_000),
 });
 
 export const setupRouter = router({
@@ -82,6 +88,11 @@ export const setupRouter = router({
     .input(previewBranchInput)
     .mutation(async function createPreviewBranchMutation({ input }) {
       return createPreviewBranch(input);
+    }),
+  runSql: publicProcedure
+    .input(runSqlInput)
+    .mutation(async function runSqlMutation({ input }) {
+      return runBranchSql(input);
     }),
   startRestoreBranch: publicProcedure
     .input(restoreBranchInput)

@@ -31,6 +31,11 @@ const restoreBranchInput = z.object({
   restoreTime: z.string().min(1),
 });
 
+const runSqlInput = z.object({
+  branchId: z.string().min(1),
+  sql: z.string().min(1).max(100_000),
+});
+
 const branchIdInput = z.object({
   id: z.number().int().positive(),
 });
@@ -143,6 +148,16 @@ export const restoreBranchAction = createServerFn({ method: 'POST' })
     migrateDatabase();
     const caller = appRouter.createCaller(createTrpcContext());
     return caller.setup.startRestoreBranch(data);
+  });
+
+export const runSqlAction = createServerFn({ method: 'POST' })
+  .inputValidator(function validateRunSqlInput(data: unknown) {
+    return runSqlInput.parse(data);
+  })
+  .handler(async function runSqlHandler({ data }) {
+    migrateDatabase();
+    const caller = appRouter.createCaller(createTrpcContext());
+    return caller.setup.runSql(data);
   });
 
 export const resetBranchFromParentAction = createServerFn({ method: 'POST' })
