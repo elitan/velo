@@ -37,7 +37,7 @@ cd "$VELO_DIR"
 git fetch --all --tags
 git checkout "$VELO_REF"
 bun install --frozen-lockfile
-bun run db:migrate
+VELO_DB="$VELO_DIR/.velo/velo.sqlite" bun run db:migrate
 bun run web:build
 
 if [ ! -f /etc/velo.env ]; then

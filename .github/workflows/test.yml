@@ -33,3 +33,28 @@ jobs:
 
     - name: Check shell scripts
       run: bash -n scripts/*.sh
+
+  deploy-test:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Configure SSH key
+      env:
+        HETZNER_SSH_KEY: ${{ secrets.HETZNER_SSH_KEY }}
+      run: |
+        test -n "$HETZNER_SSH_KEY"
+        install -m 700 -d "$RUNNER_TEMP/ssh"
+        printf '%s\n' "$HETZNER_SSH_KEY" > "$RUNNER_TEMP/ssh/hetzner_key"
+        chmod 600 "$RUNNER_TEMP/ssh/hetzner_key"
+
+    - name: Reset and deploy test servers
+      env:
+        VELO_TEST_KEY: ${{ runner.temp }}/ssh/hetzner_key
+        VELO_REPO: https://github.com/${{ github.repository }}.git
+        VELO_REF: ${{ github.sha }}
+      run: scripts/deploy-test-servers.sh
