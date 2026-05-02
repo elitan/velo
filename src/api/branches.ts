@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getDb } from '#db/client';
 import { publicProcedure } from './context';
 import { createJob, runJob } from '#server/services/job-service';
-import { createBranchFromBase, createPreviewBranch, deleteBranch, resetBranchFromParent } from '#server/services/branch-service';
+import { createBranchFromBase, createPreviewBranch, deleteBranch, normalizeBranchSlug, resetBranchFromParent } from '#server/services/branch-service';
 import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest } from '#server/services/pgbackrest-restore-service';
 
 const branchInput = z.object({
@@ -29,12 +29,16 @@ export const branchesRouter = {
   create: publicProcedure
     .input(branchInput)
     .handler(async function createBranch({ input }) {
+      const branchSlug = normalizeBranchSlug(input.name);
       const job = await createJob('create-branch', input);
       runJob(job, async function runCreateBranchJob(context) {
         await context.log(`creating branch ${input.name}`);
         await createBranchFromBase(input);
       });
-      return job;
+      return {
+        ...job,
+        branchSlug,
+      };
     }),
   delete: publicProcedure
     .input(branchIdInput)

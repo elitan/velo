@@ -93,11 +93,7 @@ function HomePage() {
     await createBranch.mutateAsync({ name });
   }
 
-  async function handleDeleteBranch(id: number, name: string) {
-    if (!window.confirm(`Delete branch "${name}"?`)) {
-      return;
-    }
-
+  async function handleDeleteBranch(id: number) {
     await deleteBranch.mutateAsync({ id });
   }
 
