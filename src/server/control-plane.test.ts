@@ -7,7 +7,7 @@ import { migrateDatabase } from '../db/migrate';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from './services/job-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
-import { getDashboardState, saveServer } from './services/setup-state-service';
+import { getControlPlaneState, saveServer } from './services/setup-state-service';
 
 let testDir: string;
 
@@ -77,7 +77,7 @@ describe('control plane database', function controlPlaneDatabase() {
     })).toBe(true);
   });
 
-  test('returns dashboard state without leaking backup secrets', async function testDashboardState() {
+  test('returns dashboard state without leaking backup secrets', async function testControlPlaneState() {
     await saveServer({
       role: 'dev',
       host: '157.180.22.136',
@@ -95,7 +95,7 @@ describe('control plane database', function controlPlaneDatabase() {
     });
     await setSetting('prod.connectionUrl', 'postgresql://postgres:secret@example.com:5432/postgres');
 
-    const state = await getDashboardState();
+    const state = await getControlPlaneState();
 
     expect(state.servers).toHaveLength(1);
     expect(state.backup).toEqual({

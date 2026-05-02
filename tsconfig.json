@@ -9,7 +9,15 @@
     "allowJs": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "#api/*": ["./src/api/*"],
+      "#config/*": ["./src/config/*"],
+      "#db/*": ["./src/db/*"],
+      "#errors": ["./src/errors/index.ts"],
+      "#lib/*": ["./src/lib/*"],
+      "#managers/*": ["./src/managers/*"],
+      "#server/*": ["./src/server/*"],
+      "#utils/*": ["./src/utils/*"],
+      "#web/*": ["./src/web/*"]
     },
 
     // Bundler mode

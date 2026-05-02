@@ -13,7 +13,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BranchBranchIdOverviewRouteImport } from './routes/branch/$branchId/overview'
 import { Route as BranchBranchIdBackupRestoreRouteImport } from './routes/branch/$branchId/backup-restore'
-import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
+import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -37,9 +37,9 @@ const BranchBranchIdBackupRestoreRoute =
     path: '/branch/$branchId/backup-restore',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
-  id: '/api/trpc/$',
-  path: '/api/trpc/$',
+const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
+  id: '/api/v1/$',
+  path: '/api/v1/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -52,7 +52,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
 }
@@ -60,7 +60,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
 }
@@ -69,7 +69,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
 }
@@ -79,7 +79,7 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/api/auth/$'
-    | '/api/trpc/$'
+    | '/api/v1/$'
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
   fileRoutesByTo: FileRoutesByTo
@@ -87,7 +87,7 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/api/auth/$'
-    | '/api/trpc/$'
+    | '/api/v1/$'
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
   id:
@@ -95,7 +95,7 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/api/auth/$'
-    | '/api/trpc/$'
+    | '/api/v1/$'
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
   fileRoutesById: FileRoutesById
@@ -104,7 +104,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
+  ApiV1SplatRoute: typeof ApiV1SplatRoute
   BranchBranchIdBackupRestoreRoute: typeof BranchBranchIdBackupRestoreRoute
   BranchBranchIdOverviewRoute: typeof BranchBranchIdOverviewRoute
 }
@@ -139,11 +139,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BranchBranchIdBackupRestoreRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/trpc/$': {
-      id: '/api/trpc/$'
-      path: '/api/trpc/$'
-      fullPath: '/api/trpc/$'
-      preLoaderRoute: typeof ApiTrpcSplatRouteImport
+    '/api/v1/$': {
+      id: '/api/v1/$'
+      path: '/api/v1/$'
+      fullPath: '/api/v1/$'
+      preLoaderRoute: typeof ApiV1SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -160,7 +160,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiTrpcSplatRoute: ApiTrpcSplatRoute,
+  ApiV1SplatRoute: ApiV1SplatRoute,
   BranchBranchIdBackupRestoreRoute: BranchBranchIdBackupRestoreRoute,
   BranchBranchIdOverviewRoute: BranchBranchIdOverviewRoute,
 }
