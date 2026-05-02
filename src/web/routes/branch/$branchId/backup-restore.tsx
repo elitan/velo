@@ -418,7 +418,13 @@ function RestorePromptModal(props: {
           <Button type="button" variant="outline" onClick={props.onClose}>
             Cancel
           </Button>
-          <Button type="button" disabled={props.previewBusy || props.restoreBusy} onClick={props.onRestore}>
+          <Button
+            type="button"
+            autoFocus
+            data-default-action=""
+            disabled={props.previewBusy || props.restoreBusy}
+            onClick={props.onRestore}
+          >
             {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
             Restore now
           </Button>
@@ -536,7 +542,13 @@ function HistoricPreviewModal(props: {
 
         <div className="flex justify-end gap-2 border-t border-border px-4 py-4">
           <Button type="button" variant="outline" onClick={props.onClose}>Cancel</Button>
-          <Button type="button" disabled={props.restoreBusy} onClick={props.onRestore}>
+          <Button
+            type="button"
+            autoFocus
+            data-default-action=""
+            disabled={props.restoreBusy}
+            onClick={props.onRestore}
+          >
             {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
             Proceed to restore
           </Button>
