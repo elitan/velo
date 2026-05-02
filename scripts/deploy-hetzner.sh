@@ -140,6 +140,8 @@ cd $(shell_quote "$VELO_DEPLOY_DIR")
 VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") /root/.bun/bin/bun -e '
 import { checkServer } from \"./src/server/services/setup-state-service.ts\";
 import { runDevBootstrap, runProdBootstrap } from \"./src/server/services/bootstrap-service.ts\";
+import { createReplicaBase } from \"./src/server/services/replica-service.ts\";
+import { createBranchFromBase } from \"./src/server/services/branch-service.ts\";
 
 function assertOk(result) {
   if (!result.ok) {
@@ -151,6 +153,8 @@ await checkServer(\"dev\");
 await checkServer(\"prod\");
 assertOk(await runDevBootstrap());
 assertOk(await runProdBootstrap());
+assertOk(await createReplicaBase());
+await createBranchFromBase({ name: \"dev\", slug: \"dev\", parentBranchId: null });
 '
 systemctl restart velo-web
 "
@@ -180,19 +184,26 @@ import { Database } from \"bun:sqlite\";
 
 const db = new Database(process.env.VELO_DB);
 const servers = db.query(\"select role, status from servers order by role\").all();
-const steps = db.query(\"select key, status from setup_steps where key in (?, ?, ?, ?) order by key\").all(
+const steps = db.query(\"select key, status from setup_steps where key in (?, ?, ?, ?, ?, ?) order by key\").all(
   \"dev-check\",
   \"prod-check\",
   \"prod-setup\",
-  \"backups\"
+  \"backups\",
+  \"replica\",
+  \"first-branch\"
 );
+const devBranch = db.query(\"select slug, status, connection_url from branches where slug = ?\").get(\"dev\");
 
 if (servers.length !== 2 || servers.some(function isBad(server) { return server.status !== \"ok\"; })) {
   throw new Error(\"bad servers: \" + JSON.stringify(servers));
 }
 
-if (steps.length !== 4 || steps.some(function isBad(step) { return step.status !== \"done\"; })) {
+if (steps.length !== 6 || steps.some(function isBad(step) { return step.status !== \"done\"; })) {
   throw new Error(\"bad setup steps: \" + JSON.stringify(steps));
+}
+
+if (!devBranch || devBranch.status !== \"running\" || !devBranch.connection_url) {
+  throw new Error(\"bad dev branch: \" + JSON.stringify(devBranch));
 }
 
 db.close();
@@ -229,7 +240,7 @@ main() {
   echo "Saving Hetzner server config"
   seed_app_config
 
-  echo "Bootstrapping Hetzner servers"
+  echo "Bootstrapping Hetzner servers and default dev branch"
   bootstrap_servers
 
   echo "Checking Hetzner deployment"
