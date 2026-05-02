@@ -83,9 +83,9 @@ export async function checkLocalDocker(role: 'prod' | 'dev') {
     .updateTable('servers')
     .set({
       status: ok ? 'ok' : 'error',
-      status_message: message,
-      last_checked_at: new Date().toISOString(),
-      updated_at: sql`datetime('now')`,
+      statusMessage: message,
+      lastCheckedAt: new Date().toISOString(),
+      updatedAt: sql`datetime('now')`,
     })
     .where('role', '=', role)
     .execute();
@@ -126,7 +126,7 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
   const existing = await db
     .selectFrom('branches')
     .select('id')
-    .where('project_id', '=', project.id)
+    .where('projectId', '=', project.id)
     .where('slug', '=', input.slug)
     .executeTakeFirst();
 
@@ -148,22 +148,22 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
   await db
     .insertInto('branches')
     .values({
-      project_id: project.id,
+      projectId: project.id,
       slug: input.slug,
-      display_name: input.displayName,
+      displayName: input.displayName,
       dataset: database,
       port: await getServicePort('dev-postgres'),
       status: 'running',
-      parent_branch_id: input.parentBranchId,
-      connection_url: connectionUrl,
-      source_replay_at: input.sourceReplayAt,
+      parentBranchId: input.parentBranchId,
+      connectionUrl: connectionUrl,
+      sourceReplayAt: input.sourceReplayAt,
     })
     .execute();
 
   const row = await db
     .selectFrom('branches')
-    .select(['id', 'slug', 'display_name as displayName', 'connection_url'])
-    .where('project_id', '=', project.id)
+    .select(['id', 'slug', 'displayName', 'connectionUrl'])
+    .where('projectId', '=', project.id)
     .where('slug', '=', input.slug)
     .executeTakeFirstOrThrow();
 
@@ -171,7 +171,7 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
     id: row.id,
     slug: row.slug,
     displayName: row.displayName,
-    connectionUrl: row.connection_url || connectionUrl,
+    connectionUrl: row.connectionUrl || connectionUrl,
   };
 }
 
@@ -207,7 +207,7 @@ export async function deleteLocalDockerBranch(id: number) {
   return {
     id: branch.id,
     slug: branch.slug,
-    displayName: branch.display_name,
+    displayName: branch.displayName,
   };
 }
 
@@ -219,7 +219,7 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
   const existing = await db
     .selectFrom('branches')
     .select('id')
-    .where('project_id', '=', project.id)
+    .where('projectId', '=', project.id)
     .where('slug', '=', branchSlug)
     .executeTakeFirst();
 
@@ -248,22 +248,22 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
   await db
     .insertInto('branches')
     .values({
-      project_id: project.id,
+      projectId: project.id,
       slug: branchSlug,
-      display_name: branchSlug,
+      displayName: branchSlug,
       dataset,
       port,
       status: 'running',
-      parent_branch_id: null,
-      connection_url: connectionUrl,
-      source_replay_at: restoreTime.toISOString(),
+      parentBranchId: null,
+      connectionUrl: connectionUrl,
+      sourceReplayAt: restoreTime.toISOString(),
     })
     .execute();
 
   const row = await db
     .selectFrom('branches')
-    .select(['id', 'slug', 'display_name as displayName', 'connection_url'])
-    .where('project_id', '=', project.id)
+    .select(['id', 'slug', 'displayName', 'connectionUrl'])
+    .where('projectId', '=', project.id)
     .where('slug', '=', branchSlug)
     .executeTakeFirstOrThrow();
 
@@ -271,7 +271,7 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
     id: row.id,
     slug: row.slug,
     displayName: row.displayName,
-    connectionUrl: row.connection_url || connectionUrl,
+    connectionUrl: row.connectionUrl || connectionUrl,
   };
 }
 
@@ -312,21 +312,21 @@ async function saveLocalServer(input: {
     .values({
       role: input.role,
       host: input.host,
-      ssh_user: input.sshUser,
-      ssh_key_path: input.sshKeyPath,
+      sshUser: input.sshUser,
+      sshKeyPath: input.sshKeyPath,
       status: 'ok',
-      status_message: 'local Docker',
-      last_checked_at: new Date().toISOString(),
+      statusMessage: 'local Docker',
+      lastCheckedAt: new Date().toISOString(),
     })
     .onConflict(function updateExisting(oc) {
       return oc.column('role').doUpdateSet({
         host: input.host,
-        ssh_user: input.sshUser,
-        ssh_key_path: input.sshKeyPath,
+        sshUser: input.sshUser,
+        sshKeyPath: input.sshKeyPath,
         status: 'ok',
-        status_message: 'local Docker',
-        last_checked_at: new Date().toISOString(),
-        updated_at: sql`datetime('now')`,
+        statusMessage: 'local Docker',
+        lastCheckedAt: new Date().toISOString(),
+        updatedAt: sql`datetime('now')`,
       });
     })
     .execute();
@@ -338,11 +338,11 @@ async function setLocalStepStatus(
   message: string | null
 ): Promise<void> {
   await getDb()
-    .updateTable('setup_steps')
+    .updateTable('setupSteps')
     .set({
       status,
       message,
-      updated_at: sql`datetime('now')`,
+      updatedAt: sql`datetime('now')`,
     })
     .where('key', '=', key)
     .execute();
@@ -368,9 +368,9 @@ async function ensureProject() {
     .insertInto('projects')
     .values({
       name: PROJECT_NAME,
-      postgres_version: '17',
-      database_name: 'postgres',
-      app_user: 'postgres',
+      postgresVersion: '17',
+      databaseName: 'postgres',
+      appUser: 'postgres',
     })
     .execute();
 

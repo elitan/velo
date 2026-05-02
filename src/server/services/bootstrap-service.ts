@@ -85,8 +85,8 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
   const result = await runSshCommand(
     {
       host: prod.host,
-      user: prod.ssh_user,
-      keyPath: prod.ssh_key_path,
+      user: prod.sshUser,
+      keyPath: prod.sshKeyPath,
     },
     [
       'set -e',

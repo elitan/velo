@@ -132,22 +132,22 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     await db
       .insertInto('branches')
       .values({
-        project_id: project.id,
+        projectId: project.id,
         slug: branchName,
-        display_name: branchName,
+        displayName: branchName,
         dataset,
         port,
         status: 'running',
-        parent_branch_id: null,
-        source_replay_at: restoreTime.toISOString(),
-        connection_url: connectionUrl,
+        parentBranchId: null,
+        sourceReplayAt: restoreTime.toISOString(),
+        connectionUrl: connectionUrl,
       })
       .execute();
 
     const row = await db
       .selectFrom('branches')
-      .select(['id', 'slug', 'display_name as displayName', 'connection_url'])
-      .where('project_id', '=', project.id)
+      .select(['id', 'slug', 'displayName', 'connectionUrl'])
+      .where('projectId', '=', project.id)
       .where('slug', '=', branchName)
       .executeTakeFirstOrThrow();
 
@@ -155,7 +155,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
       id: row.id,
       slug: row.slug,
       displayName: row.displayName,
-      connectionUrl: row.connection_url || connectionUrl,
+      connectionUrl: row.connectionUrl || connectionUrl,
     };
   } catch (error) {
     if (containerId) {
@@ -230,8 +230,8 @@ export async function restoreProductionFromPgBackRest(input: RestoreBranchInput)
   const result = await runSshCommand(
     {
       host: prod.host,
-      user: prod.ssh_user,
-      keyPath: prod.ssh_key_path,
+      user: prod.sshUser,
+      keyPath: prod.sshKeyPath,
     },
     command,
     60 * 60 * 1000
@@ -403,9 +403,9 @@ async function ensureProject() {
     .insertInto('projects')
     .values({
       name: PROJECT_NAME,
-      postgres_version: DEFAULTS.postgres.defaultVersion,
-      database_name: 'postgres',
-      app_user: 'postgres',
+      postgresVersion: DEFAULTS.postgres.defaultVersion,
+      databaseName: 'postgres',
+      appUser: 'postgres',
     })
     .execute();
 
