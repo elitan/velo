@@ -5,6 +5,7 @@ import { runCommand, runSshCommand } from './command-service';
 import { listJobs, type JobRecord } from './job-service';
 import { getBackupAvailability, type BackupAvailability } from './backup-availability-service';
 import { getBackupSettings, getSetting, type BackupSettings } from './settings-service';
+import { checkLocalDocker, isLocalDockerMode } from './local-docker-service';
 
 export interface ServerInput {
   role: 'prod' | 'dev';
@@ -112,6 +113,10 @@ export async function saveServer(input: ServerInput): Promise<Server> {
 }
 
 export async function checkServer(role: 'prod' | 'dev'): Promise<Server> {
+  if (isLocalDockerMode()) {
+    return checkLocalDocker(role);
+  }
+
   const db = getDb();
   const server = await db
     .selectFrom('servers')

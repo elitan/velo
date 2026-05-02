@@ -51,6 +51,41 @@ bun run db:migrate
 bun run dev
 ```
 
+### Local Docker Loop
+
+For fast local product work without Hetzner:
+
+```bash
+bun run local:reset
+bun run local:dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+This starts:
+
+- local prod Postgres on `localhost:55432`
+- local dev Postgres on `localhost:55433`
+- local MinIO on `localhost:59000`
+- local SQLite at `.velo/local-docker.sqlite`
+- real pgBackRest backups and WAL archive to MinIO
+
+Local Docker is prod-like for backup and PITR work. It creates a pgBackRest stanza, checks WAL archiving, runs a full backup, and can restore a temporary Postgres container from PITR. It still does not prove SSH, systemd, Hetzner networking, R2, or ZFS COW. Use remote dev before merging infra-sensitive work.
+
+Each git branch gets one local environment by default. Ports are assigned once and stored in `.velo/local/<branch>/env`, so multiple branches can run on the same computer without port collisions.
+
+Useful local stack commands:
+
+```bash
+bun run local:up
+bun run local:status
+bun run local:down
+```
+
 Useful checks:
 
 ```bash

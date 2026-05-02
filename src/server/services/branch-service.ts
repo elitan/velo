@@ -10,6 +10,7 @@ import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
+import { createLocalDockerBranch, deleteLocalDockerBranch, isLocalDockerMode } from './local-docker-service';
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
@@ -52,6 +53,21 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
   }
 
   await setStepStatus('first-branch', 'running', `creating ${displayName}`);
+
+  if (isLocalDockerMode()) {
+    const result = await createLocalDockerBranch({
+      slug: branchSlug,
+      displayName,
+      sourceSlug: source.slug,
+      sourceDatabase: source.dataset,
+      sourceReplayAt: new Date().toISOString(),
+      parentBranchId: source.id,
+    });
+
+    await setStepStatus('first-branch', 'done', `${displayName} ready`);
+
+    return result;
+  }
 
   const result = await createBranchClone({
     slug: branchSlug,
@@ -235,6 +251,14 @@ export async function resetBranchFromParent(input: DeleteBranchInput): Promise<C
 
 async function resolveBranchSource(parentBranchId: number | null | undefined): Promise<{ id: number | null; slug: string; dataset: string }> {
   if (!parentBranchId) {
+    if (isLocalDockerMode()) {
+      return {
+        id: null,
+        slug: 'prod',
+        dataset: 'postgres',
+      };
+    }
+
     return {
       id: null,
       slug: 'prod',
@@ -269,6 +293,10 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
 
   if (child) {
     throw new Error(`Branch has child branches. Delete ${child.displayName} first.`);
+  }
+
+  if (isLocalDockerMode()) {
+    return deleteLocalDockerBranch(input.id);
   }
 
   const branch = await db

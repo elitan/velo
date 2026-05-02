@@ -70,7 +70,7 @@ function BackupRestorePage() {
   const status = isProd ? (state.prodConnectionUrl ? 'ready' : 'pending') : branch?.status || 'missing';
   const branchOptions = getBranchOptions(state);
   const backupOptions = getBackupOptions(state.backupAvailability.backups);
-  const restoreWindow = getRestoreWindow(state.backup.pitrDays, state.backupAvailability.pitr);
+  const restoreWindow = getRestoreWindow(state.backupAvailability.pitr);
   const backupWindow = getBackupWindow(state.backupAvailability.backups);
   const pitrAvailable = state.backupAvailability.status === 'ok' && Boolean(restoreWindow.min && restoreWindow.max);
   const sourceBranch = 'prod';
@@ -217,7 +217,7 @@ function BackupRestorePage() {
                     <div className="text-xs text-muted-foreground">
                       {pitrAvailable && restoreWindow.min && restoreWindow.max
                         ? `Europe/Stockholm. Available from ${formatShortDateTime(restoreWindow.min)} to ${formatShortDateTime(restoreWindow.max)}.`
-                        : state.backupAvailability.message || 'Waiting for the first backup.'}
+                        : state.backupAvailability.message || 'PITR is not available yet.'}
                     </div>
                   </div>
                 </div>
@@ -704,7 +704,7 @@ function getDefaultRestoreTime(window: { min: string | null; max: string | null 
   return value;
 }
 
-function getRestoreWindow(days: number, pitr: { from: string | null; to: string | null }) {
+function getRestoreWindow(pitr: { from: string | null; to: string | null }) {
   if (pitr.from && pitr.to) {
     return {
       min: toDateTimeLocalValue(new Date(pitr.from)),
@@ -712,12 +712,9 @@ function getRestoreWindow(days: number, pitr: { from: string | null; to: string 
     };
   }
 
-  const max = new Date();
-  const min = new Date(max.getTime() - days * 24 * 60 * 60 * 1000);
-
   return {
-    min: toDateTimeLocalValue(min),
-    max: toDateTimeLocalValue(max),
+    min: null,
+    max: null,
   };
 }
 
