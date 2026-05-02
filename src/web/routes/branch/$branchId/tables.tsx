@@ -147,9 +147,9 @@ function BranchTablesPage() {
 
   function selectPage(offset: number) {
     setSelected({
-      database: metadata.data?.selectedDatabase || selected?.database,
-      schema: metadata.data?.selectedSchema || selected?.schema || 'public',
-      name: metadata.data?.selectedTable?.name || selected?.name,
+      database: selectedDatabase,
+      schema: selectedSchema,
+      name: selectedTable,
       offset,
     });
   }
@@ -352,7 +352,7 @@ function BranchTablesPage() {
                 <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
                   <span>{params.branchId}</span>
                   <span>/</span>
-                  <span>{metadata.data?.selectedTable ? metadata.data.selectedTable.name : 'no table'}</span>
+                  <span>{selectedTable || 'no table'}</span>
                 </div>
               </div>
             </div>
@@ -361,7 +361,7 @@ function BranchTablesPage() {
           <div className="grid min-h-0 lg:grid-cols-[280px_1fr]">
             <aside className="grid min-h-0 grid-rows-[auto_auto_1fr] border-r border-border bg-muted/20">
               <div className="border-b border-border p-4">
-                <Select value={metadata.data?.selectedDatabase || selected?.database || 'postgres'} onValueChange={selectDatabase}>
+                <Select value={selectedDatabase} onValueChange={selectDatabase}>
                   <SelectTrigger className="h-10 w-full bg-background font-medium">
                     <Database className="size-4 text-muted-foreground" />
                     <SelectValue />
@@ -381,7 +381,7 @@ function BranchTablesPage() {
               </div>
 
               <div className="border-b border-border p-4">
-                <Select value={metadata.data?.selectedSchema || selected?.schema || 'public'} onValueChange={selectSchema}>
+                <Select value={selectedSchema} onValueChange={selectSchema}>
                   <SelectTrigger className="h-10 w-full bg-background font-medium">
                     <Table2 className="size-4 text-muted-foreground" />
                     <SelectValue />
@@ -421,8 +421,7 @@ function BranchTablesPage() {
                 ) : (
                   <div className="grid gap-1">
                     {filteredTables.map(function renderTable(table) {
-                      const active = metadata.data?.selectedTable?.schema === table.schema
-                        && metadata.data.selectedTable.name === table.name;
+                      const active = selectedSchema === table.schema && selectedTable === table.name;
 
                       return (
                         <button
