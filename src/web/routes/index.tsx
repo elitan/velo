@@ -690,10 +690,10 @@ export interface ServerPanelProps {
   role: ServerRole;
   server: {
     host: string;
-    ssh_user: string;
-    ssh_key_path: string;
+    sshUser: string;
+    sshKeyPath: string;
     status: string;
-    status_message: string | null;
+    statusMessage: string | null;
   } | undefined;
   busy: string | null;
   onSave: (formData: FormData) => Promise<void>;
@@ -730,10 +730,10 @@ export function ServerPanel(props: ServerPanelProps) {
           </Field>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
             <Field label="SSH user">
-              <Input name="sshUser" defaultValue={props.server?.ssh_user || 'root'} placeholder="root" />
+              <Input name="sshUser" defaultValue={props.server?.sshUser || 'root'} placeholder="root" />
             </Field>
             <Field label="SSH key">
-              <Input name="sshKeyPath" defaultValue={props.server?.ssh_key_path || '~/.ssh/id_ed25519'} />
+              <Input name="sshKeyPath" defaultValue={props.server?.sshKeyPath || '~/.ssh/id_ed25519'} />
             </Field>
           </div>
           <div className="flex gap-2">
@@ -748,7 +748,7 @@ export function ServerPanel(props: ServerPanelProps) {
           </div>
         </form>
         <p className="mt-4 line-clamp-3 text-xs leading-5 text-muted-foreground">
-          {props.server?.status_message || 'Not checked yet.'}
+          {props.server?.statusMessage || 'Not checked yet.'}
         </p>
       </CardContent>
     </Card>

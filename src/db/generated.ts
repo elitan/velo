@@ -10,72 +10,72 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   : ColumnType<T, T | undefined, T>;
 
 export interface Branches {
-  connection_url: string | null;
-  created_at: Generated<string>;
+  connectionUrl: string | null;
+  createdAt: Generated<string>;
   dataset: string;
-  display_name: string;
+  displayName: string;
   id: Generated<number | null>;
-  parent_branch_id: number | null;
+  parentBranchId: number | null;
   port: number | null;
-  project_id: number;
+  projectId: number;
   slug: string;
-  source_replay_at: string | null;
+  sourceReplayAt: string | null;
   status: Generated<string>;
-  updated_at: Generated<string>;
+  updatedAt: Generated<string>;
 }
 
 export interface JobLogs {
-  created_at: Generated<string>;
+  createdAt: Generated<string>;
   id: Generated<number | null>;
-  job_id: number;
+  jobId: number;
   level: Generated<string>;
   message: string;
 }
 
 export interface Jobs {
-  created_at: Generated<string>;
+  createdAt: Generated<string>;
   error: string | null;
-  finished_at: string | null;
+  finishedAt: string | null;
   id: Generated<number | null>;
-  input_json: string | null;
-  started_at: string | null;
+  inputJson: string | null;
+  startedAt: string | null;
   status: Generated<string>;
   type: string;
-  updated_at: Generated<string>;
+  updatedAt: Generated<string>;
 }
 
 export interface Projects {
-  app_user: Generated<string>;
-  created_at: Generated<string>;
-  database_name: Generated<string>;
+  appUser: Generated<string>;
+  createdAt: Generated<string>;
+  databaseName: Generated<string>;
   id: Generated<number | null>;
   name: string;
-  postgres_version: Generated<string>;
-  updated_at: Generated<string>;
+  postgresVersion: Generated<string>;
+  updatedAt: Generated<string>;
 }
 
 export interface SchemaMigrations {
-  applied_at: Generated<string>;
+  appliedAt: Generated<string>;
   id: string | null;
 }
 
 export interface Servers {
-  created_at: Generated<string>;
+  createdAt: Generated<string>;
   host: string;
   id: Generated<number | null>;
-  last_checked_at: string | null;
+  lastCheckedAt: string | null;
   role: string;
-  ssh_key_path: string;
-  ssh_user: string;
+  sshKeyPath: string;
+  sshUser: string;
   status: Generated<string>;
-  status_message: string | null;
-  updated_at: Generated<string>;
+  statusMessage: string | null;
+  updatedAt: Generated<string>;
 }
 
 export interface Settings {
-  created_at: Generated<string>;
+  createdAt: Generated<string>;
   key: string | null;
-  updated_at: Generated<string>;
+  updatedAt: Generated<string>;
   value: string;
 }
 
@@ -85,16 +85,16 @@ export interface SetupSteps {
   label: string;
   message: string | null;
   status: Generated<string>;
-  updated_at: Generated<string>;
+  updatedAt: Generated<string>;
 }
 
 export interface DB {
   branches: Branches;
-  job_logs: JobLogs;
+  jobLogs: JobLogs;
   jobs: Jobs;
   projects: Projects;
-  schema_migrations: SchemaMigrations;
+  schemaMigrations: SchemaMigrations;
   servers: Servers;
   settings: Settings;
-  setup_steps: SetupSteps;
+  setupSteps: SetupSteps;
 }

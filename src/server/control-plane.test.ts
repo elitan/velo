@@ -57,7 +57,7 @@ describe('control plane database', function controlPlaneDatabase() {
     migrateDatabase();
 
     const steps = await getDb()
-      .selectFrom('setup_steps')
+      .selectFrom('setupSteps')
       .select(['key', 'status'])
       .orderBy('id')
       .execute();

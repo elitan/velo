@@ -5,21 +5,21 @@ export type Timestamp = ColumnType<string, string | undefined, string>;
 export interface SettingsTable {
   key: string;
   value: string;
-  created_at: Timestamp;
-  updated_at: Timestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface ServersTable {
   id: Generated<number>;
   role: 'prod' | 'dev';
   host: string;
-  ssh_user: string;
-  ssh_key_path: string;
+  sshUser: string;
+  sshKeyPath: string;
   status: 'unknown' | 'ok' | 'error';
-  status_message: string | null;
-  last_checked_at: string | null;
-  created_at: Timestamp;
-  updated_at: Timestamp;
+  statusMessage: string | null;
+  lastCheckedAt: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface SetupStepsTable {
@@ -28,62 +28,62 @@ export interface SetupStepsTable {
   label: string;
   status: 'pending' | 'running' | 'done' | 'error';
   message: string | null;
-  updated_at: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface ProjectsTable {
   id: Generated<number>;
   name: string;
-  postgres_version: string;
-  database_name: string;
-  app_user: string;
-  created_at: Timestamp;
-  updated_at: Timestamp;
+  postgresVersion: string;
+  databaseName: string;
+  appUser: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface BranchesTable {
   id: Generated<number>;
-  project_id: number;
+  projectId: number;
   slug: string;
-  display_name: string;
+  displayName: string;
   dataset: string;
   port: number | null;
   status: 'creating' | 'running' | 'stopped' | 'error';
-  parent_branch_id: number | null;
-  source_replay_at: string | null;
-  connection_url: string | null;
-  created_at: Timestamp;
-  updated_at: Timestamp;
+  parentBranchId: number | null;
+  sourceReplayAt: string | null;
+  connectionUrl: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 export interface JobsTable {
   id: Generated<number>;
   type: string;
   status: 'queued' | 'running' | 'done' | 'error';
-  input_json: string | null;
+  inputJson: string | null;
   error: string | null;
-  created_at: Timestamp;
-  started_at: string | null;
-  finished_at: string | null;
-  updated_at: Timestamp;
+  createdAt: Timestamp;
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: Timestamp;
 }
 
 export interface JobLogsTable {
   id: Generated<number>;
-  job_id: number;
+  jobId: number;
   level: 'info' | 'error';
   message: string;
-  created_at: Timestamp;
+  createdAt: Timestamp;
 }
 
 export interface DB {
   settings: SettingsTable;
   servers: ServersTable;
-  setup_steps: SetupStepsTable;
+  setupSteps: SetupStepsTable;
   projects: ProjectsTable;
   branches: BranchesTable;
   jobs: JobsTable;
-  job_logs: JobLogsTable;
+  jobLogs: JobLogsTable;
 }
 
 export type Setting = Selectable<SettingsTable>;

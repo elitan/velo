@@ -1,4 +1,4 @@
-import { Kysely, SqliteDialect } from 'kysely';
+import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { DB } from './schema';
@@ -19,6 +19,7 @@ export function getDb(): Kysely<DB> {
     dialect: new SqliteDialect({
       database: new BunSqliteDatabase(databasePath),
     }),
+    plugins: [new CamelCasePlugin()],
   });
 
   return db;

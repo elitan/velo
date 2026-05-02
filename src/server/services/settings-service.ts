@@ -76,7 +76,7 @@ export async function setSetting(key: string, value: string): Promise<void> {
     .onConflict(function updateExisting(oc) {
       return oc.column('key').doUpdateSet({
         value,
-        updated_at: sql`datetime('now')`,
+        updatedAt: sql`datetime('now')`,
       });
     })
     .execute();

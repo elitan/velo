@@ -44,8 +44,8 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
   const devCidr = getDevCidr(dev?.host);
   await configureProdReplication({
     host: prod.host,
-    user: prod.ssh_user,
-    keyPath: prod.ssh_key_path,
+    user: prod.sshUser,
+    keyPath: prod.sshKeyPath,
     password: replicationPassword,
     devCidr,
   });

@@ -45,27 +45,27 @@ export async function getDashboardState(): Promise<DashboardState> {
   const [servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl] = await Promise.all([
     db.selectFrom('servers').selectAll().orderBy('role').execute(),
     db
-      .selectFrom('setup_steps')
-      .select(['key', 'label', 'status', 'message', 'updated_at as updatedAt'])
+      .selectFrom('setupSteps')
+      .select(['key', 'label', 'status', 'message', 'updatedAt'])
       .orderBy('id')
       .execute(),
     db
       .selectFrom('branches')
-      .leftJoin('branches as parent', 'parent.id', 'branches.parent_branch_id')
+      .leftJoin('branches as parent', 'parent.id', 'branches.parentBranchId')
       .select([
-        'branches.id as id',
-        'branches.slug as slug',
-        'branches.display_name as displayName',
-        'branches.status as status',
-        'branches.parent_branch_id as parentBranchId',
-        'parent.display_name as parentName',
+        'branches.id',
+        'branches.slug',
+        'branches.displayName',
+        'branches.status',
+        'branches.parentBranchId',
+        'parent.displayName as parentName',
         'parent.slug as parentSlug',
-        'branches.port as port',
-        'branches.connection_url as connectionUrl',
-        'branches.created_at as createdAt',
+        'branches.port',
+        'branches.connectionUrl',
+        'branches.createdAt',
       ])
       .where('branches.slug', 'not like', 'preview-%')
-      .orderBy('branches.created_at', 'desc')
+      .orderBy('branches.createdAt', 'desc')
       .execute(),
     listJobs(10),
     getBackupSettings(),
@@ -84,20 +84,20 @@ export async function saveServer(input: ServerInput): Promise<Server> {
     .values({
       role: input.role,
       host: input.host,
-      ssh_user: input.sshUser,
-      ssh_key_path: input.sshKeyPath,
+      sshUser: input.sshUser,
+      sshKeyPath: input.sshKeyPath,
       status: 'unknown',
-      status_message: null,
-      last_checked_at: null,
+      statusMessage: null,
+      lastCheckedAt: null,
     })
     .onConflict(function updateExisting(oc) {
       return oc.column('role').doUpdateSet({
         host: input.host,
-        ssh_user: input.sshUser,
-        ssh_key_path: input.sshKeyPath,
+        sshUser: input.sshUser,
+        sshKeyPath: input.sshKeyPath,
         status: 'unknown',
-        status_message: null,
-        updated_at: sql`datetime('now')`,
+        statusMessage: null,
+        updatedAt: sql`datetime('now')`,
       });
     })
     .execute();
@@ -124,8 +124,8 @@ export async function checkServer(role: 'prod' | 'dev'): Promise<Server> {
     : await runSshCommand(
       {
         host: server.host,
-        user: server.ssh_user,
-        keyPath: server.ssh_key_path,
+        user: server.sshUser,
+        keyPath: server.sshKeyPath,
       },
       'uname -srm && id -un && command -v sudo >/dev/null && echo sudo-ok'
     );
@@ -137,9 +137,9 @@ export async function checkServer(role: 'prod' | 'dev'): Promise<Server> {
     .updateTable('servers')
     .set({
       status: ok ? 'ok' : 'error',
-      status_message: message,
-      last_checked_at: new Date().toISOString(),
-      updated_at: sql`datetime('now')`,
+      statusMessage: message,
+      lastCheckedAt: new Date().toISOString(),
+      updatedAt: sql`datetime('now')`,
     })
     .where('id', '=', server.id)
     .execute();
@@ -159,11 +159,11 @@ export async function setStepStatus(
   message: string | null
 ): Promise<void> {
   await getDb()
-    .updateTable('setup_steps')
+    .updateTable('setupSteps')
     .set({
       status,
       message,
-      updated_at: sql`datetime('now')`,
+      updatedAt: sql`datetime('now')`,
     })
     .where('key', '=', key)
     .execute();

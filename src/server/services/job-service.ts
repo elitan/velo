@@ -32,7 +32,7 @@ export async function createJob(type: string, input?: unknown): Promise<Job> {
     .values({
       type,
       status: 'queued',
-      input_json: input === undefined ? null : JSON.stringify(input),
+      inputJson: input === undefined ? null : JSON.stringify(input),
       error: null,
     })
     .execute();
@@ -52,7 +52,7 @@ export async function listJobs(limit = 20): Promise<JobRecord[]> {
   const jobs = await getDb()
     .selectFrom('jobs')
     .selectAll()
-    .orderBy('created_at', 'desc')
+    .orderBy('createdAt', 'desc')
     .limit(limit)
     .execute();
 
@@ -126,9 +126,9 @@ async function updateJob(
     .set({
       status,
       error,
-      started_at: options.startedAt,
-      finished_at: options.finishedAt,
-      updated_at: sql`datetime('now')`,
+      startedAt: options.startedAt,
+      finishedAt: options.finishedAt,
+      updatedAt: sql`datetime('now')`,
     })
     .where('id', '=', jobId)
     .execute();
@@ -136,9 +136,9 @@ async function updateJob(
 
 export async function appendJobLog(jobId: number, level: 'info' | 'error', message: string): Promise<void> {
   await getDb()
-    .insertInto('job_logs')
+    .insertInto('jobLogs')
     .values({
-      job_id: jobId,
+      jobId: jobId,
       level,
       message: sanitizeLogMessage(message),
     })
@@ -147,10 +147,10 @@ export async function appendJobLog(jobId: number, level: 'info' | 'error', messa
 
 async function getJobLogs(jobId: number, limit: number): Promise<JobLog[]> {
   return getDb()
-    .selectFrom('job_logs')
+    .selectFrom('jobLogs')
     .selectAll()
-    .where('job_id', '=', jobId)
-    .orderBy('created_at', 'desc')
+    .where('jobId', '=', jobId)
+    .orderBy('createdAt', 'desc')
     .orderBy('id', 'desc')
     .limit(limit)
     .execute();
@@ -162,16 +162,16 @@ function mapJob(job: Job, logs: JobLog[]): JobRecord {
     type: job.type,
     status: job.status,
     error: job.error,
-    createdAt: job.created_at,
-    startedAt: job.started_at,
-    finishedAt: job.finished_at,
-    updatedAt: job.updated_at,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    updatedAt: job.updatedAt,
     logs: logs.map(function mapLog(log) {
       return {
         id: log.id,
         level: log.level,
         message: log.message,
-        createdAt: log.created_at,
+        createdAt: log.createdAt,
       };
     }),
   };

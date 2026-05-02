@@ -177,22 +177,22 @@ async function createBranchClone(options: {
     await db
       .insertInto('branches')
       .values({
-        project_id: project.id,
+        projectId: project.id,
         slug: branchSlug,
-        display_name: options.displayName,
+        displayName: options.displayName,
         dataset: targetDataset,
         port,
         status: 'running',
-        parent_branch_id: options.parentBranchId,
-        connection_url: connectionUrl,
-        source_replay_at: options.sourceReplayAt,
+        parentBranchId: options.parentBranchId,
+        connectionUrl: connectionUrl,
+        sourceReplayAt: options.sourceReplayAt,
       })
       .execute();
 
     const row = await db
       .selectFrom('branches')
-      .select(['id', 'slug', 'display_name as displayName', 'connection_url'])
-      .where('project_id', '=', project.id)
+      .select(['id', 'slug', 'displayName', 'connectionUrl'])
+      .where('projectId', '=', project.id)
       .where('slug', '=', branchSlug)
       .executeTakeFirstOrThrow();
 
@@ -200,7 +200,7 @@ async function createBranchClone(options: {
       id: row.id,
       slug: row.slug,
       displayName: row.displayName,
-      connectionUrl: row.connection_url || connectionUrl,
+      connectionUrl: row.connectionUrl || connectionUrl,
     };
   } catch (error) {
     await cleanupFailedClone({
@@ -220,7 +220,7 @@ export async function resetBranchFromParent(input: DeleteBranchInput): Promise<C
   const db = getDb();
   const branch = await db
     .selectFrom('branches')
-    .select(['id', 'slug', 'display_name as displayName', 'parent_branch_id as parentBranchId'])
+    .select(['id', 'slug', 'displayName', 'parentBranchId'])
     .where('id', '=', input.id)
     .executeTakeFirstOrThrow();
 
@@ -263,8 +263,8 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
   const db = getDb();
   const child = await db
     .selectFrom('branches')
-    .select(['id', 'display_name as displayName'])
-    .where('parent_branch_id', '=', input.id)
+    .select(['id', 'displayName'])
+    .where('parentBranchId', '=', input.id)
     .executeTakeFirst();
 
   if (child) {
@@ -326,7 +326,7 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
   return {
     id: branch.id,
     slug: branch.slug,
-    displayName: branch.display_name,
+    displayName: branch.displayName,
   };
 }
 
@@ -360,9 +360,9 @@ async function ensureProject() {
     .insertInto('projects')
     .values({
       name: PROJECT_NAME,
-      postgres_version: DEFAULTS.postgres.defaultVersion,
-      database_name: 'postgres',
-      app_user: 'postgres',
+      postgresVersion: DEFAULTS.postgres.defaultVersion,
+      databaseName: 'postgres',
+      appUser: 'postgres',
     })
     .execute();
 
