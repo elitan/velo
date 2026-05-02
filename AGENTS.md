@@ -118,6 +118,4 @@ bun run web:build
 bash -n scripts/*.sh
 ```
 
-`bun run web:build` may add a TanStack footer to `src/web/routeTree.gen.ts`; remove that generated footer before committing unless routes changed.
-
 CI runs on `main`.
