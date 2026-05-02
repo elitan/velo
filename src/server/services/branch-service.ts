@@ -457,7 +457,7 @@ async function cleanupFailedClone(options: {
   await options.wal.deleteArchiveDir(options.dataset).catch(function ignoreWalCleanupError() {});
 }
 
-function normalizeBranchSlug(name: string): string {
+export function normalizeBranchSlug(name: string): string {
   const normalized = name.trim().toLowerCase();
 
   if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(normalized)) {

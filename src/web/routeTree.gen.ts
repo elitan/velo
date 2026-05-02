@@ -11,9 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BranchBranchIdTablesRouteImport } from './routes/branch/$branchId/tables'
+import { Route as BranchBranchIdSqlRouteImport } from './routes/branch/$branchId/sql'
 import { Route as BranchBranchIdOverviewRouteImport } from './routes/branch/$branchId/overview'
 import { Route as BranchBranchIdBackupRestoreRouteImport } from './routes/branch/$branchId/backup-restore'
-import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
+import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -24,6 +26,16 @@ const SettingsRoute = SettingsRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BranchBranchIdTablesRoute = BranchBranchIdTablesRouteImport.update({
+  id: '/branch/$branchId/tables',
+  path: '/branch/$branchId/tables',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BranchBranchIdSqlRoute = BranchBranchIdSqlRouteImport.update({
+  id: '/branch/$branchId/sql',
+  path: '/branch/$branchId/sql',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BranchBranchIdOverviewRoute = BranchBranchIdOverviewRouteImport.update({
@@ -37,9 +49,9 @@ const BranchBranchIdBackupRestoreRoute =
     path: '/branch/$branchId/backup-restore',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiTrpcSplatRoute = ApiTrpcSplatRouteImport.update({
-  id: '/api/trpc/$',
-  path: '/api/trpc/$',
+const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
+  id: '/api/v1/$',
+  path: '/api/v1/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -52,26 +64,32 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
+  '/branch/$branchId/sql': typeof BranchBranchIdSqlRoute
+  '/branch/$branchId/tables': typeof BranchBranchIdTablesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
+  '/branch/$branchId/sql': typeof BranchBranchIdSqlRoute
+  '/branch/$branchId/tables': typeof BranchBranchIdTablesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/trpc/$': typeof ApiTrpcSplatRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
+  '/branch/$branchId/sql': typeof BranchBranchIdSqlRoute
+  '/branch/$branchId/tables': typeof BranchBranchIdTablesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -79,34 +97,42 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/api/auth/$'
-    | '/api/trpc/$'
+    | '/api/v1/$'
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
+    | '/branch/$branchId/sql'
+    | '/branch/$branchId/tables'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/settings'
     | '/api/auth/$'
-    | '/api/trpc/$'
+    | '/api/v1/$'
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
+    | '/branch/$branchId/sql'
+    | '/branch/$branchId/tables'
   id:
     | '__root__'
     | '/'
     | '/settings'
     | '/api/auth/$'
-    | '/api/trpc/$'
+    | '/api/v1/$'
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
+    | '/branch/$branchId/sql'
+    | '/branch/$branchId/tables'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiTrpcSplatRoute: typeof ApiTrpcSplatRoute
+  ApiV1SplatRoute: typeof ApiV1SplatRoute
   BranchBranchIdBackupRestoreRoute: typeof BranchBranchIdBackupRestoreRoute
   BranchBranchIdOverviewRoute: typeof BranchBranchIdOverviewRoute
+  BranchBranchIdSqlRoute: typeof BranchBranchIdSqlRoute
+  BranchBranchIdTablesRoute: typeof BranchBranchIdTablesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -125,6 +151,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/branch/$branchId/tables': {
+      id: '/branch/$branchId/tables'
+      path: '/branch/$branchId/tables'
+      fullPath: '/branch/$branchId/tables'
+      preLoaderRoute: typeof BranchBranchIdTablesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/branch/$branchId/sql': {
+      id: '/branch/$branchId/sql'
+      path: '/branch/$branchId/sql'
+      fullPath: '/branch/$branchId/sql'
+      preLoaderRoute: typeof BranchBranchIdSqlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/branch/$branchId/overview': {
       id: '/branch/$branchId/overview'
       path: '/branch/$branchId/overview'
@@ -139,11 +179,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BranchBranchIdBackupRestoreRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/trpc/$': {
-      id: '/api/trpc/$'
-      path: '/api/trpc/$'
-      fullPath: '/api/trpc/$'
-      preLoaderRoute: typeof ApiTrpcSplatRouteImport
+    '/api/v1/$': {
+      id: '/api/v1/$'
+      path: '/api/v1/$'
+      fullPath: '/api/v1/$'
+      preLoaderRoute: typeof ApiV1SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -160,9 +200,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiTrpcSplatRoute: ApiTrpcSplatRoute,
+  ApiV1SplatRoute: ApiV1SplatRoute,
   BranchBranchIdBackupRestoreRoute: BranchBranchIdBackupRestoreRoute,
   BranchBranchIdOverviewRoute: BranchBranchIdOverviewRoute,
+  BranchBranchIdSqlRoute: BranchBranchIdSqlRoute,
+  BranchBranchIdTablesRoute: BranchBranchIdTablesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

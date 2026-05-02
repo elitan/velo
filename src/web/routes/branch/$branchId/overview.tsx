@@ -1,5 +1,6 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import {
   ChevronDown,
@@ -9,41 +10,61 @@ import {
   RotateCcw,
   Trash2,
 } from 'lucide-react';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
 import {
-  createBranchAction,
-  deleteBranchAction,
-  getSetupState,
-  resetBranchFromParentAction,
-} from '../../../lib/actions';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '#web/components/ui/alert-dialog';
+import { Badge } from '#web/components/ui/badge';
+import { Button } from '#web/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#web/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '#web/components/ui/dropdown-menu';
+import { Input } from '#web/components/ui/input';
+import { Label } from '#web/components/ui/label';
+import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   BranchOverviewPanel,
   StatusBadge,
-} from '../../index';
+} from '#web/components/control-plane';
 
 export const Route = createFileRoute('/branch/$branchId/overview')({
-  loader: function loader() {
-    return getSetupState();
-  },
   component: BranchOverviewPage,
 });
 
 function BranchOverviewPage() {
-  const state = Route.useLoaderData();
-  const router = useRouter();
-  const createBranch = useServerFn(createBranchAction);
-  const deleteBranch = useServerFn(deleteBranchAction);
-  const resetBranch = useServerFn(resetBranchFromParentAction);
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
+  const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
+  const resetBranch = useMutation(orpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
-  const branch = getBranchView(state, params.branchId);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const busy = getBusyKey();
   const [message, setMessage] = useState<string | null>(null);
-  const activeJobs = state.jobs.filter(function isActive(job) {
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [childBranchName, setChildBranchName] = useState('');
+  const [confirmAction, setConfirmAction] = useState<'reset' | 'delete' | null>(null);
+  const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
-  }).length;
+  }).length ?? 0;
 
   useEffect(function pollActiveJobs() {
     if (activeJobs === 0) {
@@ -51,37 +72,63 @@ function BranchOverviewPage() {
     }
 
     const interval = window.setInterval(function refreshActiveJobs() {
-      void router.invalidate();
+      void dashboard.refetch();
     }, 2000);
 
     return function clearPoll() {
       window.clearInterval(interval);
     };
-  }, [activeJobs, router]);
+  }, [activeJobs, dashboard]);
 
-  async function runBusy(key: string, task: () => Promise<void>) {
-    setBusy(key);
-    setMessage(null);
-    try {
-      await task();
-      await router.invalidate();
-    } finally {
-      setBusy(null);
-      setMenuOpen(false);
-    }
+  async function refreshDashboard() {
+    await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
   }
 
-  async function handleCreateChild() {
-    const name = window.prompt('Child branch name', `${branch.id}-child`);
+  if (!dashboard.data) {
+    return <BranchLoadingPage message={dashboard.error ? 'Could not load branch.' : 'Loading branch...'} />;
+  }
+
+  const state = dashboard.data;
+  const branch = getBranchView(state, params.branchId);
+
+  function getBusyKey(): string | null {
+    if (createBranch.isPending) {
+      return 'create-child';
+    }
+
+    if (resetBranch.isPending) {
+      return 'reset';
+    }
+
+    if (deleteBranch.isPending) {
+      return 'delete';
+    }
+
+    return null;
+  }
+
+  function openCreateChildModal() {
+    setChildBranchName(`${branch.id}-child`);
+    setCreateModalOpen(true);
+  }
+
+  async function handleCreateChild(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = childBranchName.trim();
 
     if (!name) {
       return;
     }
 
-    await runBusy('create-child', async function createChildBranch() {
-      await createBranch({ data: { name, parentBranchId: branch.rowId } });
-      setMessage(`Creating child branch ${name} from ${branch.name}.`);
-    });
+    setMessage(null);
+    const result = await createBranch.mutateAsync({ name, parentBranchId: branch.rowId });
+    setMessage(`Creating child branch ${name} from ${branch.name}.`);
+    setCreateModalOpen(false);
+
+    if (result.branchSlug) {
+      await navigate({ to: '/branch/$branchId/overview', params: { branchId: result.branchSlug } });
+    }
   }
 
   async function handleResetFromParent() {
@@ -89,14 +136,9 @@ function BranchOverviewPage() {
       return;
     }
 
-    if (!window.confirm(`Reset ${branch.name} from parent ${branch.parentName}? This replaces the branch data.`)) {
-      return;
-    }
-
-    await runBusy('reset', async function resetFromParent() {
-      await resetBranch({ data: { id: branch.rowId! } });
-      setMessage(`Resetting ${branch.name} from ${branch.parentName}.`);
-    });
+    setMessage(null);
+    await resetBranch.mutateAsync({ id: branch.rowId! });
+    setMessage(`Resetting ${branch.name} from ${branch.parentName}.`);
   }
 
   async function handleDelete() {
@@ -104,14 +146,23 @@ function BranchOverviewPage() {
       return;
     }
 
-    if (!window.confirm(`Delete branch "${branch.name}"?`)) {
+    setMessage(null);
+    await deleteBranch.mutateAsync({ id: branch.rowId! });
+    await navigate({ to: '/branch/$branchId/overview', params: { branchId: branch.parentSlug || 'prod' } });
+  }
+
+  function handleConfirmAction() {
+    const action = confirmAction;
+    setConfirmAction(null);
+
+    if (action === 'reset') {
+      void handleResetFromParent();
       return;
     }
 
-    await runBusy('delete', async function deleteCurrentBranch() {
-      await deleteBranch({ data: { id: branch.rowId! } });
-      window.location.href = `/branch/${encodeURIComponent(branch.parentSlug || 'prod')}/overview`;
-    });
+    if (action === 'delete') {
+      void handleDelete();
+    }
   }
 
   return (
@@ -137,52 +188,46 @@ function BranchOverviewPage() {
                 <Button
                   type="button"
                   onClick={function createChildClick() {
-                    void handleCreateChild();
+                    openCreateChildModal();
                   }}
                   disabled={busy === 'create-child'}
                 >
                   {busy === 'create-child' ? <Loader2 className="animate-spin" /> : <GitBranch />}
                   Create child branch
                 </Button>
-                <div className="relative">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={function toggleMenu() {
-                      setMenuOpen(!menuOpen);
-                    }}
-                  >
-                    More
-                    <ChevronDown />
-                  </Button>
-                  {menuOpen ? (
-                    <div className="absolute right-0 z-10 mt-2 w-52 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg">
-                      <MenuButton
-                        icon={RotateCcw}
-                        label="Reset from parent"
-                        disabled={branch.id === 'prod' || !branch.parentName || busy === 'reset'}
-                        onClick={function resetClick() {
-                          void handleResetFromParent();
-                        }}
-                      />
-                      <MenuButton
-                        icon={Pencil}
-                        label="Edit name"
-                        disabled
-                        onClick={function editClick() {}}
-                      />
-                      <MenuButton
-                        icon={Trash2}
-                        label="Delete"
-                        danger
-                        disabled={branch.id === 'prod' || busy === 'delete'}
-                        onClick={function deleteClick() {
-                          void handleDelete();
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline">
+                      More
+                      <ChevronDown />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-52">
+                    <DropdownMenuItem
+                      disabled={branch.id === 'prod' || !branch.parentName || busy === 'reset'}
+                      onSelect={function selectReset() {
+                        setConfirmAction('reset');
+                      }}
+                    >
+                      <RotateCcw />
+                      Reset from parent
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled>
+                      <Pencil />
+                      Edit name
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      disabled={branch.id === 'prod' || busy === 'delete'}
+                      onSelect={function selectDelete() {
+                        setConfirmAction('delete');
+                      }}
+                    >
+                      <Trash2 />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </header>
 
@@ -200,11 +245,85 @@ function BranchOverviewPage() {
           </div>
         </section>
       </div>
+
+      <Dialog open={createModalOpen} onOpenChange={setCreateModalOpen}>
+        <DialogContent>
+          <form
+            onSubmit={function submitCreateChild(event) {
+              void handleCreateChild(event);
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Create child branch</DialogTitle>
+              <DialogDescription>From {branch.name}</DialogDescription>
+            </DialogHeader>
+
+            <div className="mt-5 grid gap-2">
+              <Label htmlFor="child-branch-name">Branch name</Label>
+              <Input
+                id="child-branch-name"
+                value={childBranchName}
+                autoFocus
+                onChange={function updateChildBranchName(event) {
+                  setChildBranchName(event.target.value);
+                }}
+              />
+            </div>
+
+            <DialogFooter className="mt-6">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={function closeCreateModal() {
+                  setCreateModalOpen(false);
+                }}
+                disabled={busy === 'create-child'}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy === 'create-child' || !childBranchName.trim()}>
+                {busy === 'create-child' ? <Loader2 className="animate-spin" /> : <GitBranch />}
+                Create
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={confirmAction !== null}
+        onOpenChange={function changeConfirmOpen(open) {
+          if (!open) {
+            setConfirmAction(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmAction === 'delete' ? 'Delete branch?' : 'Reset branch?'}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction === 'delete'
+                ? `Delete branch "${branch.name}"?`
+                : `Reset ${branch.name} from parent ${branch.parentName}? This replaces the branch data.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy === 'reset' || busy === 'delete'}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={confirmAction === 'delete' ? 'bg-destructive text-white hover:bg-destructive/90' : ''}
+              disabled={busy === 'reset' || busy === 'delete'}
+              onClick={handleConfirmAction}
+            >
+              {confirmAction === 'delete' ? 'Delete' : 'Reset'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }
 
-function getBranchView(state: Awaited<ReturnType<typeof getSetupState>>, branchId: string) {
+function getBranchView(state: ControlPlaneState, branchId: string) {
   if (branchId === 'prod') {
     return {
       id: 'prod',
@@ -238,28 +357,13 @@ function getBranchView(state: Awaited<ReturnType<typeof getSetupState>>, branchI
   };
 }
 
-function MenuButton(props: {
-  icon: typeof GitBranch;
-  label: string;
-  danger?: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  const Icon = props.icon;
-
+function BranchLoadingPage(props: Readonly<{ message: string }>) {
   return (
-    <button
-      type="button"
-      className={[
-        'flex h-9 w-full items-center gap-2 rounded-sm px-2 text-left text-sm',
-        props.danger ? 'text-destructive hover:bg-destructive/10' : 'hover:bg-accent hover:text-accent-foreground',
-        props.disabled ? 'cursor-not-allowed opacity-50 hover:bg-transparent' : '',
-      ].join(' ')}
-      disabled={props.disabled}
-      onClick={props.onClick}
-    >
-      <Icon className="size-4" />
-      {props.label}
-    </button>
+    <main className="grid min-h-screen place-items-center bg-background px-4 text-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="animate-spin" />
+        {props.message}
+      </div>
+    </main>
   );
 }

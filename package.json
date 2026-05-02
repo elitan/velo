@@ -29,6 +29,17 @@
     "clone"
   ],
   "type": "module",
+  "imports": {
+    "#api/*": "./src/api/*",
+    "#config/*": "./src/config/*",
+    "#db/*": "./src/db/*",
+    "#errors": "./src/errors/index.ts",
+    "#lib/*": "./src/lib/*",
+    "#managers/*": "./src/managers/*",
+    "#server/*": "./src/server/*",
+    "#utils/*": "./src/utils/*",
+    "#web/*": "./src/web/*"
+  },
   "engines": {
     "bun": ">=1.0.0"
   },
@@ -67,14 +78,14 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@orpc/client": "^1.14.0",
+    "@orpc/server": "^1.14.0",
+    "@orpc/tanstack-query": "^1.14.0",
     "@tailwindcss/vite": "^4.2.4",
     "@tanstack/react-query": "^5.100.6",
     "@tanstack/react-router": "^1.169.0",
     "@tanstack/react-start": "^1.167.53",
     "@tanstack/router-plugin": "^1.167.30",
-    "@trpc/client": "^11.17.0",
-    "@trpc/react-query": "^11.17.0",
-    "@trpc/server": "^11.17.0",
     "@vitejs/plugin-react": "^6.0.1",
     "better-auth": "^1.6.9",
     "class-variance-authority": "^0.7.1",

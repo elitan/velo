@@ -1,7 +1,7 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
+import { createFileRoute } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ComponentType } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Calendar,
@@ -16,17 +16,17 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
+import { Badge } from '#web/components/ui/badge';
+import { Button } from '#web/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '../../../components/ui/card';
-import { Input } from '../../../components/ui/input';
-import { Label } from '../../../components/ui/label';
+} from '#web/components/ui/card';
+import { Input } from '#web/components/ui/input';
+import { Label } from '#web/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -34,32 +34,62 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../../components/ui/select';
-import {
-  createPreviewBranchAction,
-  deletePreviewBranchAction,
-  getSetupState,
-  restoreBranchAction,
-} from '../../../lib/actions';
+} from '#web/components/ui/select';
+import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   StatusBadge,
-} from '../../index';
+} from '#web/components/control-plane';
 
 export const Route = createFileRoute('/branch/$branchId/backup-restore')({
-  loader: function loader() {
-    return getSetupState();
-  },
   component: BackupRestorePage,
 });
 
 function BackupRestorePage() {
-  const state = Route.useLoaderData();
-  const router = useRouter();
-  const createPreviewBranch = useServerFn(createPreviewBranchAction);
-  const deletePreviewBranch = useServerFn(deletePreviewBranchAction);
-  const restoreBranch = useServerFn(restoreBranchAction);
+  const queryClient = useQueryClient();
+  const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const createPreviewBranch = useMutation(orpc.branches.preview.create.mutationOptions());
+  const deletePreviewBranch = useMutation(orpc.branches.preview.delete.mutationOptions({ onSuccess: refreshDashboard }));
+  const restoreBranch = useMutation(orpc.branches.restore.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
+  const initialBackupOptions = dashboard.data ? getBackupOptions(dashboard.data.backupAvailability.backups) : [];
+  const initialRestoreWindow = dashboard.data ? getRestoreWindow(dashboard.data.backupAvailability.pitr) : { min: null, max: null };
+  const [backupPoint, setBackupPoint] = useState(initialBackupOptions[0]?.value || '');
+  const [restoreTime, setRestoreTime] = useState(function initialRestoreTime() {
+    return getDefaultRestoreTime(initialRestoreWindow);
+  });
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [restorePromptOpen, setRestorePromptOpen] = useState(false);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const previewBusy = createPreviewBranch.isPending || deletePreviewBranch.isPending;
+  const restoreBusy = restoreBranch.isPending;
+
+  useEffect(function fillRestoreDefaults() {
+    if (!dashboard.data) {
+      return;
+    }
+
+    if (!backupPoint) {
+      setBackupPoint(getBackupOptions(dashboard.data.backupAvailability.backups)[0]?.value || '');
+    }
+
+    if (!restoreTime) {
+      setRestoreTime(getDefaultRestoreTime(getRestoreWindow(dashboard.data.backupAvailability.pitr)));
+    }
+  }, [backupPoint, dashboard.data, restoreTime]);
+
+  async function refreshDashboard() {
+    await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
+  }
+
+  if (!dashboard.data) {
+    return <BackupRestoreLoadingPage message={dashboard.error ? 'Could not load backup data.' : 'Loading backup data...'} />;
+  }
+
+  const state = dashboard.data;
   const branchId = params.branchId;
   const isProd = branchId === 'prod';
   const branch = isProd ? null : state.branches.find(function findBranch(item) {
@@ -74,36 +104,19 @@ function BackupRestorePage() {
   const backupWindow = getBackupWindow(state.backupAvailability.backups);
   const pitrAvailable = state.backupAvailability.status === 'ok' && Boolean(restoreWindow.min && restoreWindow.max);
   const sourceBranch = 'prod';
-  const [backupPoint, setBackupPoint] = useState(backupOptions[0]?.value || '');
-  const [restoreTime, setRestoreTime] = useState(function initialRestoreTime() {
-    return getDefaultRestoreTime(restoreWindow);
-  });
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [restorePromptOpen, setRestorePromptOpen] = useState(false);
-  const [restoreBusy, setRestoreBusy] = useState(false);
-  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   async function handleOpenPreview() {
-    setPreviewBusy(true);
     setPreviewError(null);
 
     try {
-      const created = await createPreviewBranch({
-        data: {
-          sourceBranch,
-          restoreTime: toRestoreIso(restoreTime),
-        },
+      const created = await createPreviewBranch.mutateAsync({
+        sourceBranch,
+        restoreTime: toRestoreIso(restoreTime),
       });
       setPreviewBranch(created);
       setPreviewOpen(true);
     } catch (error: any) {
       setPreviewError(error?.message || 'Could not create preview branch');
-    } finally {
-      setPreviewBusy(false);
     }
   }
 
@@ -117,32 +130,27 @@ function BackupRestorePage() {
     }
 
     try {
-      await deletePreviewBranch({ data: { id: branchToDelete.id } });
+      await deletePreviewBranch.mutateAsync({ id: branchToDelete.id });
     } catch (error: any) {
       setPreviewError(error?.message || `Could not delete preview branch ${branchToDelete.displayName}`);
     }
   }
 
   async function handleRestore() {
-    setRestoreBusy(true);
     setRestoreError(null);
     setRestoreMessage(null);
 
     try {
-      const job = await restoreBranch({
-        data: {
-          targetBranch: selectedBranch,
-          sourceBranch,
-          restoreTime: toRestoreIso(restoreTime),
-        },
+      const job = await restoreBranch.mutateAsync({
+        targetBranch: selectedBranch,
+        sourceBranch,
+        restoreTime: toRestoreIso(restoreTime),
       });
       setRestorePromptOpen(false);
       setRestoreMessage(`Restore job ${job.id} started. Progress is available in Settings.`);
-      await router.invalidate();
+      await refreshDashboard();
     } catch (error: any) {
       setRestoreError(error?.message || 'Could not start restore');
-    } finally {
-      setRestoreBusy(false);
     }
   }
 
@@ -630,7 +638,18 @@ type PreviewBranch = {
   connectionUrl: string;
 };
 
-function getBranchOptions(state: Awaited<ReturnType<typeof getSetupState>>) {
+function BackupRestoreLoadingPage(props: Readonly<{ message: string }>) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background px-4 text-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="animate-spin" />
+        {props.message}
+      </div>
+    </main>
+  );
+}
+
+function getBranchOptions(state: ControlPlaneState) {
   return [
     {
       value: 'prod',

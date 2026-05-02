@@ -14,7 +14,21 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '#api': path.resolve(__dirname, './src/api'),
+      '#config': path.resolve(__dirname, './src/config'),
+      '#db': path.resolve(__dirname, './src/db'),
+      '#errors': path.resolve(__dirname, './src/errors/index.ts'),
+      '#lib': path.resolve(__dirname, './src/lib'),
+      '#managers': path.resolve(__dirname, './src/managers'),
+      '#server': path.resolve(__dirname, './src/server'),
+      '#utils': path.resolve(__dirname, './src/utils'),
+      '#web': path.resolve(__dirname, './src/web'),
     },
+  },
+  ssr: {
+    external: ['bun', 'bun:sqlite', 'dockerode', 'ssh2', 'cpu-features'],
+  },
+  optimizeDeps: {
+    exclude: ['bun', 'bun:sqlite', 'dockerode', 'ssh2', 'cpu-features'],
   },
 });
