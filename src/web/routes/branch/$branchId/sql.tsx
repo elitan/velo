@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Database,
   GitBranch,
@@ -32,9 +32,16 @@ function SqlEditorPage() {
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
   const runSql = useMutation(orpc.branches.sql.run.mutationOptions());
   const params = Route.useParams();
+  const currentBranchIdRef = useRef(params.branchId);
   const [sql, setSql] = useState('select * from velo_local_notes limit 20;');
   const [result, setResult] = useState<SqlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(function syncCurrentBranch() {
+    currentBranchIdRef.current = params.branchId;
+    setResult(null);
+    setError(null);
+  }, [params.branchId]);
 
   if (!dashboard.data) {
     return <SqlLoadingPage message={dashboard.error ? 'Could not load branch.' : 'Loading branch...'} />;
@@ -45,15 +52,25 @@ function SqlEditorPage() {
 
   async function handleRunSql(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const branchId = params.branchId;
     setError(null);
 
     try {
       const nextResult = await runSql.mutateAsync({
-        branchId: branch.id,
+        branchId,
         sql,
       });
+
+      if (currentBranchIdRef.current !== branchId) {
+        return;
+      }
+
       setResult(nextResult);
     } catch (caught: any) {
+      if (currentBranchIdRef.current !== branchId) {
+        return;
+      }
+
       setError(getErrorMessage(caught, 'SQL failed'));
       setResult(null);
     }
@@ -93,7 +110,7 @@ function SqlEditorPage() {
                     type="submit"
                     size="sm"
                     className="h-8"
-                    disabled={runSql.isPending || !sql.trim()}
+                    disabled={runSql.isPending || !sql.trim() || branch.status === 'missing'}
                   >
                     {runSql.isPending ? <Loader2 className="animate-spin" /> : <Play />}
                     Run
