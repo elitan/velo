@@ -1,7 +1,7 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
+import { createFileRoute } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ComponentType } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Calendar,
@@ -16,33 +16,17 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../../../components/ui/alert-dialog';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
+import { Badge } from '#web/components/ui/badge';
+import { Button } from '#web/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '../../../components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from '../../../components/ui/dialog';
-import { Input } from '../../../components/ui/input';
-import { Label } from '../../../components/ui/label';
+} from '#web/components/ui/card';
+import { Input } from '#web/components/ui/input';
+import { Label } from '#web/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -50,39 +34,62 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../../components/ui/select';
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '../../../components/ui/tabs';
-import { Textarea } from '../../../components/ui/textarea';
-import {
-  createPreviewBranchAction,
-  deletePreviewBranchAction,
-  getSetupState,
-  restoreBranchAction,
-} from '../../../lib/actions';
+} from '#web/components/ui/select';
+import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   StatusBadge,
-} from '../../index';
+} from '#web/components/control-plane';
 
 export const Route = createFileRoute('/branch/$branchId/backup-restore')({
-  loader: function loader() {
-    return getSetupState();
-  },
   component: BackupRestorePage,
 });
 
 function BackupRestorePage() {
-  const state = Route.useLoaderData();
-  const router = useRouter();
-  const createPreviewBranch = useServerFn(createPreviewBranchAction);
-  const deletePreviewBranch = useServerFn(deletePreviewBranchAction);
-  const restoreBranch = useServerFn(restoreBranchAction);
+  const queryClient = useQueryClient();
+  const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const createPreviewBranch = useMutation(orpc.branches.preview.create.mutationOptions());
+  const deletePreviewBranch = useMutation(orpc.branches.preview.delete.mutationOptions({ onSuccess: refreshDashboard }));
+  const restoreBranch = useMutation(orpc.branches.restore.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
+  const initialBackupOptions = dashboard.data ? getBackupOptions(dashboard.data.backupAvailability.backups) : [];
+  const initialRestoreWindow = dashboard.data ? getRestoreWindow(dashboard.data.backupAvailability.pitr) : { min: null, max: null };
+  const [backupPoint, setBackupPoint] = useState(initialBackupOptions[0]?.value || '');
+  const [restoreTime, setRestoreTime] = useState(function initialRestoreTime() {
+    return getDefaultRestoreTime(initialRestoreWindow);
+  });
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [restorePromptOpen, setRestorePromptOpen] = useState(false);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const previewBusy = createPreviewBranch.isPending || deletePreviewBranch.isPending;
+  const restoreBusy = restoreBranch.isPending;
+
+  useEffect(function fillRestoreDefaults() {
+    if (!dashboard.data) {
+      return;
+    }
+
+    if (!backupPoint) {
+      setBackupPoint(getBackupOptions(dashboard.data.backupAvailability.backups)[0]?.value || '');
+    }
+
+    if (!restoreTime) {
+      setRestoreTime(getDefaultRestoreTime(getRestoreWindow(dashboard.data.backupAvailability.pitr)));
+    }
+  }, [backupPoint, dashboard.data, restoreTime]);
+
+  async function refreshDashboard() {
+    await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
+  }
+
+  if (!dashboard.data) {
+    return <BackupRestoreLoadingPage message={dashboard.error ? 'Could not load backup data.' : 'Loading backup data...'} />;
+  }
+
+  const state = dashboard.data;
   const branchId = params.branchId;
   const isProd = branchId === 'prod';
   const branch = isProd ? null : state.branches.find(function findBranch(item) {
@@ -97,36 +104,19 @@ function BackupRestorePage() {
   const backupWindow = getBackupWindow(state.backupAvailability.backups);
   const pitrAvailable = state.backupAvailability.status === 'ok' && Boolean(restoreWindow.min && restoreWindow.max);
   const sourceBranch = 'prod';
-  const [backupPoint, setBackupPoint] = useState(backupOptions[0]?.value || '');
-  const [restoreTime, setRestoreTime] = useState(function initialRestoreTime() {
-    return getDefaultRestoreTime(restoreWindow);
-  });
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [restorePromptOpen, setRestorePromptOpen] = useState(false);
-  const [restoreBusy, setRestoreBusy] = useState(false);
-  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   async function handleOpenPreview() {
-    setPreviewBusy(true);
     setPreviewError(null);
 
     try {
-      const created = await createPreviewBranch({
-        data: {
-          sourceBranch,
-          restoreTime: toRestoreIso(restoreTime),
-        },
+      const created = await createPreviewBranch.mutateAsync({
+        sourceBranch,
+        restoreTime: toRestoreIso(restoreTime),
       });
       setPreviewBranch(created);
       setPreviewOpen(true);
     } catch (error: any) {
       setPreviewError(error?.message || 'Could not create preview branch');
-    } finally {
-      setPreviewBusy(false);
     }
   }
 
@@ -140,32 +130,27 @@ function BackupRestorePage() {
     }
 
     try {
-      await deletePreviewBranch({ data: { id: branchToDelete.id } });
+      await deletePreviewBranch.mutateAsync({ id: branchToDelete.id });
     } catch (error: any) {
       setPreviewError(error?.message || `Could not delete preview branch ${branchToDelete.displayName}`);
     }
   }
 
   async function handleRestore() {
-    setRestoreBusy(true);
     setRestoreError(null);
     setRestoreMessage(null);
 
     try {
-      const job = await restoreBranch({
-        data: {
-          targetBranch: selectedBranch,
-          sourceBranch,
-          restoreTime: toRestoreIso(restoreTime),
-        },
+      const job = await restoreBranch.mutateAsync({
+        targetBranch: selectedBranch,
+        sourceBranch,
+        restoreTime: toRestoreIso(restoreTime),
       });
       setRestorePromptOpen(false);
       setRestoreMessage(`Restore job ${job.id} started. Progress is available in Settings.`);
-      await router.invalidate();
+      await refreshDashboard();
     } catch (error: any) {
       setRestoreError(error?.message || 'Could not start restore');
-    } finally {
-      setRestoreBusy(false);
     }
   }
 
@@ -408,29 +393,20 @@ function RestorePromptModal(props: {
   onRestore: () => void;
 }) {
   return (
-    <AlertDialog
-      open
-      onOpenChange={function changeRestorePromptOpen(open) {
-        if (!open) {
-          props.onClose();
-        }
-      }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <div className="flex gap-3">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl">
+        <div className="flex gap-3">
           <div className="grid size-10 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-700">
             <AlertTriangle className="size-5" />
           </div>
           <div className="min-w-0">
-            <AlertDialogTitle>Restore branch</AlertDialogTitle>
-            <AlertDialogDescription className="mt-2">
+            <h2 className="text-lg font-semibold tracking-normal">Restore branch</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               You are about to restore {props.branch} from {props.sourceBranch} at {formatHistoricTime(props.restoreTime)}.
               This replaces the current branch data with the selected point in time.
-            </AlertDialogDescription>
+            </p>
           </div>
         </div>
-        </AlertDialogHeader>
 
         {props.restoreError ? (
           <div className="mt-5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -438,15 +414,17 @@ function RestorePromptModal(props: {
           </div>
         ) : null}
 
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={props.restoreBusy}>Cancel</AlertDialogCancel>
-          <AlertDialogAction disabled={props.previewBusy || props.restoreBusy} onClick={props.onRestore}>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="outline" onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={props.previewBusy || props.restoreBusy} onClick={props.onRestore}>
             {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
             Restore now
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -463,20 +441,8 @@ function HistoricPreviewModal(props: {
   const historicTime = formatHistoricTime(props.restoreTime);
 
   return (
-    <Dialog
-      open
-      onOpenChange={function changePreviewOpen(open) {
-        if (!open) {
-          props.onClose();
-        }
-      }}
-    >
-      <DialogContent
-        showCloseButton={false}
-        className="bottom-3 left-3 right-3 top-3 grid h-auto w-auto max-w-none translate-x-0 translate-y-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden p-0"
-      >
-        <DialogTitle className="sr-only">Preview historic data</DialogTitle>
-        <DialogDescription className="sr-only">Browse a temporary read-only restore branch.</DialogDescription>
+    <div className="fixed inset-0 z-50 bg-background/80 p-3 backdrop-blur-sm">
+      <div className="grid h-full grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-xl">
         <div className="flex flex-col gap-3 border-b border-border px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-normal">Preview historic data</h2>
@@ -504,6 +470,11 @@ function HistoricPreviewModal(props: {
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">Europe/Stockholm, GMT+02:00</div>
               </div>
+              <div className="flex rounded-md border border-border p-0.5">
+                <PreviewTab active={tab === 'browse'} label="Browse data" onClick={function selectBrowse() { setTab('browse'); }} />
+                <PreviewTab active={tab === 'query'} label="Query data" onClick={function selectQuery() { setTab('query'); }} />
+                <PreviewTab active={tab === 'compare'} label="Compare schemas" onClick={function selectCompare() { setTab('compare'); }} />
+              </div>
               {props.previewBranch ? (
                 <Badge variant="info">Preview branch: {props.previewBranch.displayName}</Badge>
               ) : null}
@@ -520,13 +491,7 @@ function HistoricPreviewModal(props: {
           <span>You are viewing data as it existed at {historicTime}</span>
         </div>
 
-        <Tabs
-          value={tab}
-          onValueChange={function changePreviewTab(value) {
-            setTab(value as 'browse' | 'query' | 'compare');
-          }}
-          className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[280px_1fr]"
-        >
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[280px_1fr]">
           <aside className="grid min-h-0 border-b border-border px-4 py-5 lg:border-b-0 lg:border-r">
             <div>
               <h3 className="text-xl font-semibold tracking-normal">Tables</h3>
@@ -543,36 +508,31 @@ function HistoricPreviewModal(props: {
                   <Input className="pl-9" placeholder="Search..." />
                 </div>
               </div>
-              <TabsList className="mt-5">
-                <TabsTrigger value="browse">Browse data</TabsTrigger>
-                <TabsTrigger value="query">Query data</TabsTrigger>
-                <TabsTrigger value="compare">Compare schemas</TabsTrigger>
-              </TabsList>
             </div>
           </aside>
 
           <section className="min-h-[360px] p-6">
-            <TabsContent value="browse" className="h-full">
+            {tab === 'browse' ? (
               <PreviewEmptyState
                 icon={Table2}
                 title="Historic tables will appear here"
                 description="Preview will use a temporary read-only restore branch, then remove it after you close this modal."
               />
-            </TabsContent>
+            ) : null}
 
-            <TabsContent value="query" className="h-full">
+            {tab === 'query' ? (
               <QueryPreviewPanel />
-            </TabsContent>
+            ) : null}
 
-            <TabsContent value="compare" className="h-full">
+            {tab === 'compare' ? (
               <PreviewEmptyState
                 icon={GitCompareArrows}
                 title="Compare current and historic schema"
                 description="Use this before restore to see what changed between now and the selected time."
               />
-            </TabsContent>
+            ) : null}
           </section>
-        </Tabs>
+        </div>
 
         <div className="flex justify-end gap-2 border-t border-border px-4 py-4">
           <Button type="button" variant="outline" onClick={props.onClose}>Cancel</Button>
@@ -581,8 +541,24 @@ function HistoricPreviewModal(props: {
             Proceed to restore
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
+  );
+}
+
+function PreviewTab(props: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={props.active ? 'h-8 rounded-sm bg-secondary px-3 text-sm font-medium text-secondary-foreground' : 'h-8 rounded-sm px-3 text-sm font-medium text-muted-foreground hover:text-foreground'}
+      onClick={props.onClick}
+    >
+      {props.label}
+    </button>
   );
 }
 
@@ -593,8 +569,8 @@ function QueryPreviewPanel() {
         <h3 className="text-lg font-semibold tracking-normal">Query historic data</h3>
         <p className="mt-1 text-sm text-muted-foreground">Run SQL against the temporary historic branch, not the live database.</p>
       </div>
-      <Textarea
-        className="min-h-0 resize-none font-mono leading-6"
+      <textarea
+        className="min-h-0 resize-none rounded-md border border-input bg-background p-3 font-mono text-sm leading-6 outline-none ring-ring transition-shadow placeholder:text-muted-foreground focus:ring-2"
         placeholder="select * from users limit 50;"
       />
       <div className="flex justify-end">
@@ -662,7 +638,18 @@ type PreviewBranch = {
   connectionUrl: string;
 };
 
-function getBranchOptions(state: Awaited<ReturnType<typeof getSetupState>>) {
+function BackupRestoreLoadingPage(props: Readonly<{ message: string }>) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background px-4 text-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="animate-spin" />
+        {props.message}
+      </div>
+    </main>
+  );
+}
+
+function getBranchOptions(state: ControlPlaneState) {
   return [
     {
       value: 'prod',

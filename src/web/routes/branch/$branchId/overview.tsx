@@ -1,5 +1,5 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
+import { createFileRoute } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import {
@@ -19,9 +19,9 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '../../../components/ui/alert-dialog';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
+} from '#web/components/ui/alert-dialog';
+import { Badge } from '#web/components/ui/badge';
+import { Button } from '#web/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -29,50 +29,41 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../../../components/ui/dialog';
+} from '#web/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '../../../components/ui/dropdown-menu';
-import { Input } from '../../../components/ui/input';
-import { Label } from '../../../components/ui/label';
-import {
-  createBranchAction,
-  deleteBranchAction,
-  getSetupState,
-  resetBranchFromParentAction,
-} from '../../../lib/actions';
+} from '#web/components/ui/dropdown-menu';
+import { Input } from '#web/components/ui/input';
+import { Label } from '#web/components/ui/label';
+import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   BranchOverviewPanel,
   StatusBadge,
-} from '../../index';
+} from '#web/components/control-plane';
 
 export const Route = createFileRoute('/branch/$branchId/overview')({
-  loader: function loader() {
-    return getSetupState();
-  },
   component: BranchOverviewPage,
 });
 
 function BranchOverviewPage() {
-  const state = Route.useLoaderData();
-  const router = useRouter();
-  const createBranch = useServerFn(createBranchAction);
-  const deleteBranch = useServerFn(deleteBranchAction);
-  const resetBranch = useServerFn(resetBranchFromParentAction);
+  const queryClient = useQueryClient();
+  const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
+  const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
+  const resetBranch = useMutation(orpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
-  const branch = getBranchView(state, params.branchId);
-  const [busy, setBusy] = useState<string | null>(null);
+  const busy = getBusyKey();
   const [message, setMessage] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [childBranchName, setChildBranchName] = useState(`${branch.id}-child`);
+  const [childBranchName, setChildBranchName] = useState('');
   const [confirmAction, setConfirmAction] = useState<'reset' | 'delete' | null>(null);
-  const activeJobs = state.jobs.filter(function isActive(job) {
+  const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
-  }).length;
+  }).length ?? 0;
 
   useEffect(function pollActiveJobs() {
     if (activeJobs === 0) {
@@ -80,23 +71,39 @@ function BranchOverviewPage() {
     }
 
     const interval = window.setInterval(function refreshActiveJobs() {
-      void router.invalidate();
+      void dashboard.refetch();
     }, 2000);
 
     return function clearPoll() {
       window.clearInterval(interval);
     };
-  }, [activeJobs, router]);
+  }, [activeJobs, dashboard]);
 
-  async function runBusy(key: string, task: () => Promise<void>) {
-    setBusy(key);
-    setMessage(null);
-    try {
-      await task();
-      await router.invalidate();
-    } finally {
-      setBusy(null);
+  async function refreshDashboard() {
+    await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
+  }
+
+  if (!dashboard.data) {
+    return <BranchLoadingPage message={dashboard.error ? 'Could not load branch.' : 'Loading branch...'} />;
+  }
+
+  const state = dashboard.data;
+  const branch = getBranchView(state, params.branchId);
+
+  function getBusyKey(): string | null {
+    if (createBranch.isPending) {
+      return 'create-child';
     }
+
+    if (resetBranch.isPending) {
+      return 'reset';
+    }
+
+    if (deleteBranch.isPending) {
+      return 'delete';
+    }
+
+    return null;
   }
 
   function openCreateChildModal() {
@@ -113,12 +120,14 @@ function BranchOverviewPage() {
       return;
     }
 
-    await runBusy('create-child', async function createChildBranch() {
-      const result = await createBranch({ data: { name, parentBranchId: branch.rowId } });
-      setMessage(`Creating child branch ${name} from ${branch.name}.`);
-      setCreateModalOpen(false);
+    setMessage(null);
+    const result = await createBranch.mutateAsync({ name, parentBranchId: branch.rowId });
+    setMessage(`Creating child branch ${name} from ${branch.name}.`);
+    setCreateModalOpen(false);
+
+    if (result.branchSlug) {
       window.location.href = `/branch/${encodeURIComponent(result.branchSlug)}/overview`;
-    });
+    }
   }
 
   async function handleResetFromParent() {
@@ -126,10 +135,9 @@ function BranchOverviewPage() {
       return;
     }
 
-    await runBusy('reset', async function resetFromParent() {
-      await resetBranch({ data: { id: branch.rowId! } });
-      setMessage(`Resetting ${branch.name} from ${branch.parentName}.`);
-    });
+    setMessage(null);
+    await resetBranch.mutateAsync({ id: branch.rowId! });
+    setMessage(`Resetting ${branch.name} from ${branch.parentName}.`);
   }
 
   async function handleDelete() {
@@ -137,10 +145,9 @@ function BranchOverviewPage() {
       return;
     }
 
-    await runBusy('delete', async function deleteCurrentBranch() {
-      await deleteBranch({ data: { id: branch.rowId! } });
-      window.location.href = `/branch/${encodeURIComponent(branch.parentSlug || 'prod')}/overview`;
-    });
+    setMessage(null);
+    await deleteBranch.mutateAsync({ id: branch.rowId! });
+    window.location.href = `/branch/${encodeURIComponent(branch.parentSlug || 'prod')}/overview`;
   }
 
   function handleConfirmAction() {
@@ -315,7 +322,7 @@ function BranchOverviewPage() {
   );
 }
 
-function getBranchView(state: Awaited<ReturnType<typeof getSetupState>>, branchId: string) {
+function getBranchView(state: ControlPlaneState, branchId: string) {
   if (branchId === 'prod') {
     return {
       id: 'prod',
@@ -347,4 +354,15 @@ function getBranchView(state: Awaited<ReturnType<typeof getSetupState>>, branchI
     status: branch?.status || 'missing',
     connectionUrl: branch?.connectionUrl || null,
   };
+}
+
+function BranchLoadingPage(props: Readonly<{ message: string }>) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background px-4 text-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="animate-spin" />
+        {props.message}
+      </div>
+    </main>
+  );
 }

@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 import {
@@ -9,59 +9,53 @@ import {
   Play,
   Terminal,
 } from 'lucide-react';
-import { Badge } from '../../../components/ui/badge';
-import { Button } from '../../../components/ui/button';
+import { Badge } from '#web/components/ui/badge';
+import { Button } from '#web/components/ui/button';
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-} from '../../../components/ui/card';
-import { Textarea } from '../../../components/ui/textarea';
-import {
-  getSetupState,
-  runSqlAction,
-} from '../../../lib/actions';
+} from '#web/components/ui/card';
+import { Textarea } from '#web/components/ui/textarea';
+import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   StatusBadge,
-} from '../../index';
+} from '#web/components/control-plane';
 
 export const Route = createFileRoute('/branch/$branchId/sql')({
-  loader: function loader() {
-    return getSetupState();
-  },
   component: SqlEditorPage,
 });
 
 function SqlEditorPage() {
-  const state = Route.useLoaderData();
+  const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const runSql = useMutation(orpc.branches.sql.run.mutationOptions());
   const params = Route.useParams();
-  const runSql = useServerFn(runSqlAction);
-  const branch = getBranchView(state, params.branchId);
   const [sql, setSql] = useState('select * from velo_local_notes limit 20;');
   const [result, setResult] = useState<SqlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+
+  if (!dashboard.data) {
+    return <SqlLoadingPage message={dashboard.error ? 'Could not load branch.' : 'Loading branch...'} />;
+  }
+
+  const state = dashboard.data;
+  const branch = getBranchView(state, params.branchId);
 
   async function handleRunSql(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
     setError(null);
 
     try {
-      const nextResult = await runSql({
-        data: {
-          branchId: branch.id,
-          sql,
-        },
+      const nextResult = await runSql.mutateAsync({
+        branchId: branch.id,
+        sql,
       });
       setResult(nextResult);
     } catch (caught: any) {
       setError(caught?.message || 'SQL failed');
       setResult(null);
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -99,9 +93,9 @@ function SqlEditorPage() {
                     type="submit"
                     size="sm"
                     className="h-8"
-                    disabled={busy || !sql.trim()}
+                    disabled={runSql.isPending || !sql.trim()}
                   >
-                    {busy ? <Loader2 className="animate-spin" /> : <Play />}
+                    {runSql.isPending ? <Loader2 className="animate-spin" /> : <Play />}
                     Run
                   </Button>
                 </CardHeader>
@@ -220,7 +214,15 @@ function formatDuration(durationMs: number): string {
   return `${(durationMs / 1000).toFixed(2)} s`;
 }
 
-function getBranchView(state: Awaited<ReturnType<typeof getSetupState>>, branchId: string) {
+function SqlLoadingPage(props: { message: string }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background text-sm text-muted-foreground">
+      {props.message}
+    </main>
+  );
+}
+
+function getBranchView(state: ControlPlaneState, branchId: string) {
   if (branchId === 'prod') {
     return {
       id: 'prod',

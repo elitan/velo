@@ -1,5 +1,5 @@
 import { SQL } from 'bun';
-import { getDb } from '../../db/client';
+import { getDb } from '#db/client';
 import { getSetting } from './settings-service';
 
 const STATEMENT_TIMEOUT_MS = 30_000;
