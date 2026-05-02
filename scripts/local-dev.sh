@@ -89,6 +89,22 @@ compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
 }
 
+DEV_SERVER_PID=""
+
+cleanup_dev() {
+  local exit_code=$?
+
+  trap - EXIT INT TERM
+
+  if [ -n "$DEV_SERVER_PID" ] && kill -0 "$DEV_SERVER_PID" 2>/dev/null; then
+    kill "$DEV_SERVER_PID" 2>/dev/null || true
+    wait "$DEV_SERVER_PID" 2>/dev/null || true
+  fi
+
+  compose down || true
+  exit "$exit_code"
+}
+
 ensure_minio_certs() {
   local cert_dir="$ROOT_DIR/.velo/minio-certs"
   mkdir -p "$cert_dir"
@@ -390,13 +406,21 @@ up() {
   bun run src/server/local-docker-seed.ts
 }
 
+dev() {
+  trap cleanup_dev EXIT INT TERM
+
+  up
+  bun --bun vite dev --host 0.0.0.0 --port "$VELO_LOCAL_WEB_PORT" &
+  DEV_SERVER_PID=$!
+  wait "$DEV_SERVER_PID"
+}
+
 case "${1:-up}" in
   up)
     up
     ;;
   dev)
-    up
-    bun --bun vite dev --host 0.0.0.0 --port "$VELO_LOCAL_WEB_PORT"
+    dev
     ;;
   down)
     ensure_ports
