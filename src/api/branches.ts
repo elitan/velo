@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ORPCError } from '@orpc/server';
 import { getDb } from '#db/client';
 import { publicProcedure } from './context';
 import { createJob, runJob } from '#server/services/job-service';
@@ -73,7 +74,16 @@ export const branchesRouter = {
     run: publicProcedure
       .input(runSqlInput)
       .handler(async function runSql({ input }) {
-        return runBranchSql(input);
+        try {
+          return await runBranchSql(input);
+        } catch (error: any) {
+          const message = error?.message || 'SQL failed';
+
+          throw new ORPCError('BAD_REQUEST', {
+            message,
+            data: { message },
+          });
+        }
       }),
   },
   restore: publicProcedure
