@@ -61,6 +61,8 @@
     "remote:dev": "scripts/remote-dev.sh",
     "remote:sync": "scripts/remote-sync.sh",
     "remote:sync:once": "scripts/remote-sync.sh --once",
+    "deploy": "scripts/deploy-hetzner.sh",
+    "deploy:hetzner": "scripts/deploy-hetzner.sh",
     "deploy:dev": "scripts/deploy-dev.sh",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:generate": "bun run db:migrate && kysely-codegen --camel-case --dialect bun-sqlite --url ${VELO_DB:-$HOME/.velo/velo.sqlite} --out-file src/db/generated.ts",

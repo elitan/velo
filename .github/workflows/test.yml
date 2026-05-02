@@ -34,7 +34,7 @@ jobs:
     - name: Check shell scripts
       run: bash -n scripts/*.sh
 
-  deploy-test:
+  deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-22.04
@@ -52,9 +52,9 @@ jobs:
         printf '%s\n' "$HETZNER_SSH_KEY" > "$RUNNER_TEMP/ssh/hetzner_key"
         chmod 600 "$RUNNER_TEMP/ssh/hetzner_key"
 
-    - name: Reset and deploy test servers
+    - name: Reset and deploy Hetzner servers
       env:
-        VELO_TEST_KEY: ${{ runner.temp }}/ssh/hetzner_key
+        VELO_DEPLOY_KEY: ${{ runner.temp }}/ssh/hetzner_key
         VELO_REPO: https://github.com/${{ github.repository }}.git
         VELO_REF: ${{ github.sha }}
-      run: scripts/deploy-test-servers.sh
+      run: scripts/deploy-hetzner.sh

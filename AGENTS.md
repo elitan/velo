@@ -102,13 +102,15 @@ Production-like deployed code path:
 Use this for stable checkpoints:
 
 ```sh
-VELO_DEPLOY_HOST=157.180.22.136 \
+VELO_DEPLOY_DEV_HOST=157.180.22.136 \
+VELO_DEPLOY_PROD_HOST=89.167.89.255 \
 VELO_DEPLOY_USER=root \
 VELO_DEPLOY_KEY=$HOME/.ssh/frost-e2e-ci \
-bun run deploy:dev
+bun run deploy
 ```
 
-`deploy:dev` stops remote dev if needed and starts `velo-web`.
+`deploy` resets the Hetzner app/database state, installs Velo, bootstraps Postgres/pgBackRest, and starts `velo-web`.
+`deploy:dev` only rsyncs the local worktree to the app server.
 `remote:dev` stops `velo-web` and starts `velo-web-dev`.
 
 ## Checks

@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VELO_TEST_DEV_HOST="${VELO_TEST_DEV_HOST:-157.180.22.136}"
-VELO_TEST_PROD_HOST="${VELO_TEST_PROD_HOST:-89.167.89.255}"
-VELO_TEST_USER="${VELO_TEST_USER:-root}"
-VELO_TEST_KEY="${VELO_TEST_KEY:-$HOME/.ssh/frost-e2e-ci}"
+VELO_DEPLOY_DEV_HOST="${VELO_DEPLOY_DEV_HOST:-${VELO_TEST_DEV_HOST:-157.180.22.136}}"
+VELO_DEPLOY_PROD_HOST="${VELO_DEPLOY_PROD_HOST:-${VELO_TEST_PROD_HOST:-89.167.89.255}}"
+VELO_DEPLOY_USER="${VELO_DEPLOY_USER:-${VELO_TEST_USER:-root}}"
+VELO_DEPLOY_KEY="${VELO_DEPLOY_KEY:-${VELO_TEST_KEY:-$HOME/.ssh/frost-e2e-ci}}"
 VELO_REPO="${VELO_REPO:-https://github.com/elitan/velo.git}"
 VELO_REF="${VELO_REF:-$(git rev-parse HEAD)}"
 VELO_PORT="${VELO_PORT:-3000}"
-VELO_DEV_DIR="${VELO_DEV_DIR:-/opt/velo}"
+VELO_DEPLOY_DIR="${VELO_DEPLOY_DIR:-${VELO_DEV_DIR:-/opt/velo}}"
 VELO_REMOTE_KEY_PATH="${VELO_REMOTE_KEY_PATH:-/root/.ssh/frost-e2e-ci}"
 
 SSH_ARGS=(
-  -i "$VELO_TEST_KEY"
+  -i "$VELO_DEPLOY_KEY"
   -o BatchMode=yes
   -o StrictHostKeyChecking=accept-new
   -o ConnectTimeout=8
 )
 
-DEV_REMOTE="$VELO_TEST_USER@$VELO_TEST_DEV_HOST"
-PROD_REMOTE="$VELO_TEST_USER@$VELO_TEST_PROD_HOST"
+APP_REMOTE="$VELO_DEPLOY_USER@$VELO_DEPLOY_DEV_HOST"
+PROD_REMOTE="$VELO_DEPLOY_USER@$VELO_DEPLOY_PROD_HOST"
 
 shell_quote() {
   printf "'%s'" "${1//\'/\'\\\'\'}"
@@ -40,8 +40,8 @@ copy_file() {
   scp "${SSH_ARGS[@]}" "$source" "$remote:$target"
 }
 
-reset_dev_server() {
-  ssh_run "$DEV_REMOTE" "
+reset_app_server() {
+  ssh_run "$APP_REMOTE" "
 set -e
 systemctl stop velo-web velo-web-dev >/dev/null 2>&1 || true
 systemctl disable velo-web velo-web-dev >/dev/null 2>&1 || true
@@ -56,7 +56,7 @@ if command -v zfs >/dev/null 2>&1; then
   zfs destroy -r tank/velo >/dev/null 2>&1 || true
   zpool destroy tank >/dev/null 2>&1 || true
 fi
-rm -rf $(shell_quote "$VELO_DEV_DIR/.velo") /opt/velo-dev /root/.velo /etc/velo.env /var/lib/velo/zfs-pool.img
+rm -rf $(shell_quote "$VELO_DEPLOY_DIR/.velo") /opt/velo-dev /root/.velo /etc/velo.env /var/lib/velo/zfs-pool.img
 "
 }
 
@@ -82,32 +82,32 @@ systemctl enable --now postgresql >/dev/null
 "
 }
 
-install_dev_server() {
-  ssh_run "$DEV_REMOTE" "mkdir -p $(shell_quote "$(dirname "$VELO_REMOTE_KEY_PATH")")"
-  copy_file scripts/install.sh "$DEV_REMOTE" /tmp/velo-install.sh
-  copy_file "$VELO_TEST_KEY" "$DEV_REMOTE" "$VELO_REMOTE_KEY_PATH"
+install_app_server() {
+  ssh_run "$APP_REMOTE" "mkdir -p $(shell_quote "$(dirname "$VELO_REMOTE_KEY_PATH")")"
+  copy_file scripts/install.sh "$APP_REMOTE" /tmp/velo-install.sh
+  copy_file "$VELO_DEPLOY_KEY" "$APP_REMOTE" "$VELO_REMOTE_KEY_PATH"
 
-  ssh_run "$DEV_REMOTE" "
+  ssh_run "$APP_REMOTE" "
 set -e
 chmod 600 $(shell_quote "$VELO_REMOTE_KEY_PATH")
-VELO_DIR=$(shell_quote "$VELO_DEV_DIR") \\
+VELO_DIR=$(shell_quote "$VELO_DEPLOY_DIR") \\
 VELO_REPO=$(shell_quote "$VELO_REPO") \\
 VELO_REF=$(shell_quote "$VELO_REF") \\
 VELO_HOST=0.0.0.0 \\
 VELO_PORT=$(shell_quote "$VELO_PORT") \\
-VELO_PUBLIC_URL=$(shell_quote "http://$VELO_TEST_DEV_HOST:$VELO_PORT") \\
+VELO_PUBLIC_URL=$(shell_quote "http://$VELO_DEPLOY_DEV_HOST:$VELO_PORT") \\
 bash /tmp/velo-install.sh
 "
 }
 
 seed_app_config() {
-  ssh_run "$DEV_REMOTE" "
+  ssh_run "$APP_REMOTE" "
 set -e
-cd $(shell_quote "$VELO_DEV_DIR")
-VELO_DB=$(shell_quote "$VELO_DEV_DIR/.velo/velo.sqlite") \\
-DEV_HOST=$(shell_quote "$VELO_TEST_DEV_HOST") \\
-PROD_HOST=$(shell_quote "$VELO_TEST_PROD_HOST") \\
-SSH_USER=$(shell_quote "$VELO_TEST_USER") \\
+cd $(shell_quote "$VELO_DEPLOY_DIR")
+VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") \\
+DEV_HOST=$(shell_quote "$VELO_DEPLOY_DEV_HOST") \\
+PROD_HOST=$(shell_quote "$VELO_DEPLOY_PROD_HOST") \\
+SSH_USER=$(shell_quote "$VELO_DEPLOY_USER") \\
 SSH_KEY_PATH=$(shell_quote "$VELO_REMOTE_KEY_PATH") \\
 /root/.bun/bin/bun -e '
 import { Database } from \"bun:sqlite\";
@@ -134,10 +134,10 @@ db.close();
 }
 
 bootstrap_servers() {
-  ssh_run "$DEV_REMOTE" "
+  ssh_run "$APP_REMOTE" "
 set -e
-cd $(shell_quote "$VELO_DEV_DIR")
-VELO_DB=$(shell_quote "$VELO_DEV_DIR/.velo/velo.sqlite") /root/.bun/bin/bun -e '
+cd $(shell_quote "$VELO_DEPLOY_DIR")
+VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") /root/.bun/bin/bun -e '
 import { checkServer } from \"./src/server/services/setup-state-service.ts\";
 import { runDevBootstrap, runProdBootstrap } from \"./src/server/services/bootstrap-service.ts\";
 
@@ -160,22 +160,22 @@ check_servers() {
   local attempt
 
   for attempt in $(seq 1 30); do
-    if ssh_run "$DEV_REMOTE" "set -a; . /etc/velo.env; set +a; curl -fsS -I -u \"\$VELO_BASIC_AUTH_USERNAME:\$VELO_BASIC_AUTH_PASSWORD\" http://127.0.0.1:$VELO_PORT >/dev/null"; then
+    if ssh_run "$APP_REMOTE" "set -a; . /etc/velo.env; set +a; curl -fsS -I -u \"\$VELO_BASIC_AUTH_USERNAME:\$VELO_BASIC_AUTH_PASSWORD\" http://127.0.0.1:$VELO_PORT >/dev/null"; then
       break
     fi
 
     if [ "$attempt" = 30 ]; then
-      ssh_run "$DEV_REMOTE" "set -a; . /etc/velo.env; set +a; curl -fsS -I -u \"\$VELO_BASIC_AUTH_USERNAME:\$VELO_BASIC_AUTH_PASSWORD\" http://127.0.0.1:$VELO_PORT >/dev/null"
+      ssh_run "$APP_REMOTE" "set -a; . /etc/velo.env; set +a; curl -fsS -I -u \"\$VELO_BASIC_AUTH_USERNAME:\$VELO_BASIC_AUTH_PASSWORD\" http://127.0.0.1:$VELO_PORT >/dev/null"
     fi
 
     sleep 1
   done
 
-  ssh_run "$DEV_REMOTE" "
+  ssh_run "$APP_REMOTE" "
 set -e
 systemctl is-active --quiet velo-web
-cd $(shell_quote "$VELO_DEV_DIR")
-VELO_DB=$(shell_quote "$VELO_DEV_DIR/.velo/velo.sqlite") /root/.bun/bin/bun -e '
+cd $(shell_quote "$VELO_DEPLOY_DIR")
+VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") /root/.bun/bin/bun -e '
 import { Database } from \"bun:sqlite\";
 
 const db = new Database(process.env.VELO_DB);
@@ -208,34 +208,34 @@ sudo -u postgres pgbackrest --stanza=main info >/dev/null
 }
 
 print_debug() {
-  echo "dev server logs"
-  ssh_run "$DEV_REMOTE" "systemctl status velo-web --no-pager -l || true; journalctl -u velo-web -n 120 --no-pager || true" || true
-  echo "prod server logs"
+  echo "app server logs"
+  ssh_run "$APP_REMOTE" "systemctl status velo-web --no-pager -l || true; journalctl -u velo-web -n 120 --no-pager || true" || true
+  echo "database server logs"
   ssh_run "$PROD_REMOTE" "systemctl status postgresql --no-pager -l || true; journalctl -u postgresql -n 120 --no-pager || true" || true
 }
 
 main() {
   trap print_debug ERR
 
-  echo "Resetting dev server $VELO_TEST_DEV_HOST"
-  reset_dev_server
+  echo "Resetting app server $VELO_DEPLOY_DEV_HOST"
+  reset_app_server
 
-  echo "Resetting prod server $VELO_TEST_PROD_HOST"
+  echo "Resetting database server $VELO_DEPLOY_PROD_HOST"
   reset_prod_server
 
-  echo "Installing Velo $VELO_REF on dev server"
-  install_dev_server
+  echo "Installing Velo $VELO_REF on app server"
+  install_app_server
 
-  echo "Saving test server config"
+  echo "Saving Hetzner server config"
   seed_app_config
 
-  echo "Bootstrapping test servers"
+  echo "Bootstrapping Hetzner servers"
   bootstrap_servers
 
-  echo "Checking test servers"
+  echo "Checking Hetzner deployment"
   check_servers
 
-  echo "Deployed fresh test servers: http://$VELO_TEST_DEV_HOST:$VELO_PORT"
+  echo "Deployed Velo: http://$VELO_DEPLOY_DEV_HOST:$VELO_PORT"
 }
 
 main "$@"

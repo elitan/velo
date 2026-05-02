@@ -95,14 +95,17 @@ bun run web:build
 bash -n scripts/*.sh
 ```
 
-## Deploy To Dev Server
+## Deploy
 
 ```bash
-VELO_DEPLOY_HOST=157.180.22.136 \
+VELO_DEPLOY_DEV_HOST=157.180.22.136 \
+VELO_DEPLOY_PROD_HOST=89.167.89.255 \
 VELO_DEPLOY_USER=root \
 VELO_DEPLOY_KEY=$HOME/.ssh/frost-e2e-ci \
-bun run deploy:dev
+bun run deploy
 ```
+
+This resets the Hetzner app and database state, installs Velo, bootstraps Postgres and pgBackRest, and starts `velo-web`.
 
 Remote Vite loop:
 
