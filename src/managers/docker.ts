@@ -1,4 +1,5 @@
 import Dockerode from 'dockerode';
+import { existsSync } from 'node:fs';
 import { BACKUP_LABEL_PREFIX } from '../config/constants';
 import { SystemError } from '../errors';
 
@@ -15,6 +16,7 @@ export interface PostgresConfig {
   publicAccess?: boolean;
   readOnly?: boolean;
   restoreCommand?: string | null;
+  pgBackRestRepoPath?: string | null;
 }
 
 export interface ContainerStatus {
@@ -81,6 +83,7 @@ export class DockerManager {
           `${config.dataPath}:/var/lib/postgresql/data`,
           `${config.walArchivePath}:/wal-archive`,
           `${config.sslCertDir}:/etc/ssl/certs/postgresql:ro`,
+          ...getPgBackRestRepoBinds(config),
         ],
         RestartPolicy: {
           Name: 'unless-stopped',
@@ -328,4 +331,12 @@ function getRestoreCommandArgs(config: Pick<PostgresConfig, 'restoreCommand'>): 
   }
 
   return ['-c', `restore_command=${config.restoreCommand || 'cp /wal-archive/%f %p'}`];
+}
+
+function getPgBackRestRepoBinds(config: Pick<PostgresConfig, 'pgBackRestRepoPath'>): string[] {
+  if (!config.pgBackRestRepoPath || !existsSync(config.pgBackRestRepoPath)) {
+    return [];
+  }
+
+  return [`${config.pgBackRestRepoPath}:/var/lib/pgbackrest:ro`];
 }

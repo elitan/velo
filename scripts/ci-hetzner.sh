@@ -10,6 +10,12 @@ VELO_CI_SERVER_TYPE="${VELO_CI_SERVER_TYPE:-cx23}"
 VELO_CI_IMAGE="${VELO_CI_IMAGE:-ubuntu-24.04}"
 VELO_CI_LOCATION="${VELO_CI_LOCATION:-hel1}"
 
+KNOWN_HOSTS_CREATED=0
+if [ -z "${VELO_SSH_KNOWN_HOSTS_FILE:-}" ]; then
+  VELO_SSH_KNOWN_HOSTS_FILE="$(mktemp)"
+  KNOWN_HOSTS_CREATED=1
+fi
+
 if [ -z "$HETZNER_API_TOKEN" ]; then
   echo "Set HETZNER_API_TOKEN"
   exit 1
@@ -55,6 +61,10 @@ cleanup() {
   if [ -n "$SSH_KEY_ID" ] && [ "$SSH_KEY_CREATED" = "1" ]; then
     echo "Deleting SSH key $SSH_KEY_ID"
     hcloud DELETE "/ssh_keys/$SSH_KEY_ID" >/dev/null || true
+  fi
+
+  if [ "$KNOWN_HOSTS_CREATED" = "1" ]; then
+    rm -f "$VELO_SSH_KNOWN_HOSTS_FILE"
   fi
 }
 
@@ -147,7 +157,7 @@ wait_for_ssh() {
   local host="$1"
 
   for _ in $(seq 1 60); do
-    if ssh -i "$VELO_DEPLOY_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 "root@$host" "echo ready" >/dev/null 2>&1; then
+    if ssh -i "$VELO_DEPLOY_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$VELO_SSH_KNOWN_HOSTS_FILE" -o ConnectTimeout=5 "root@$host" "echo ready" >/dev/null 2>&1; then
       return
     fi
     sleep 5
@@ -172,6 +182,8 @@ main() {
     VELO_DEPLOY_KEY="$VELO_DEPLOY_KEY" \
     VELO_REPO="$VELO_REPO" \
     VELO_REF="$VELO_REF" \
+    VELO_E2E_SOURCE_DIR="${VELO_E2E_SOURCE_DIR:-$PWD}" \
+    VELO_SSH_KNOWN_HOSTS_FILE="$VELO_SSH_KNOWN_HOSTS_FILE" \
     scripts/e2e-hetzner.sh
 }
 

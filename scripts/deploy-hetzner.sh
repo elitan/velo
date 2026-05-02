@@ -10,11 +10,13 @@ VELO_REF="${VELO_REF:-$(git rev-parse HEAD)}"
 VELO_PORT="${VELO_PORT:-3000}"
 VELO_DEPLOY_DIR="${VELO_DEPLOY_DIR:-${VELO_DEV_DIR:-/opt/velo}}"
 VELO_REMOTE_KEY_PATH="${VELO_REMOTE_KEY_PATH:-/root/.ssh/frost-e2e-ci}"
+VELO_SSH_KNOWN_HOSTS_FILE="${VELO_SSH_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}"
 
 SSH_ARGS=(
   -i "$VELO_DEPLOY_KEY"
   -o BatchMode=yes
   -o StrictHostKeyChecking=accept-new
+  -o UserKnownHostsFile="$VELO_SSH_KNOWN_HOSTS_FILE"
   -o ConnectTimeout=8
 )
 

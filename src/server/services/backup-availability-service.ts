@@ -46,10 +46,6 @@ interface PgBackRestStanza {
 export async function getBackupAvailability(): Promise<BackupAvailability> {
   const backup = await getBackupSettings();
 
-  if (!backup.enabled) {
-    return unavailable('Backups are not enabled');
-  }
-
   if (isLocalDockerMode()) {
     try {
       return capLocalPitrWindow(parsePgBackRestInfo(await getLocalPgBackRestInfo(), backup.pitrDays));

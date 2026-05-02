@@ -13,7 +13,7 @@ import { getZFSPool } from '../../utils/zfs-pool';
 import { getBackupAvailability } from './backup-availability-service';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand, runSshCommand } from './command-service';
-import { getSetting, setSetting } from './settings-service';
+import { getBackupSettings, getSetting, setSetting } from './settings-service';
 import { createLocalDockerPitrBranch, isLocalDockerMode, restoreLocalDockerProduction } from './local-docker-service';
 
 const PROJECT_NAME = 'prod';
@@ -59,6 +59,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     .where('role', '=', 'dev')
     .executeTakeFirst();
   const prodPassword = await getProdPassword();
+  const backup = await getBackupSettings();
 
   if (!prodPassword) {
     throw new Error('Production password is missing. Run prod setup first.');
@@ -115,6 +116,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
       publicAccess: input.publicAccess === true,
       readOnly: input.readOnly === true,
       restoreCommand: null,
+      pgBackRestRepoPath: backup.enabled ? null : '/var/lib/pgbackrest',
     });
 
     await docker.startContainer(containerId);
