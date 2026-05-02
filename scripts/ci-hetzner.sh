@@ -16,6 +16,7 @@ if [ -z "$HETZNER_API_TOKEN" ]; then
 fi
 
 SSH_KEY_ID=""
+SSH_KEY_CREATED=0
 APP_SERVER_ID=""
 PROD_SERVER_ID=""
 APP_SERVER_IP=""
@@ -51,7 +52,7 @@ cleanup() {
     hcloud DELETE "/servers/$PROD_SERVER_ID" >/dev/null || true
   fi
 
-  if [ -n "$SSH_KEY_ID" ]; then
+  if [ -n "$SSH_KEY_ID" ] && [ "$SSH_KEY_CREATED" = "1" ]; then
     echo "Deleting SSH key $SSH_KEY_ID"
     hcloud DELETE "/ssh_keys/$SSH_KEY_ID" >/dev/null || true
   fi
@@ -65,6 +66,13 @@ create_ssh_key() {
   local response
 
   public_key="$(ssh-keygen -y -f "$VELO_DEPLOY_KEY")"
+  SSH_KEY_ID="$(hcloud GET /ssh_keys | jq -r --arg public_key "$public_key" '.ssh_keys[] | select(.public_key == $public_key) | .id' | head -1)"
+
+  if [ -n "$SSH_KEY_ID" ]; then
+    echo "Reusing SSH key $SSH_KEY_ID"
+    return
+  fi
+
   payload="$(jq -n \
     --arg name "velo-ci-$VELO_CI_RUN_ID" \
     --arg public_key "$public_key" \
@@ -77,6 +85,8 @@ create_ssh_key() {
     echo "$response" | jq .
     exit 1
   fi
+
+  SSH_KEY_CREATED=1
 }
 
 create_server() {
