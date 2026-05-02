@@ -148,9 +148,220 @@ create table if not exists velo_local_notes (
   created_at timestamptz not null default now()
 );
 
+create table if not exists velo_local_accounts (
+  id serial primary key,
+  account_key text not null unique,
+  company_name text not null,
+  plan text not null,
+  seats integer not null,
+  balance numeric(12,2) not null,
+  active boolean not null,
+  tags text[] not null,
+  metadata jsonb not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null
+);
+
+create table if not exists velo_local_events (
+  id bigserial primary key,
+  account_key text not null,
+  event_name text not null,
+  event_index integer not null,
+  score double precision not null,
+  payload jsonb not null,
+  happened_at timestamptz not null
+);
+
+create table if not exists velo_local_wide_profiles (
+  id serial primary key,
+  external_id text not null unique,
+  first_name text not null,
+  last_name text not null,
+  email text not null,
+  phone text,
+  company text not null,
+  job_title text not null,
+  department text not null,
+  country text not null,
+  region text not null,
+  city text not null,
+  postal_code text not null,
+  address_line_1 text not null,
+  address_line_2 text,
+  latitude numeric(9,6) not null,
+  longitude numeric(9,6) not null,
+  signup_date date not null,
+  last_seen_at timestamptz not null,
+  login_count integer not null,
+  lifetime_value numeric(12,2) not null,
+  is_active boolean not null,
+  is_admin boolean not null,
+  preferred_locale text not null,
+  timezone text not null,
+  tags text[] not null,
+  settings jsonb not null,
+  notes text,
+  risk_score double precision not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null
+);
+
+create table if not exists velo_local_mixed_types (
+  id serial primary key,
+  sample_uuid uuid not null,
+  sample_text text not null,
+  sample_varchar varchar(24) not null,
+  sample_integer integer not null,
+  sample_bigint bigint not null,
+  sample_numeric numeric(10,4) not null,
+  sample_double double precision not null,
+  sample_boolean boolean not null,
+  sample_date date not null,
+  sample_time time not null,
+  sample_timestamp timestamp not null,
+  sample_timestamptz timestamptz not null,
+  sample_json jsonb not null,
+  sample_array text[] not null,
+  sample_inet inet not null
+);
+
 insert into velo_local_notes (body)
 select 'hello from local prod'
 where not exists (select 1 from velo_local_notes);
+
+insert into velo_local_accounts (account_key, company_name, plan, seats, balance, active, tags, metadata, created_at, updated_at)
+select
+  'acct-' || item,
+  'Company ' || item,
+  case when item % 3 = 0 then 'enterprise' when item % 3 = 1 then 'team' else 'free' end,
+  5 + item,
+  (item * 137.42)::numeric(12,2),
+  item % 4 <> 0,
+  array['local', 'seed', 'tier-' || (item % 3)],
+  jsonb_build_object('source', 'local', 'priority', item % 5, 'owner', 'user-' || item),
+  now() - (item || ' days')::interval,
+  now() - (item || ' hours')::interval
+from generate_series(1, 12) as item
+where not exists (select 1 from velo_local_accounts);
+
+insert into velo_local_events (account_key, event_name, event_index, score, payload, happened_at)
+select
+  'acct-' || ((item % 12) + 1),
+  case when item % 5 = 0 then 'branch.created' when item % 5 = 1 then 'query.run' when item % 5 = 2 then 'backup.completed' when item % 5 = 3 then 'restore.previewed' else 'user.invited' end,
+  item,
+  round((random() * 100)::numeric, 3)::double precision,
+  jsonb_build_object('index', item, 'ok', item % 7 <> 0, 'batch', item / 100),
+  now() - (item || ' minutes')::interval
+from generate_series(1, 3000) as item
+where not exists (select 1 from velo_local_events);
+
+insert into velo_local_wide_profiles (
+  external_id,
+  first_name,
+  last_name,
+  email,
+  phone,
+  company,
+  job_title,
+  department,
+  country,
+  region,
+  city,
+  postal_code,
+  address_line_1,
+  address_line_2,
+  latitude,
+  longitude,
+  signup_date,
+  last_seen_at,
+  login_count,
+  lifetime_value,
+  is_active,
+  is_admin,
+  preferred_locale,
+  timezone,
+  tags,
+  settings,
+  notes,
+  risk_score,
+  created_at,
+  updated_at
+)
+select
+  'profile-' || item,
+  'First' || item,
+  'Last' || item,
+  'person' || item || '@example.test',
+  '+1-555-010' || item,
+  'Company ' || ((item % 12) + 1),
+  case when item % 2 = 0 then 'Engineer' else 'Designer' end,
+  case when item % 3 = 0 then 'Product' when item % 3 = 1 then 'Data' else 'Ops' end,
+  'US',
+  'CA',
+  'San Francisco',
+  '9410' || (item % 10),
+  item || ' Market St',
+  null,
+  37.700000 + (item * 0.001),
+  -122.400000 - (item * 0.001),
+  current_date - item,
+  now() - (item || ' hours')::interval,
+  item * 3,
+  (item * 42.75)::numeric(12,2),
+  item % 5 <> 0,
+  item = 1,
+  'en-US',
+  'America/Los_Angeles',
+  array['wide', 'profile', 'group-' || (item % 4)],
+  jsonb_build_object('theme', case when item % 2 = 0 then 'light' else 'dark' end, 'email_updates', item % 3 <> 0),
+  'seed profile ' || item,
+  round((random() * 10)::numeric, 2)::double precision,
+  now() - (item || ' days')::interval,
+  now() - (item || ' minutes')::interval
+from generate_series(1, 40) as item
+where not exists (select 1 from velo_local_wide_profiles);
+
+insert into velo_local_mixed_types (
+  sample_uuid,
+  sample_text,
+  sample_varchar,
+  sample_integer,
+  sample_bigint,
+  sample_numeric,
+  sample_double,
+  sample_boolean,
+  sample_date,
+  sample_time,
+  sample_timestamp,
+  sample_timestamptz,
+  sample_json,
+  sample_array,
+  sample_inet
+)
+select
+  ('00000000-0000-4000-8000-' || lpad(item::text, 12, '0'))::uuid,
+  'mixed row ' || item,
+  'varchar-' || item,
+  item,
+  item * 1000000000::bigint,
+  (item * 12.3456)::numeric(10,4),
+  item / 3.0,
+  item % 2 = 0,
+  current_date - item,
+  ('08:00:00'::time + (item || ' minutes')::interval)::time,
+  (now() - (item || ' days')::interval)::timestamp,
+  now() - (item || ' hours')::interval,
+  jsonb_build_object('row', item, 'nested', jsonb_build_object('enabled', item % 2 = 0)),
+  array['alpha', 'beta', 'item-' || item],
+  ('10.0.0.' || item)::inet
+from generate_series(1, 10) as item
+where not exists (select 1 from velo_local_mixed_types);
+
+analyze velo_local_notes;
+analyze velo_local_accounts;
+analyze velo_local_events;
+analyze velo_local_wide_profiles;
+analyze velo_local_mixed_types;
 SQL
 }
 

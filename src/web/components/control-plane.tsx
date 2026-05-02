@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Settings2,
   ShieldCheck,
+  Table2,
   Trash2,
 } from 'lucide-react';
 import { cn } from '#lib/utils';
@@ -126,7 +127,7 @@ export interface AppSidebarProps {
     displayName: string;
   }>;
   activeProject?: 'dashboard' | 'settings';
-  activeBranchPage?: 'overview' | 'sql' | 'backup';
+  activeBranchPage?: 'overview' | 'sql' | 'tables' | 'backup';
   selectedBranch?: string;
 }
 
@@ -135,6 +136,7 @@ export function AppSidebar(props: AppSidebarProps) {
   const selectedBranchParam = encodeURIComponent(selectedBranch);
   const overviewHref = `/branch/${selectedBranchParam}/overview`;
   const sqlHref = `/branch/${selectedBranchParam}/sql`;
+  const tablesHref = `/branch/${selectedBranchParam}/tables`;
   const backupHref = `/branch/${selectedBranchParam}/backup-restore`;
 
   function changeBranch(value: string) {
@@ -180,6 +182,7 @@ export function AppSidebar(props: AppSidebarProps) {
         <div className="mt-3 grid gap-1">
           <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} />
           <NavItem icon={Code2} label="SQL editor" href={sqlHref} active={props.activeBranchPage === 'sql'} />
+          <NavItem icon={Table2} label="Tables" href={tablesHref} active={props.activeBranchPage === 'tables'} />
           <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} />
         </div>
       </SidebarSection>
