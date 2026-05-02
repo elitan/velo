@@ -48,6 +48,7 @@ export interface BranchesTable {
   dataset: string;
   port: number | null;
   status: 'creating' | 'running' | 'stopped' | 'error';
+  parent_branch_id: number | null;
   source_replay_at: string | null;
   connection_url: string | null;
   created_at: Timestamp;

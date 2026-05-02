@@ -17,6 +17,7 @@ const roleInput = z.object({
 
 const branchInput = z.object({
   name: z.string().min(1),
+  parentBranchId: z.number().int().positive().nullable().optional(),
 });
 
 const previewBranchInput = z.object({
@@ -142,6 +143,16 @@ export const restoreBranchAction = createServerFn({ method: 'POST' })
     migrateDatabase();
     const caller = appRouter.createCaller(createTrpcContext());
     return caller.setup.startRestoreBranch(data);
+  });
+
+export const resetBranchFromParentAction = createServerFn({ method: 'POST' })
+  .inputValidator(function validateResetBranchInput(data: unknown) {
+    return branchIdInput.parse(data);
+  })
+  .handler(async function resetBranchFromParentHandler({ data }) {
+    migrateDatabase();
+    const caller = appRouter.createCaller(createTrpcContext());
+    return caller.setup.startResetBranch(data);
   });
 
 export const createReplicaBaseAction = createServerFn({ method: 'POST' }).handler(async function createReplicaBaseHandler() {

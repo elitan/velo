@@ -26,6 +26,8 @@ export interface DashboardState {
     id: number;
     name: string;
     status: string;
+    parentBranchId: number | null;
+    parentName: string | null;
     port: number | null;
     connectionUrl: string | null;
     createdAt: string;
@@ -47,9 +49,19 @@ export async function getDashboardState(): Promise<DashboardState> {
       .execute(),
     db
       .selectFrom('branches')
-      .select(['id', 'name', 'status', 'port', 'connection_url as connectionUrl', 'created_at as createdAt'])
-      .where('name', 'not like', 'preview-%')
-      .orderBy('created_at', 'desc')
+      .leftJoin('branches as parent', 'parent.id', 'branches.parent_branch_id')
+      .select([
+        'branches.id as id',
+        'branches.name as name',
+        'branches.status as status',
+        'branches.parent_branch_id as parentBranchId',
+        'parent.name as parentName',
+        'branches.port as port',
+        'branches.connection_url as connectionUrl',
+        'branches.created_at as createdAt',
+      ])
+      .where('branches.name', 'not like', 'preview-%')
+      .orderBy('branches.created_at', 'desc')
       .execute(),
     listJobs(10),
     getBackupSettings(),

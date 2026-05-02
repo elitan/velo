@@ -102,6 +102,12 @@ const migrations = [
       create index if not exists jobs_status_created_at_idx on jobs(status, created_at);
     `,
   },
+  {
+    id: '003_branch_parent',
+    sql: `
+      alter table branches add column parent_branch_id integer references branches(id) on delete set null;
+    `,
+  },
 ];
 
 export function migrateDatabase(): void {

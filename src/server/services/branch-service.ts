@@ -16,6 +16,7 @@ const BASE_BRANCH_NAME = 'base';
 
 export interface CreateBranchInput {
   name: string;
+  parentBranchId?: number | null;
 }
 
 export interface CreatePreviewBranchInput {
@@ -40,13 +41,20 @@ export interface DeleteBranchResult {
 
 export async function createBranchFromBase(input: CreateBranchInput): Promise<CreateBranchResult> {
   const branchName = normalizeBranchName(input.name);
+  const source = await resolveBranchSource(input.parentBranchId);
+
+  if (source.name === branchName) {
+    throw new Error('A branch cannot be created from itself');
+  }
+
   await setStepStatus('first-branch', 'running', `creating ${branchName}`);
 
   const result = await createBranchClone({
     name: branchName,
-    sourceBranch: 'prod',
-    sourceDataset: getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME),
+    sourceBranch: source.name,
+    sourceDataset: source.dataset,
     sourceReplayAt: new Date().toISOString(),
+    parentBranchId: source.id,
     publicAccess: true,
     readOnly: false,
   });
@@ -79,6 +87,7 @@ async function createBranchClone(options: {
   sourceBranch: string;
   sourceDataset: string;
   sourceReplayAt: string;
+  parentBranchId: number | null;
   publicAccess: boolean;
   readOnly: boolean;
 }): Promise<CreateBranchResult> {
@@ -167,6 +176,7 @@ async function createBranchClone(options: {
         dataset: targetDataset,
         port,
         status: 'running',
+        parent_branch_id: options.parentBranchId,
         connection_url: connectionUrl,
         source_replay_at: options.sourceReplayAt,
       })
@@ -198,8 +208,60 @@ async function createBranchClone(options: {
   }
 }
 
+export async function resetBranchFromParent(input: DeleteBranchInput): Promise<CreateBranchResult> {
+  const db = getDb();
+  const branch = await db
+    .selectFrom('branches')
+    .select(['id', 'name', 'parent_branch_id as parentBranchId'])
+    .where('id', '=', input.id)
+    .executeTakeFirstOrThrow();
+
+  await deleteBranch({ id: branch.id });
+
+  return createBranchFromBase({
+    name: branch.name,
+    parentBranchId: branch.parentBranchId,
+  });
+}
+
+async function resolveBranchSource(parentBranchId: number | null | undefined): Promise<{ id: number | null; name: string; dataset: string }> {
+  if (!parentBranchId) {
+    return {
+      id: null,
+      name: 'prod',
+      dataset: getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME),
+    };
+  }
+
+  const sourceBranch = await getDb()
+    .selectFrom('branches')
+    .select(['id', 'name', 'dataset'])
+    .where('id', '=', parentBranchId)
+    .executeTakeFirst();
+
+  if (!sourceBranch) {
+    throw new Error(`Parent branch not found: ${parentBranchId}`);
+  }
+
+  return {
+    id: sourceBranch.id,
+    name: sourceBranch.name,
+    dataset: sourceBranch.dataset,
+  };
+}
+
 export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBranchResult> {
   const db = getDb();
+  const child = await db
+    .selectFrom('branches')
+    .select(['id', 'name'])
+    .where('parent_branch_id', '=', input.id)
+    .executeTakeFirst();
+
+  if (child) {
+    throw new Error(`Branch has child branches. Delete ${child.name} first.`);
+  }
+
   const branch = await db
     .selectFrom('branches')
     .selectAll()

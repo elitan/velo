@@ -123,6 +123,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
         dataset,
         port,
         status: 'running',
+        parent_branch_id: null,
         source_replay_at: restoreTime.toISOString(),
         connection_url: connectionUrl,
       })
