@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   CheckCircle2,
   Clock3,
+  Code2,
   Copy,
   Database,
   GitBranch,
@@ -125,7 +126,7 @@ export interface AppSidebarProps {
     displayName: string;
   }>;
   activeProject?: 'dashboard' | 'settings';
-  activeBranchPage?: 'overview' | 'backup';
+  activeBranchPage?: 'overview' | 'sql' | 'backup';
   selectedBranch?: string;
 }
 
@@ -133,6 +134,7 @@ export function AppSidebar(props: AppSidebarProps) {
   const selectedBranch = props.selectedBranch || 'prod';
   const selectedBranchParam = encodeURIComponent(selectedBranch);
   const overviewHref = `/branch/${selectedBranchParam}/overview`;
+  const sqlHref = `/branch/${selectedBranchParam}/sql`;
   const backupHref = `/branch/${selectedBranchParam}/backup-restore`;
 
   function changeBranch(value: string) {
@@ -177,6 +179,7 @@ export function AppSidebar(props: AppSidebarProps) {
         </Select>
         <div className="mt-3 grid gap-1">
           <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} />
+          <NavItem icon={Code2} label="SQL editor" href={sqlHref} active={props.activeBranchPage === 'sql'} />
           <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} />
         </div>
       </SidebarSection>

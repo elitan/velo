@@ -5,6 +5,7 @@
 - Be concise. Use simple words.
 - Keep moving without asking unless the change is destructive or blocked.
 - Commit and PR titles use `type(scope): short description`.
+- In PR descriptions, clearly state any API routes, procedures, or contracts that were added, updated, or deleted.
 - For UI, use shadcn components from `src/web/components/ui`. If a needed shadcn component is missing, add the local wrapper first, then use it. Avoid raw browser prompts/confirms and custom one-off buttons, menus, modals, tabs, inputs, or textareas in routes.
 
 ## Current Velo Setup

@@ -4,6 +4,7 @@ import { publicProcedure } from './context';
 import { createJob, runJob } from '#server/services/job-service';
 import { createBranchFromBase, createPreviewBranch, deleteBranch, normalizeBranchSlug, resetBranchFromParent } from '#server/services/branch-service';
 import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest } from '#server/services/pgbackrest-restore-service';
+import { runBranchSql } from '#server/services/sql-editor-service';
 
 const branchInput = z.object({
   name: z.string().min(1),
@@ -23,6 +24,11 @@ const restoreBranchInput = z.object({
   targetBranch: z.string().min(1),
   sourceBranch: z.string().min(1),
   restoreTime: z.string().min(1),
+});
+
+const runSqlInput = z.object({
+  branchId: z.string().min(1),
+  sql: z.string().min(1).max(100_000),
 });
 
 export const branchesRouter = {
@@ -61,6 +67,13 @@ export const branchesRouter = {
       .input(branchIdInput)
       .handler(async function deleteBranchPreview({ input }) {
         return deleteBranch(input);
+      }),
+  },
+  sql: {
+    run: publicProcedure
+      .input(runSqlInput)
+      .handler(async function runSql({ input }) {
+        return runBranchSql(input);
       }),
   },
   restore: publicProcedure
