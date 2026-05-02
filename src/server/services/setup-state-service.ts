@@ -14,7 +14,7 @@ export interface ServerInput {
   sshKeyPath: string;
 }
 
-export interface DashboardState {
+export interface ControlPlaneState {
   servers: Server[];
   setupSteps: Array<{
     key: string;
@@ -41,7 +41,7 @@ export interface DashboardState {
   prodConnectionUrl: string | null;
 }
 
-export async function getDashboardState(): Promise<DashboardState> {
+export async function getControlPlaneState(): Promise<ControlPlaneState> {
   const db = getDb();
   const [servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl] = await Promise.all([
     db.selectFrom('servers').selectAll().orderBy('role').execute(),

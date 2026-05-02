@@ -1,15 +1,10 @@
-import { createFileRoute, useRouter } from '@tanstack/react-router';
-import { useServerFn } from '@tanstack/react-start';
-import { useEffect, useState } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { Activity, ArchiveRestore, Database, RefreshCw, SlidersHorizontal } from 'lucide-react';
-import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
-import {
-  checkServerAction,
-  getSetupState,
-  saveBackupSettingsAction,
-  saveServerAction,
-} from '../lib/actions';
+import { Badge } from '#web/components/ui/badge';
+import { Button } from '#web/components/ui/button';
+import { orpc } from '#web/lib/api-client';
 import {
   AppSidebar,
   BackupPanel,
@@ -19,22 +14,62 @@ import {
   StatusBadge,
   SystemPanel,
   type ServerRole,
-} from './index';
+} from '#web/components/control-plane';
 
 export const Route = createFileRoute('/settings')({
-  loader: function loader() {
-    return getSetupState();
-  },
   component: SettingsPage,
 });
 
 function SettingsPage() {
-  const state = Route.useLoaderData();
-  const router = useRouter();
-  const saveServer = useServerFn(saveServerAction);
-  const checkServer = useServerFn(checkServerAction);
-  const saveBackupSettings = useServerFn(saveBackupSettingsAction);
-  const [busy, setBusy] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const saveServer = useMutation(orpc.servers.update.mutationOptions({ onSuccess: refreshDashboard }));
+  const checkServer = useMutation(orpc.servers.check.mutationOptions({ onSuccess: refreshDashboard }));
+  const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions({ onSuccess: refreshDashboard }));
+  const busy = getBusyKey();
+  const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
+    return job.status === 'queued' || job.status === 'running';
+  }).length ?? 0;
+
+  useEffect(function pollActiveJobs() {
+    if (activeJobs === 0) {
+      return;
+    }
+
+    const interval = window.setInterval(function refreshActiveJobs() {
+      void dashboard.refetch();
+    }, 2000);
+
+    return function clearPoll() {
+      window.clearInterval(interval);
+    };
+  }, [activeJobs, dashboard]);
+
+  async function refreshDashboard() {
+    await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
+  }
+
+  function getBusyKey(): string | null {
+    if (saveServer.isPending) {
+      return `save-${saveServer.variables?.role || 'prod'}`;
+    }
+
+    if (checkServer.isPending) {
+      return `check-${checkServer.variables?.role || 'prod'}`;
+    }
+
+    if (saveBackupSettings.isPending) {
+      return 'save-backup';
+    }
+
+    return null;
+  }
+
+  if (!dashboard.data) {
+    return <SettingsLoadingPage message={dashboard.error ? 'Could not load settings.' : 'Loading settings...'} />;
+  }
+
+  const state = dashboard.data;
 
   const prodServer = state.servers.find(function findProd(server) {
     return server.role === 'prod';
@@ -45,73 +80,36 @@ function SettingsPage() {
   const doneSteps = state.setupSteps.filter(function countDone(step) {
     return step.status === 'done';
   }).length;
-  const activeJobs = state.jobs.filter(function isActive(job) {
-    return job.status === 'queued' || job.status === 'running';
-  }).length;
   const okServers = state.servers.filter(function countOk(server) {
     return server.status === 'ok';
   }).length;
   const backupMode = state.backup.enabled ? 'S3/R2' : 'local';
 
-  useEffect(function pollActiveJobs() {
-    if (activeJobs === 0) {
-      return;
-    }
-
-    const interval = window.setInterval(function refreshActiveJobs() {
-      void router.invalidate();
-    }, 2000);
-
-    return function clearPoll() {
-      window.clearInterval(interval);
-    };
-  }, [activeJobs, router]);
-
-  async function runBusy(key: string, task: () => Promise<void>) {
-    setBusy(key);
-    try {
-      await task();
-      await router.invalidate();
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function handleSave(formData: FormData) {
     const role = formData.get('role') === 'prod' ? 'prod' : 'dev';
-    await runBusy(`save-${role}`, async function saveServerForm() {
-      await saveServer({
-        data: {
-          role,
-          host: String(formData.get('host') || ''),
-          sshUser: String(formData.get('sshUser') || ''),
-          sshKeyPath: String(formData.get('sshKeyPath') || ''),
-        },
-      });
+    await saveServer.mutateAsync({
+      role,
+      host: String(formData.get('host') || ''),
+      sshUser: String(formData.get('sshUser') || ''),
+      sshKeyPath: String(formData.get('sshKeyPath') || ''),
     });
   }
 
   async function handleCheck(role: ServerRole) {
-    await runBusy(`check-${role}`, async function checkServerRole() {
-      await checkServer({ data: { role } });
-    });
+    await checkServer.mutateAsync({ role });
   }
 
   async function handleSaveBackup(formData: FormData) {
-    await runBusy('save-backup', async function saveBackupForm() {
-      await saveBackupSettings({
-        data: {
-          enabled: formData.get('enabled') === 'on',
-          endpoint: String(formData.get('endpoint') || ''),
-          bucket: String(formData.get('bucket') || ''),
-          region: String(formData.get('region') || 'auto'),
-          accessKeyId: String(formData.get('accessKeyId') || ''),
-          secretAccessKey: String(formData.get('secretAccessKey') || ''),
-          path: String(formData.get('path') || '/prod'),
-          pitrDays: Number(formData.get('pitrDays') || 7),
-          fullBackupRetentionDays: Number(formData.get('fullBackupRetentionDays') || 90),
-        },
-      });
+    await saveBackupSettings.mutateAsync({
+      enabled: formData.get('enabled') === 'on',
+      endpoint: String(formData.get('endpoint') || ''),
+      bucket: String(formData.get('bucket') || ''),
+      region: String(formData.get('region') || 'auto'),
+      accessKeyId: String(formData.get('accessKeyId') || ''),
+      secretAccessKey: String(formData.get('secretAccessKey') || ''),
+      path: String(formData.get('path') || '/prod'),
+      pitrDays: Number(formData.get('pitrDays') || 7),
+      fullBackupRetentionDays: Number(formData.get('fullBackupRetentionDays') || 90),
     });
   }
 
@@ -133,7 +131,7 @@ function SettingsPage() {
                   Manage server access, backup storage, and background activity.
                 </p>
               </div>
-              <Button variant="outline" onClick={function refreshPage() { void router.invalidate(); }}>
+              <Button variant="outline" onClick={function refreshPage() { void dashboard.refetch(); }}>
                 <RefreshCw />
                 Refresh
               </Button>
@@ -168,6 +166,17 @@ function SettingsPage() {
             </div>
           </div>
         </section>
+      </div>
+    </main>
+  );
+}
+
+function SettingsLoadingPage(props: Readonly<{ message: string }>) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-background px-4 text-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <RefreshCw className="animate-spin" />
+        {props.message}
       </div>
     </main>
   );
