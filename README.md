@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/velo-logo.png" alt="Velo" width="780">
+</p>
+
 # Velo
 
 Web-first Postgres branching.
