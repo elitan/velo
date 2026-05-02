@@ -1,16 +1,6 @@
 [test]
-# Set default test timeout to 60 seconds
-# PostgreSQL container startup can take 10-30 seconds
-# Most tests complete in under 30 seconds
-# Individual tests can override with { timeout: 120000 } if needed
+# Default timeout for server and manager tests.
 timeout = 60000
 
-# Hook timeout for beforeAll/afterAll setup/cleanup
-# Needed for beforeAll hooks that create projects and wait for PostgreSQL
+# Hook timeout for setup and cleanup.
 hookTimeout = 30000
-
-# Tests run sequentially (not concurrent) to avoid:
-# - State file locking contention (state.json)
-# - ZFS dataset operation conflicts
-# - Docker container memory pressure on small machines
-# This is intentional for resource-intensive integration tests
