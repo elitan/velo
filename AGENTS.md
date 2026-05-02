@@ -9,10 +9,12 @@
 ## Current Velo Setup
 
 - Dev/control server: `157.180.22.136`
-- Prod Postgres server: `89.167.89.255`
+- Prod-shaped Postgres dev server: `89.167.89.255`
 - SSH key: `$HOME/.ssh/frost-e2e-ci`
 - Live app URL: `http://157.180.22.136:3000`
 - Prod state lives in SQLite on the dev server: `/opt/velo/.velo/velo.sqlite`
+
+These two Hetzner servers are development/test infrastructure for this project. It is okay to stop, reboot, destroy, rebuild, or recreate them when needed for development, as long as cost stays reasonable and the change helps the work. Treat the data on them as disposable.
 
 ## Product Model
 
