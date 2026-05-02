@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from './services/job-service';
+import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getDashboardState, saveServer } from './services/setup-state-service';
 
@@ -23,6 +24,35 @@ afterEach(async function cleanupDatabase() {
 });
 
 describe('control plane database', function controlPlaneDatabase() {
+  test('uses real pgBackRest backup history for restore windows', function testBackupAvailability() {
+    const availability = parsePgBackRestInfo(JSON.stringify([{
+      name: 'main',
+      status: { code: 0, message: 'ok' },
+      archive: [{ id: '16-1', min: '000000010000000000000001', max: '000000010000000000000002' }],
+      backup: [
+        {
+          label: '20260430-193902F',
+          type: 'full',
+          error: false,
+          timestamp: { start: 1777577942, stop: 1777578095 },
+        },
+        {
+          label: '20260502-021502F',
+          type: 'full',
+          error: false,
+          timestamp: { start: 1777688102, stop: 1777688267 },
+        },
+      ],
+    }]), 90, new Date('2026-05-02T12:00:00.000Z'));
+
+    expect(availability.status).toBe('ok');
+    expect(availability.pitr.from).toBe('2026-04-30T19:39:02.000Z');
+    expect(availability.pitr.to).toBe('2026-05-02T12:00:00.000Z');
+    expect(availability.backups.map(function mapBackup(backup) {
+      return backup.label;
+    })).toEqual(['20260502-021502F', '20260430-193902F']);
+  });
+
   test('migrates idempotently and creates setup steps', async function testMigrations() {
     migrateDatabase();
 

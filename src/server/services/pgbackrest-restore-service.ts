@@ -10,9 +10,10 @@ import { CertManager } from '../../managers/cert';
 import { formatTimestamp } from '../../utils/helpers';
 import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getZFSPool } from '../../utils/zfs-pool';
+import { getBackupAvailability } from './backup-availability-service';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand, runSshCommand } from './command-service';
-import { getBackupSettings, getSetting, setSetting } from './settings-service';
+import { getSetting, setSetting } from './settings-service';
 
 const PROJECT_NAME = 'prod';
 
@@ -415,17 +416,23 @@ function parseRestoreTime(value: string): Date {
 }
 
 async function assertWithinPitrWindow(restoreTime: Date): Promise<void> {
-  const backup = await getBackupSettings();
+  const availability = await getBackupAvailability();
   const now = Date.now();
-  const minTime = now - backup.pitrDays * 24 * 60 * 60 * 1000;
   const restoreTimestamp = restoreTime.getTime();
+
+  if (availability.status !== 'ok' || !availability.pitr.from || !availability.pitr.to) {
+    throw new Error(availability.message || 'Backup availability is unavailable');
+  }
+
+  const actualMinTime = new Date(availability.pitr.from).getTime();
+  const actualMaxTime = new Date(availability.pitr.to).getTime();
 
   if (restoreTimestamp > now) {
     throw new Error('Restore time cannot be in the future');
   }
 
-  if (restoreTimestamp < minTime) {
-    throw new Error(`Restore time is outside the ${backup.pitrDays} day PITR window`);
+  if (restoreTimestamp < actualMinTime || restoreTimestamp > actualMaxTime) {
+    throw new Error(`Restore time must be between ${availability.pitr.from} and ${availability.pitr.to}`);
   }
 }
 

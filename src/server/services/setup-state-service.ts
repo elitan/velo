@@ -3,6 +3,7 @@ import { getDb } from '../../db/client';
 import type { Server } from '../../db/schema';
 import { runCommand, runSshCommand } from './command-service';
 import { listJobs, type JobRecord } from './job-service';
+import { getBackupAvailability, type BackupAvailability } from './backup-availability-service';
 import { getBackupSettings, getSetting, type BackupSettings } from './settings-service';
 
 export interface ServerInput {
@@ -31,12 +32,13 @@ export interface DashboardState {
   }>;
   jobs: JobRecord[];
   backup: BackupSettings;
+  backupAvailability: BackupAvailability;
   prodConnectionUrl: string | null;
 }
 
 export async function getDashboardState(): Promise<DashboardState> {
   const db = getDb();
-  const [servers, setupSteps, branches, jobs, backup, prodConnectionUrl] = await Promise.all([
+  const [servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl] = await Promise.all([
     db.selectFrom('servers').selectAll().orderBy('role').execute(),
     db
       .selectFrom('setup_steps')
@@ -51,10 +53,11 @@ export async function getDashboardState(): Promise<DashboardState> {
       .execute(),
     listJobs(10),
     getBackupSettings(),
+    getBackupAvailability(),
     getSetting('prod.connectionUrl'),
   ]);
 
-  return { servers, setupSteps, branches, jobs, backup, prodConnectionUrl };
+  return { servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl };
 }
 
 export async function saveServer(input: ServerInput): Promise<Server> {

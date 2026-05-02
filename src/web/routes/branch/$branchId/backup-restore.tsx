@@ -68,11 +68,15 @@ function BackupRestorePage() {
   const selectedBranch = isProd ? 'prod' : branch?.name || branchId;
   const status = isProd ? (state.prodConnectionUrl ? 'ready' : 'pending') : branch?.status || 'missing';
   const branchOptions = getBranchOptions(state);
-  const backupOptions = getBackupOptions(state.backup.fullBackupRetentionDays);
-  const restoreWindow = getRestoreWindow(state.backup.pitrDays);
+  const backupOptions = getBackupOptions(state.backupAvailability.backups);
+  const restoreWindow = getRestoreWindow(state.backup.pitrDays, state.backupAvailability.pitr);
+  const backupWindow = getBackupWindow(state.backupAvailability.backups);
+  const pitrAvailable = state.backupAvailability.status === 'ok' && Boolean(restoreWindow.min && restoreWindow.max);
   const sourceBranch = 'prod';
   const [backupPoint, setBackupPoint] = useState(backupOptions[0]?.value || '');
-  const [restoreTime, setRestoreTime] = useState(getDefaultRestoreTime());
+  const [restoreTime, setRestoreTime] = useState(function initialRestoreTime() {
+    return getDefaultRestoreTime(restoreWindow);
+  });
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -173,7 +177,9 @@ function BackupRestorePage() {
                     <div className="min-w-0">
                       <CardTitle>Instant point-in-time restore</CardTitle>
                       <CardDescription className="mt-2 max-w-xl">
-                        Restore to any exact moment in the last {state.backup.pitrDays} days.
+                        {pitrAvailable
+                          ? `Restore to any exact moment in the available backup history.`
+                          : 'No point-in-time restore history is available yet.'}
                       </CardDescription>
                     </div>
                   </div>
@@ -198,16 +204,19 @@ function BackupRestorePage() {
                         id="restore-time"
                         type="datetime-local"
                         className="h-10 pl-9"
-                        min={restoreWindow.min}
-                        max={restoreWindow.max}
+                        min={restoreWindow.min || undefined}
+                        max={restoreWindow.max || undefined}
                         value={restoreTime}
+                        disabled={!pitrAvailable}
                         onChange={function changeRestoreTime(event) {
                           setRestoreTime(event.target.value);
                         }}
                       />
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      Europe/Stockholm. Available from {formatShortDateTime(restoreWindow.min)} to {formatShortDateTime(restoreWindow.max)}.
+                      {pitrAvailable && restoreWindow.min && restoreWindow.max
+                        ? `Europe/Stockholm. Available from ${formatShortDateTime(restoreWindow.min)} to ${formatShortDateTime(restoreWindow.max)}.`
+                        : state.backupAvailability.message || 'Waiting for the first backup.'}
                     </div>
                   </div>
                 </div>
@@ -220,7 +229,7 @@ function BackupRestorePage() {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={previewBusy || restoreBusy}
+                      disabled={!pitrAvailable || previewBusy || restoreBusy}
                       onClick={function previewDataClick() {
                         void handleOpenPreview();
                       }}
@@ -230,7 +239,7 @@ function BackupRestorePage() {
                     </Button>
                     <Button
                       type="button"
-                      disabled={previewBusy || restoreBusy}
+                      disabled={!pitrAvailable || previewBusy || restoreBusy}
                       onClick={function restoreClick() {
                         setRestorePromptOpen(true);
                       }}
@@ -264,11 +273,11 @@ function BackupRestorePage() {
                     <div className="min-w-0">
                       <CardTitle>Restore from daily backup</CardTitle>
                       <CardDescription className="mt-2 max-w-xl">
-                        Restore from production daily full backups retained for {state.backup.fullBackupRetentionDays} days.
+                        Restore from real production full backups found in pgBackRest.
                       </CardDescription>
                     </div>
                   </div>
-                  <Badge variant="secondary">{state.backup.fullBackupRetentionDays} day retention</Badge>
+                  <Badge variant="secondary">{state.backup.fullBackupRetentionDays} day policy</Badge>
                 </div>
               </CardHeader>
 
@@ -284,7 +293,7 @@ function BackupRestorePage() {
 
                   <div className="grid gap-2">
                     <Label htmlFor="backup-point">Backup</Label>
-                    <Select value={backupPoint} onValueChange={setBackupPoint}>
+                    <Select value={backupPoint} onValueChange={setBackupPoint} disabled={!backupOptions.length}>
                       <SelectTrigger id="backup-point" className="h-10 w-full bg-background font-medium">
                         <SelectValue placeholder="Select backup" />
                       </SelectTrigger>
@@ -300,7 +309,11 @@ function BackupRestorePage() {
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                    <div className="text-xs text-muted-foreground">Daily restore points, less precise than PITR.</div>
+                    <div className="text-xs text-muted-foreground">
+                      {backupOptions.length
+                        ? `Available from ${backupWindow.from} to ${backupWindow.to}. Daily restore points are less precise than PITR.`
+                        : 'No production full backups found yet.'}
+                    </div>
                   </div>
                 </div>
 
@@ -630,32 +643,73 @@ function getBranchOptions(state: Awaited<ReturnType<typeof getSetupState>>) {
   ];
 }
 
-function getBackupOptions(retentionDays: number) {
+function getBackupOptions(backups: Array<{ label: string; type: string; completedAt: string }>) {
   const formatter = new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
   });
-  const count = Math.max(1, Math.min(retentionDays, 90));
 
-  return Array.from({ length: count }, function createBackupOption(_, index) {
-    const date = new Date();
-    date.setDate(date.getDate() - index);
-    date.setHours(2, 15, 0, 0);
-
+  return backups.map(function mapBackupOption(backup) {
+    const date = new Date(backup.completedAt);
     return {
-      value: date.toISOString().slice(0, 10),
-      label: `${formatter.format(date)} daily backup`,
+      value: backup.label,
+      label: `${formatter.format(date)} ${backup.type} backup`,
     };
   });
 }
 
-function getDefaultRestoreTime() {
-  const date = new Date(Date.now() - 5 * 60 * 1000);
-  return toDateTimeLocalValue(date);
+function getBackupWindow(backups: Array<{ startedAt: string; completedAt: string }>) {
+  const newest = backups[0]?.completedAt || '';
+  const oldest = backups[backups.length - 1]?.startedAt || newest;
+
+  return {
+    from: formatBackupDateTime(oldest),
+    to: formatBackupDateTime(newest),
+  };
 }
 
-function getRestoreWindow(days: number) {
+function formatBackupDateTime(value: string) {
+  if (!value) {
+    return 'not available';
+  }
+
+  const date = new Date(value);
+
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function getDefaultRestoreTime(window: { min: string | null; max: string | null }) {
+  const date = new Date(Date.now() - 5 * 60 * 1000);
+  const value = toDateTimeLocalValue(date);
+
+  if (window.max && value > window.max) {
+    return window.max;
+  }
+
+  if (window.min && value < window.min) {
+    return window.min;
+  }
+
+  return value;
+}
+
+function getRestoreWindow(days: number, pitr: { from: string | null; to: string | null }) {
+  if (pitr.from && pitr.to) {
+    return {
+      min: toDateTimeLocalValue(new Date(pitr.from)),
+      max: toDateTimeLocalValue(new Date(pitr.to)),
+    };
+  }
+
   const max = new Date();
   const min = new Date(max.getTime() - days * 24 * 60 * 60 * 1000);
 
