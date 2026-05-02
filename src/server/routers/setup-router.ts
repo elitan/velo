@@ -3,7 +3,7 @@ import { getDb } from '../../db/client';
 import { publicProcedure, router } from '../trpc';
 import { checkServer, getDashboardState, saveServer } from '../services/setup-state-service';
 import { runDevBootstrap, runProdBootstrap } from '../services/bootstrap-service';
-import { createBranchFromBase, createPreviewBranch, deleteBranch, resetBranchFromParent } from '../services/branch-service';
+import { createBranchFromBase, createPreviewBranch, deleteBranch, normalizeBranchSlug, resetBranchFromParent } from '../services/branch-service';
 import { createReplicaBase } from '../services/replica-service';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from '../services/job-service';
 import { saveBackupSettings } from '../services/settings-service';
@@ -150,12 +150,13 @@ export const setupRouter = router({
   startCreateBranch: publicProcedure
     .input(z.object({ name: z.string().min(1), parentBranchId: z.number().int().positive().nullable().optional() }))
     .mutation(async function startCreateBranchMutation({ input }) {
+      const branchSlug = normalizeBranchSlug(input.name);
       const job = await createJob('create-branch', input);
       runJob(job, async function runCreateBranchJob(context) {
         await context.log(`creating branch ${input.name}`);
         await createBranchFromBase(input);
       });
-      return job;
+      return { ...job, branchSlug };
     }),
   startResetBranch: publicProcedure
     .input(z.object({ id: z.number().int().positive() }))

@@ -20,6 +20,17 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '../components/ui/alert-dialog';
 import { Badge, type BadgeProps } from '../components/ui/badge';
 import { Button, buttonVariants } from '../components/ui/button';
 import {
@@ -88,10 +99,6 @@ function HomePage() {
   }
 
   async function handleDeleteBranch(id: number, name: string) {
-    if (!window.confirm(`Delete branch "${name}"?`)) {
-      return;
-    }
-
     await runBusy(`delete-branch-${id}`, async function deleteBranchClick() {
       await deleteBranch({ data: { id } });
     });
@@ -638,16 +645,39 @@ export function BranchesPanel(props: BranchesPanelProps) {
                   </div>
                   <StatusBadge status={branch.status} />
                   <div className="text-sm text-muted-foreground">{branch.port || '-'}</div>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    onClick={deleteClick}
-                    disabled={isDeleting}
-                    title="Delete branch"
-                  >
-                    {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        disabled={isDeleting}
+                        title="Delete branch"
+                      >
+                        {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete branch?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Delete branch "{branch.displayName}"?
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-white hover:bg-destructive/90"
+                          disabled={isDeleting}
+                          onClick={function confirmDeleteBranch() {
+                            void deleteClick();
+                          }}
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                   <div className="hidden md:col-span-4 md:block">
                     <ConnectionString value={branch.connectionUrl} />
                   </div>
