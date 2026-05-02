@@ -16,6 +16,16 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../../../components/ui/alert-dialog';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import {
@@ -25,6 +35,12 @@ import {
   CardHeader,
   CardTitle,
 } from '../../../components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '../../../components/ui/dialog';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import {
@@ -35,6 +51,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../components/ui/select';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '../../../components/ui/tabs';
+import { Textarea } from '../../../components/ui/textarea';
 import {
   createPreviewBranchAction,
   deletePreviewBranchAction,
@@ -385,20 +408,29 @@ function RestorePromptModal(props: {
   onRestore: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl">
-        <div className="flex gap-3">
+    <AlertDialog
+      open
+      onOpenChange={function changeRestorePromptOpen(open) {
+        if (!open) {
+          props.onClose();
+        }
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <div className="flex gap-3">
           <div className="grid size-10 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-700">
             <AlertTriangle className="size-5" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-normal">Restore branch</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            <AlertDialogTitle>Restore branch</AlertDialogTitle>
+            <AlertDialogDescription className="mt-2">
               You are about to restore {props.branch} from {props.sourceBranch} at {formatHistoricTime(props.restoreTime)}.
               This replaces the current branch data with the selected point in time.
-            </p>
+            </AlertDialogDescription>
           </div>
         </div>
+        </AlertDialogHeader>
 
         {props.restoreError ? (
           <div className="mt-5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -406,17 +438,15 @@ function RestorePromptModal(props: {
           </div>
         ) : null}
 
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={props.onClose}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={props.previewBusy || props.restoreBusy} onClick={props.onRestore}>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={props.restoreBusy}>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={props.previewBusy || props.restoreBusy} onClick={props.onRestore}>
             {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
             Restore now
-          </Button>
-        </div>
-      </div>
-    </div>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -433,8 +463,20 @@ function HistoricPreviewModal(props: {
   const historicTime = formatHistoricTime(props.restoreTime);
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/80 p-3 backdrop-blur-sm">
-      <div className="grid h-full grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-xl">
+    <Dialog
+      open
+      onOpenChange={function changePreviewOpen(open) {
+        if (!open) {
+          props.onClose();
+        }
+      }}
+    >
+      <DialogContent
+        showCloseButton={false}
+        className="bottom-3 left-3 right-3 top-3 grid h-auto w-auto max-w-none translate-x-0 translate-y-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden p-0"
+      >
+        <DialogTitle className="sr-only">Preview historic data</DialogTitle>
+        <DialogDescription className="sr-only">Browse a temporary read-only restore branch.</DialogDescription>
         <div className="flex flex-col gap-3 border-b border-border px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-normal">Preview historic data</h2>
@@ -462,11 +504,6 @@ function HistoricPreviewModal(props: {
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">Europe/Stockholm, GMT+02:00</div>
               </div>
-              <div className="flex rounded-md border border-border p-0.5">
-                <PreviewTab active={tab === 'browse'} label="Browse data" onClick={function selectBrowse() { setTab('browse'); }} />
-                <PreviewTab active={tab === 'query'} label="Query data" onClick={function selectQuery() { setTab('query'); }} />
-                <PreviewTab active={tab === 'compare'} label="Compare schemas" onClick={function selectCompare() { setTab('compare'); }} />
-              </div>
               {props.previewBranch ? (
                 <Badge variant="info">Preview branch: {props.previewBranch.displayName}</Badge>
               ) : null}
@@ -483,7 +520,13 @@ function HistoricPreviewModal(props: {
           <span>You are viewing data as it existed at {historicTime}</span>
         </div>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[280px_1fr]">
+        <Tabs
+          value={tab}
+          onValueChange={function changePreviewTab(value) {
+            setTab(value as 'browse' | 'query' | 'compare');
+          }}
+          className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[280px_1fr]"
+        >
           <aside className="grid min-h-0 border-b border-border px-4 py-5 lg:border-b-0 lg:border-r">
             <div>
               <h3 className="text-xl font-semibold tracking-normal">Tables</h3>
@@ -500,31 +543,36 @@ function HistoricPreviewModal(props: {
                   <Input className="pl-9" placeholder="Search..." />
                 </div>
               </div>
+              <TabsList className="mt-5">
+                <TabsTrigger value="browse">Browse data</TabsTrigger>
+                <TabsTrigger value="query">Query data</TabsTrigger>
+                <TabsTrigger value="compare">Compare schemas</TabsTrigger>
+              </TabsList>
             </div>
           </aside>
 
           <section className="min-h-[360px] p-6">
-            {tab === 'browse' ? (
+            <TabsContent value="browse" className="h-full">
               <PreviewEmptyState
                 icon={Table2}
                 title="Historic tables will appear here"
                 description="Preview will use a temporary read-only restore branch, then remove it after you close this modal."
               />
-            ) : null}
+            </TabsContent>
 
-            {tab === 'query' ? (
+            <TabsContent value="query" className="h-full">
               <QueryPreviewPanel />
-            ) : null}
+            </TabsContent>
 
-            {tab === 'compare' ? (
+            <TabsContent value="compare" className="h-full">
               <PreviewEmptyState
                 icon={GitCompareArrows}
                 title="Compare current and historic schema"
                 description="Use this before restore to see what changed between now and the selected time."
               />
-            ) : null}
+            </TabsContent>
           </section>
-        </div>
+        </Tabs>
 
         <div className="flex justify-end gap-2 border-t border-border px-4 py-4">
           <Button type="button" variant="outline" onClick={props.onClose}>Cancel</Button>
@@ -533,24 +581,8 @@ function HistoricPreviewModal(props: {
             Proceed to restore
           </Button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function PreviewTab(props: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={props.active ? 'h-8 rounded-sm bg-secondary px-3 text-sm font-medium text-secondary-foreground' : 'h-8 rounded-sm px-3 text-sm font-medium text-muted-foreground hover:text-foreground'}
-      onClick={props.onClick}
-    >
-      {props.label}
-    </button>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -561,8 +593,8 @@ function QueryPreviewPanel() {
         <h3 className="text-lg font-semibold tracking-normal">Query historic data</h3>
         <p className="mt-1 text-sm text-muted-foreground">Run SQL against the temporary historic branch, not the live database.</p>
       </div>
-      <textarea
-        className="min-h-0 resize-none rounded-md border border-input bg-background p-3 font-mono text-sm leading-6 outline-none ring-ring transition-shadow placeholder:text-muted-foreground focus:ring-2"
+      <Textarea
+        className="min-h-0 resize-none font-mono leading-6"
         placeholder="select * from users limit 50;"
       />
       <div className="flex justify-end">

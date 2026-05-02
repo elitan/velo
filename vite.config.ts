@@ -17,4 +17,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  ssr: {
+    external: ['bun', 'bun:sqlite', 'dockerode', 'ssh2', 'cpu-features'],
+  },
+  optimizeDeps: {
+    exclude: ['bun', 'bun:sqlite', 'dockerode', 'ssh2', 'cpu-features'],
+  },
 });
