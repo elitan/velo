@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
@@ -51,6 +51,7 @@ export const Route = createFileRoute('/branch/$branchId/overview')({
 
 function BranchOverviewPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
   const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
   const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
@@ -126,7 +127,7 @@ function BranchOverviewPage() {
     setCreateModalOpen(false);
 
     if (result.branchSlug) {
-      window.location.href = `/branch/${encodeURIComponent(result.branchSlug)}/overview`;
+      await navigate({ to: '/branch/$branchId/overview', params: { branchId: result.branchSlug } });
     }
   }
 
@@ -147,7 +148,7 @@ function BranchOverviewPage() {
 
     setMessage(null);
     await deleteBranch.mutateAsync({ id: branch.rowId! });
-    window.location.href = `/branch/${encodeURIComponent(branch.parentSlug || 'prod')}/overview`;
+    await navigate({ to: '/branch/$branchId/overview', params: { branchId: branch.parentSlug || 'prod' } });
   }
 
   function handleConfirmAction() {
