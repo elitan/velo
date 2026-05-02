@@ -29,6 +29,38 @@ These two Hetzner servers are development/test infrastructure for this project. 
 
 ## Fast Dev Loop
 
+### Local Docker
+
+Use this for fast local product iteration:
+
+```sh
+bun run local:reset
+bun run local:dev
+```
+
+Local Docker mode sets `VELO_LOCAL_DOCKER=1` and uses `.velo/local-docker.sqlite`.
+
+It starts:
+
+- prod Postgres: `localhost:55432`
+- dev Postgres: `localhost:55433`
+- MinIO: `localhost:59000`
+- real pgBackRest backups and WAL archive to MinIO
+
+Local Docker is prod-like for backup and PITR work. Startup creates a pgBackRest stanza, checks WAL archiving, runs a full backup, and can restore a temporary Postgres container from PITR. Local branch clones still use simple database copies unless they come from PITR. It does not prove SSH, systemd, Hetzner networking, R2, or ZFS COW. Use remote dev for that.
+
+Each git branch gets one local environment by default. Ports are assigned once and stored in `.velo/local/<branch>/env`, so branches can run in parallel without port collisions. Use `VELO_LOCAL_INSTANCE=<name>` only when you need more than one environment for the same git branch.
+
+Useful commands:
+
+```sh
+bun run local:up
+bun run local:status
+bun run local:down
+```
+
+### Remote Dev
+
 Remote dev uses Vite on the dev server.
 
 Start remote Vite:

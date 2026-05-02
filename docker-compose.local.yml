@@ -1,0 +1,59 @@
+services:
+  prod-postgres:
+    build:
+      context: .
+      dockerfile: docker/local-postgres/Dockerfile
+    image: velo-local-postgres-pgbackrest:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "${VELO_LOCAL_BIND:-127.0.0.1}:${VELO_LOCAL_PROD_PORT:-0}:5432"
+    volumes:
+      - velo-local-prod-data:/var/lib/postgresql/data
+      - ./docker/local-pgbackrest/pgbackrest.conf:/etc/pgbackrest.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  dev-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "${VELO_LOCAL_BIND:-127.0.0.1}:${VELO_LOCAL_DEV_PORT:-0}:5432"
+    volumes:
+      - velo-local-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "${VELO_LOCAL_BIND:-127.0.0.1}:${VELO_LOCAL_MINIO_PORT:-0}:9000"
+      - "${VELO_LOCAL_BIND:-127.0.0.1}:${VELO_LOCAL_MINIO_CONSOLE_PORT:-0}:9001"
+    volumes:
+      - velo-local-minio-data:/data
+      - ./.velo/minio-certs:/root/.minio/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mc --insecure alias set local https://localhost:9000 minioadmin minioadmin >/dev/null && mc --insecure ready local"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  velo-local-prod-data:
+  velo-local-dev-data:
+  velo-local-minio-data:

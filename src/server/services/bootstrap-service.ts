@@ -3,6 +3,7 @@ import { generatePassword } from '../../utils/helpers';
 import { runCommand, runSshCommand } from './command-service';
 import { getBackupSettings, getSetting, setSetting } from './settings-service';
 import { setStepStatus } from './setup-state-service';
+import { bootstrapLocalDocker, isLocalDockerMode } from './local-docker-service';
 
 export interface BootstrapResult {
   ok: boolean;
@@ -10,6 +11,10 @@ export interface BootstrapResult {
 }
 
 export async function runDevBootstrap(): Promise<BootstrapResult> {
+  if (isLocalDockerMode()) {
+    return bootstrapLocalDocker('dev');
+  }
+
   await setStepStatus('dev-check', 'running', 'installing local dev prerequisites');
 
   const result = await runCommand([
@@ -47,6 +52,10 @@ export async function runDevBootstrap(): Promise<BootstrapResult> {
 }
 
 export async function runProdBootstrap(): Promise<BootstrapResult> {
+  if (isLocalDockerMode()) {
+    return bootstrapLocalDocker('prod');
+  }
+
   const db = getDb();
   const prod = await db
     .selectFrom('servers')

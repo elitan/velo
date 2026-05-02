@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand } from './command-service';
 import { getBackupSettings } from './settings-service';
+import { getLocalPgBackRestInfo, isLocalDockerMode } from './local-docker-service';
 
 export interface BackupPoint {
   label: string;
@@ -47,6 +48,14 @@ export async function getBackupAvailability(): Promise<BackupAvailability> {
 
   if (!backup.enabled) {
     return unavailable('Backups are not enabled');
+  }
+
+  if (isLocalDockerMode()) {
+    try {
+      return capLocalPitrWindow(parsePgBackRestInfo(await getLocalPgBackRestInfo(), backup.pitrDays));
+    } catch (error: any) {
+      return unavailable(sanitizeAvailabilityMessage(error?.message || 'Local pgBackRest history could not be read'));
+    }
   }
 
   const tempDir = await mkdtemp(join(tmpdir(), 'velo-pgbackrest-info-'));
@@ -164,6 +173,22 @@ function unavailable(message: string): BackupAvailability {
       to: null,
     },
     backups: [],
+  };
+}
+
+function capLocalPitrWindow(availability: BackupAvailability): BackupAvailability {
+  const latestBackup = availability.backups[0];
+
+  if (availability.status !== 'ok' || !latestBackup || !availability.pitr.from) {
+    return availability;
+  }
+
+  return {
+    ...availability,
+    pitr: {
+      from: availability.pitr.from,
+      to: new Date(new Date(latestBackup.completedAt).getTime() + 1000).toISOString(),
+    },
   };
 }
 

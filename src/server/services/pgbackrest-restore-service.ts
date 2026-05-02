@@ -14,6 +14,7 @@ import { getBackupAvailability } from './backup-availability-service';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand, runSshCommand } from './command-service';
 import { getSetting, setSetting } from './settings-service';
+import { createLocalDockerPitrBranch, isLocalDockerMode, restoreLocalDockerProduction } from './local-docker-service';
 
 const PROJECT_NAME = 'prod';
 
@@ -33,6 +34,18 @@ export interface RestoreBranchResult {
 }
 
 export async function createBranchFromPgBackRest(input: RestoreBranchInput): Promise<RestoreBranchResult> {
+  if (isLocalDockerMode()) {
+    const restoreTime = parseRestoreTime(input.restoreTime);
+    await assertWithinPitrWindow(restoreTime);
+
+    return createLocalDockerPitrBranch({
+      targetBranch: input.targetBranch,
+      restoreTime: restoreTime.toISOString(),
+      readOnly: input.readOnly,
+      publicAccess: input.publicAccess,
+    });
+  }
+
   assertProdSource(input.sourceBranch);
 
   const branchName = normalizeBranchName(input.targetBranch);
@@ -176,6 +189,16 @@ export async function restoreDevelopmentBranchFromPgBackRest(input: RestoreBranc
 }
 
 export async function restoreProductionFromPgBackRest(input: RestoreBranchInput): Promise<void> {
+  if (isLocalDockerMode()) {
+    const restoreTime = parseRestoreTime(input.restoreTime);
+    await assertWithinPitrWindow(restoreTime);
+    await restoreLocalDockerProduction({
+      targetBranch: 'prod',
+      restoreTime: restoreTime.toISOString(),
+    });
+    return;
+  }
+
   assertProdSource(input.sourceBranch);
   const restoreTime = parseRestoreTime(input.restoreTime);
   await assertWithinPitrWindow(restoreTime);

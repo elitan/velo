@@ -10,6 +10,7 @@ import { getDb } from '../../db/client';
 import { runCommand, runSshCommand } from './command-service';
 import { getSetting, setSetting } from './settings-service';
 import { setStepStatus } from './setup-state-service';
+import { createLocalDockerReplicaBase, isLocalDockerMode } from './local-docker-service';
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
@@ -21,6 +22,10 @@ export interface ReplicaResult {
 }
 
 export async function createReplicaBase(): Promise<ReplicaResult> {
+  if (isLocalDockerMode()) {
+    return createLocalDockerReplicaBase();
+  }
+
   await setStepStatus('replica', 'running', 'creating base replica');
 
   const db = getDb();
