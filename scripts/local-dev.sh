@@ -90,18 +90,47 @@ compose() {
 }
 
 DEV_SERVER_PID=""
+CLEANUP_WATCHER_PID=""
+
+start_cleanup_watcher() {
+  local parent_pid="$$"
+
+  if [ -n "$CLEANUP_WATCHER_PID" ] && kill -0 "$CLEANUP_WATCHER_PID" 2>/dev/null; then
+    return
+  fi
+
+  nohup perl -MPOSIX=setsid -e 'setsid() or die "setsid: $!"; exec @ARGV' \
+    bash -c '
+      parent_pid="$1"
+      compose_file="$2"
+      compose_project_name="$3"
+
+      while kill -0 "$parent_pid" 2>/dev/null; do
+        sleep 2
+      done
+
+      COMPOSE_PROJECT_NAME="$compose_project_name" docker compose -f "$compose_file" down --remove-orphans >/dev/null 2>&1 || true
+    ' bash "$parent_pid" "$COMPOSE_FILE" "$COMPOSE_PROJECT_NAME" >/dev/null 2>&1 &
+  CLEANUP_WATCHER_PID=$!
+}
 
 cleanup_dev() {
   local exit_code=$?
 
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
 
   if [ -n "$DEV_SERVER_PID" ] && kill -0 "$DEV_SERVER_PID" 2>/dev/null; then
     kill "$DEV_SERVER_PID" 2>/dev/null || true
     wait "$DEV_SERVER_PID" 2>/dev/null || true
   fi
 
-  compose down || true
+  compose down --remove-orphans || true
+
+  if [ -n "$CLEANUP_WATCHER_PID" ] && kill -0 "$CLEANUP_WATCHER_PID" 2>/dev/null; then
+    kill "$CLEANUP_WATCHER_PID" 2>/dev/null || true
+    wait "$CLEANUP_WATCHER_PID" 2>/dev/null || true
+  fi
+
   exit "$exit_code"
 }
 
@@ -407,8 +436,9 @@ up() {
 }
 
 dev() {
-  trap cleanup_dev EXIT INT TERM
+  trap cleanup_dev EXIT INT TERM HUP
 
+  start_cleanup_watcher
   up
   bun --bun vite dev --host 0.0.0.0 --port "$VELO_LOCAL_WEB_PORT" &
   DEV_SERVER_PID=$!
