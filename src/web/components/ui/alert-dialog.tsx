@@ -24,7 +24,7 @@ function AlertDialogOverlay({ className, ...props }: React.ComponentProps<typeof
   );
 }
 
-function AlertDialogContent({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
+function AlertDialogContent({ className, onOpenAutoFocus, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -33,6 +33,20 @@ function AlertDialogContent({ className, ...props }: React.ComponentProps<typeof
           'fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-border bg-background p-5 shadow-xl outline-none',
           className
         )}
+        onOpenAutoFocus={function focusDefaultAction(event) {
+          onOpenAutoFocus?.(event);
+          if (event.defaultPrevented) {
+            return;
+          }
+
+          const action = (event.currentTarget as HTMLElement).querySelector<HTMLElement>('[data-default-action]');
+          if (!action) {
+            return;
+          }
+
+          event.preventDefault();
+          action.focus();
+        }}
         {...props}
       />
     </AlertDialogPortal>
@@ -56,7 +70,7 @@ function AlertDialogDescription({ className, ...props }: React.ComponentProps<ty
 }
 
 function AlertDialogAction({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
-  return <AlertDialogPrimitive.Action className={cn(buttonVariants(), className)} {...props} />;
+  return <AlertDialogPrimitive.Action data-default-action="" className={cn(buttonVariants(), className)} {...props} />;
 }
 
 function AlertDialogCancel({ className, ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
