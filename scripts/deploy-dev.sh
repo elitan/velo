@@ -50,6 +50,8 @@ if [ ! -f /etc/velo.env ]; then
 fi
 
 grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' '$VELO_PUBLIC_URL' >>/etc/velo.env
+grep -q '^VELO_BASIC_AUTH_USERNAME=' /etc/velo.env || printf 'VELO_BASIC_AUTH_USERNAME=%s\n' 'velo' >>/etc/velo.env
+grep -q '^VELO_BASIC_AUTH_PASSWORD=' /etc/velo.env || printf 'VELO_BASIC_AUTH_PASSWORD=%s\n' \"\$(openssl rand -base64 32)\" >>/etc/velo.env
 
 cat >/etc/systemd/system/velo-web.service <<SERVICE
 [Unit]
@@ -88,5 +90,5 @@ sleep 1
 systemctl is-active --quiet velo-web
 "
 
-curl -fsS -I "http://$VELO_DEPLOY_HOST:$VELO_PORT" >/dev/null
+ssh "${SSH_ARGS[@]}" "$REMOTE" "set -a; . /etc/velo.env; set +a; curl -fsS -I -u \"\$VELO_BASIC_AUTH_USERNAME:\$VELO_BASIC_AUTH_PASSWORD\" 'http://127.0.0.1:$VELO_PORT' >/dev/null"
 echo "Deployed: http://$VELO_DEPLOY_HOST:$VELO_PORT"

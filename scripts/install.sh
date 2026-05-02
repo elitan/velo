@@ -18,13 +18,22 @@ if ! command -v apt-get >/dev/null 2>&1; then
   exit 1
 fi
 
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl git unzip docker.io zfsutils-linux postgresql-client
+if ! command -v curl >/dev/null 2>&1 ||
+  ! command -v git >/dev/null 2>&1 ||
+  ! command -v unzip >/dev/null 2>&1 ||
+  ! command -v docker >/dev/null 2>&1 ||
+  ! command -v zfs >/dev/null 2>&1 ||
+  ! command -v psql >/dev/null 2>&1; then
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y curl git unzip docker.io zfsutils-linux postgresql-client
+fi
 systemctl enable --now docker || true
+
+export BUN_INSTALL="${BUN_INSTALL:-/root/.bun}"
+export PATH="$BUN_INSTALL/bin:$PATH"
 
 if ! command -v bun >/dev/null 2>&1; then
   curl -fsSL https://bun.sh/install | bash
-  export BUN_INSTALL="/root/.bun"
   export PATH="$BUN_INSTALL/bin:$PATH"
 fi
 
@@ -36,6 +45,8 @@ fi
 cd "$VELO_DIR"
 git fetch --all --tags
 git checkout "$VELO_REF"
+git reset --hard "$VELO_REF"
+git clean -fd -e node_modules -e .velo
 bun install --frozen-lockfile
 VELO_DB="$VELO_DIR/.velo/velo.sqlite" bun run db:migrate
 bun run web:build
@@ -46,6 +57,8 @@ if [ ! -f /etc/velo.env ]; then
 fi
 
 grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' "$VELO_PUBLIC_URL" >>/etc/velo.env
+grep -q '^VELO_BASIC_AUTH_USERNAME=' /etc/velo.env || printf 'VELO_BASIC_AUTH_USERNAME=%s\n' "${VELO_BASIC_AUTH_USERNAME:-velo}" >>/etc/velo.env
+grep -q '^VELO_BASIC_AUTH_PASSWORD=' /etc/velo.env || printf 'VELO_BASIC_AUTH_PASSWORD=%s\n' "${VELO_BASIC_AUTH_PASSWORD:-$(openssl rand -base64 32)}" >>/etc/velo.env
 
 cat >/etc/systemd/system/velo-web.service <<SERVICE
 [Unit]

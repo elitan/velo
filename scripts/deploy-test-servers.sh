@@ -56,7 +56,7 @@ if command -v zfs >/dev/null 2>&1; then
   zfs destroy -r tank/velo >/dev/null 2>&1 || true
   zpool destroy tank >/dev/null 2>&1 || true
 fi
-rm -rf $(shell_quote "$VELO_DEV_DIR") /opt/velo-dev /root/.velo /etc/velo.env /var/lib/velo/zfs-pool.img
+rm -rf $(shell_quote "$VELO_DEV_DIR/.velo") /opt/velo-dev /root/.velo /etc/velo.env /var/lib/velo/zfs-pool.img
 "
 }
 
@@ -70,7 +70,7 @@ if command -v pg_lsclusters >/dev/null 2>&1; then
   done
 fi
 rm -rf /var/lib/pgbackrest /var/log/pgbackrest /etc/pgbackrest.conf /etc/cron.d/velo-pgbackrest
-if command -v apt-get >/dev/null 2>&1; then
+if ! command -v pg_lsclusters >/dev/null 2>&1 || ! command -v pgbackrest >/dev/null 2>&1; then
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql postgresql-contrib pgbackrest
 fi
@@ -160,12 +160,12 @@ check_servers() {
   local attempt
 
   for attempt in $(seq 1 30); do
-    if curl -fsS -I "http://$VELO_TEST_DEV_HOST:$VELO_PORT" >/dev/null 2>&1; then
+    if ssh_run "$DEV_REMOTE" "set -a; . /etc/velo.env; set +a; curl -fsS -I -u \"\$VELO_BASIC_AUTH_USERNAME:\$VELO_BASIC_AUTH_PASSWORD\" http://127.0.0.1:$VELO_PORT >/dev/null"; then
       break
     fi
 
     if [ "$attempt" = 30 ]; then
-      curl -fsS -I "http://$VELO_TEST_DEV_HOST:$VELO_PORT" >/dev/null
+      ssh_run "$DEV_REMOTE" "set -a; . /etc/velo.env; set +a; curl -fsS -I -u \"\$VELO_BASIC_AUTH_USERNAME:\$VELO_BASIC_AUTH_PASSWORD\" http://127.0.0.1:$VELO_PORT >/dev/null"
     fi
 
     sleep 1

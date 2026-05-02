@@ -15,6 +15,12 @@ Bun.serve({
   hostname: host,
   port,
   async fetch(request) {
+    const authResponse = requireBasicAuth(request);
+
+    if (authResponse) {
+      return authResponse;
+    }
+
     const staticResponse = await serveStaticAsset(request);
 
     if (staticResponse) {
@@ -26,6 +32,47 @@ Bun.serve({
 });
 
 console.log(`Started server: http://${host}:${port}`);
+
+function requireBasicAuth(request: Request): Response | null {
+  const username = process.env.VELO_BASIC_AUTH_USERNAME || '';
+  const password = process.env.VELO_BASIC_AUTH_PASSWORD || '';
+
+  if (!username || !password) {
+    return null;
+  }
+
+  const header = request.headers.get('authorization') || '';
+  const prefix = 'Basic ';
+
+  if (!header.startsWith(prefix)) {
+    return unauthorizedResponse();
+  }
+
+  const decoded = Buffer.from(header.slice(prefix.length), 'base64').toString('utf8');
+  const separator = decoded.indexOf(':');
+
+  if (separator === -1) {
+    return unauthorizedResponse();
+  }
+
+  const providedUsername = decoded.slice(0, separator);
+  const providedPassword = decoded.slice(separator + 1);
+
+  if (providedUsername !== username || providedPassword !== password) {
+    return unauthorizedResponse();
+  }
+
+  return null;
+}
+
+function unauthorizedResponse(): Response {
+  return new Response('Unauthorized', {
+    status: 401,
+    headers: {
+      'WWW-Authenticate': 'Basic realm="Velo"',
+    },
+  });
+}
 
 async function serveStaticAsset(request: Request): Promise<Response | null> {
   const url = new URL(request.url);
