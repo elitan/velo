@@ -8,9 +8,11 @@ import { orpc } from '#web/lib/api-client';
 import {
   AppSidebar,
   BackupPanel,
+  BranchesPanel,
   JobsPanel,
   MetricCard,
   ServerPanel,
+  SetupPanel,
   StatusBadge,
   SystemPanel,
   type ServerRole,
@@ -26,6 +28,10 @@ function SettingsPage() {
   const saveServer = useMutation(orpc.servers.update.mutationOptions({ onSuccess: refreshDashboard }));
   const checkServer = useMutation(orpc.servers.check.mutationOptions({ onSuccess: refreshDashboard }));
   const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions({ onSuccess: refreshDashboard }));
+  const startBootstrap = useMutation(orpc.bootstrap.start.mutationOptions({ onSuccess: refreshDashboard }));
+  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
+  const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
+  const createReplicaBase = useMutation(orpc.replicaBase.create.mutationOptions({ onSuccess: refreshDashboard }));
   const busy = getBusyKey();
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
@@ -60,6 +66,22 @@ function SettingsPage() {
 
     if (saveBackupSettings.isPending) {
       return 'save-backup';
+    }
+
+    if (startBootstrap.isPending) {
+      return `bootstrap-${startBootstrap.variables?.target || 'dev'}`;
+    }
+
+    if (createBranch.isPending) {
+      return 'create-branch';
+    }
+
+    if (deleteBranch.isPending) {
+      return `delete-branch-${deleteBranch.variables?.id}`;
+    }
+
+    if (createReplicaBase.isPending) {
+      return 'create-replica';
     }
 
     return null;
@@ -113,10 +135,27 @@ function SettingsPage() {
     });
   }
 
+  async function handleBootstrap(kind: ServerRole) {
+    await startBootstrap.mutateAsync({ target: kind });
+  }
+
+  async function handleCreateBranch(formData: FormData) {
+    const name = String(formData.get('name') || '');
+    await createBranch.mutateAsync({ name });
+  }
+
+  async function handleDeleteBranch(id: number) {
+    await deleteBranch.mutateAsync({ id });
+  }
+
+  async function handleCreateReplica() {
+    await createReplicaBase.mutateAsync(undefined);
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
-        <AppSidebar branches={state.branches} activeProject="settings" selectedBranch="prod" />
+        <AppSidebar branches={state.branches} activeProject="settings" />
 
         <section className="min-w-0">
           <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -146,6 +185,19 @@ function SettingsPage() {
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
               <div className="grid min-w-0 gap-6">
+                <SetupPanel
+                  steps={state.setupSteps}
+                  busy={busy}
+                  prodServerReady={Boolean(prodServer)}
+                  onBootstrap={handleBootstrap}
+                  onCreateReplica={handleCreateReplica}
+                />
+                <BranchesPanel
+                  branches={state.branches}
+                  busy={busy}
+                  onCreate={handleCreateBranch}
+                  onDelete={handleDeleteBranch}
+                />
                 <div className="grid gap-6 lg:grid-cols-2">
                   <ServerPanel title="Production" role="prod" server={prodServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
                   <ServerPanel title="Development" role="dev" server={devServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />

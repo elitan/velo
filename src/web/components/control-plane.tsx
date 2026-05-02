@@ -1,5 +1,6 @@
 import type { FormEvent, ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
 import {
   Activity,
   AlertTriangle,
@@ -85,10 +86,10 @@ export function ProductionSummaryPanel(props: ProductionSummaryPanelProps) {
           <InfoCell label="Backup repo" value={props.backupMode} />
           <InfoCell label="Backup status" value={props.backupMessage || props.backupStatus} />
         </div>
-        <a className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} href="/branch/prod/overview">
+        <Link className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} to="/branch/$branchId/overview" params={{ branchId: 'prod' }}>
           <Database />
           Open production
-        </a>
+        </Link>
       </CardContent>
     </Card>
   );
@@ -132,15 +133,38 @@ export interface AppSidebarProps {
 }
 
 export function AppSidebar(props: AppSidebarProps) {
-  const selectedBranch = props.selectedBranch || 'prod';
+  const navigate = useNavigate();
+  const [savedBranch, setSavedBranch] = useState(function getInitialBranch() {
+    return props.selectedBranch || 'prod';
+  });
+  const selectedBranch = getSelectedBranch(props.selectedBranch || savedBranch, props.branches);
   const selectedBranchParam = encodeURIComponent(selectedBranch);
   const overviewHref = `/branch/${selectedBranchParam}/overview`;
   const sqlHref = `/branch/${selectedBranchParam}/sql`;
   const tablesHref = `/branch/${selectedBranchParam}/tables`;
   const backupHref = `/branch/${selectedBranchParam}/backup-restore`;
 
+  useEffect(function saveSelectedBranch() {
+    if (!props.selectedBranch) {
+      return;
+    }
+
+    setSavedBranch(props.selectedBranch);
+    window.localStorage.setItem('velo.selectedBranch', props.selectedBranch);
+  }, [props.selectedBranch]);
+
+  useEffect(function loadSavedBranch() {
+    if (props.selectedBranch) {
+      return;
+    }
+
+    setSavedBranch(window.localStorage.getItem('velo.selectedBranch') || 'prod');
+  }, [props.selectedBranch]);
+
   function changeBranch(value: string) {
-    window.location.href = `/branch/${encodeURIComponent(value)}/overview`;
+    setSavedBranch(value);
+    window.localStorage.setItem('velo.selectedBranch', value);
+    void navigate({ to: '/branch/$branchId/overview', params: { branchId: value } });
   }
 
   return (
@@ -190,6 +214,18 @@ export function AppSidebar(props: AppSidebarProps) {
   );
 }
 
+function getSelectedBranch(selectedBranch: string, branches: AppSidebarProps['branches']): string {
+  if (selectedBranch === 'prod') {
+    return selectedBranch;
+  }
+
+  const branchExists = branches.some(function hasBranch(branch) {
+    return branch.slug === selectedBranch;
+  });
+
+  return branchExists ? selectedBranch : 'prod';
+}
+
 interface SidebarSectionProps {
   label: string;
   className?: string;
@@ -218,8 +254,8 @@ function NavItem(props: NavItemProps) {
   const Icon = props.icon;
 
   return (
-    <a
-      href={props.href}
+    <Link
+      to={props.href}
       className={cn(
         'flex h-9 items-center gap-2 rounded-md px-3 text-muted-foreground',
         'transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
@@ -228,7 +264,7 @@ function NavItem(props: NavItemProps) {
     >
       <Icon className="size-4" />
       <span>{props.label}</span>
-    </a>
+    </Link>
   );
 }
 
@@ -394,6 +430,157 @@ export interface BranchesPanelProps {
   busy: string | null;
   onCreate: (formData: FormData) => Promise<void>;
   onDelete: (id: number, name: string) => Promise<void>;
+}
+
+interface BranchTreePanelProps {
+  branches: Array<{
+    id: number;
+    slug: string;
+    displayName: string;
+    status: string;
+    parentBranchId: number | null;
+    parentName: string | null;
+    parentSlug: string | null;
+  }>;
+  prodReady: boolean;
+}
+
+interface BranchTreeNode {
+  branch: BranchTreePanelProps['branches'][number];
+  children: BranchTreeNode[];
+}
+
+export function BranchTreePanel(props: BranchTreePanelProps) {
+  const tree = buildBranchTree(props.branches);
+
+  return (
+    <Card>
+      <CardContent className="p-2">
+        <Link
+          className={cn(
+            'flex min-h-14 items-center gap-3 rounded-md px-3 py-2',
+            'transition-colors hover:bg-accent hover:text-accent-foreground'
+          )}
+          to="/branch/$branchId/overview"
+          params={{ branchId: 'prod' }}
+          onClick={function saveProdBranch() {
+            window.localStorage.setItem('velo.selectedBranch', 'prod');
+          }}
+        >
+          <div className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
+            <Database className="size-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <p className="truncate font-medium">prod</p>
+              <Badge variant="outline">production</Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">root branch</p>
+          </div>
+          <StatusBadge status={props.prodReady ? 'ready' : 'pending'} />
+        </Link>
+
+        {tree.length > 0 ? (
+          <div className="ml-7 border-l border-border pl-4">
+            {tree.map(function renderRoot(node) {
+              return <BranchTreeItem key={node.branch.id} node={node} />;
+            })}
+          </div>
+        ) : (
+          <div className="ml-7 border-l border-border py-6 pl-4 text-sm text-muted-foreground">
+            No dev branches yet.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BranchTreeItem(props: { node: BranchTreeNode }) {
+  const branch = props.node.branch;
+
+  return (
+    <div className="relative">
+      <div className="absolute left-[-1rem] top-7 h-px w-4 bg-border" />
+      <Link
+        className={cn(
+          'my-1 flex min-h-14 items-center gap-3 rounded-md px-3 py-2',
+          'transition-colors hover:bg-accent hover:text-accent-foreground'
+        )}
+        to="/branch/$branchId/overview"
+        params={{ branchId: branch.slug }}
+        onClick={function saveBranch() {
+          window.localStorage.setItem('velo.selectedBranch', branch.slug);
+        }}
+      >
+        <div className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+          <GitBranch className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate font-medium">{branch.displayName}</p>
+          </div>
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            from {branch.parentName || branch.parentSlug || 'prod'}
+          </p>
+        </div>
+        <StatusBadge status={branch.status} />
+      </Link>
+
+      {props.node.children.length > 0 ? (
+        <div className="ml-7 border-l border-border pl-4">
+          {props.node.children.map(function renderChild(child) {
+            return <BranchTreeItem key={child.branch.id} node={child} />;
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function buildBranchTree(branches: BranchTreePanelProps['branches']): BranchTreeNode[] {
+  const nodesById = new Map<number, BranchTreeNode>();
+  const roots: BranchTreeNode[] = [];
+
+  branches.forEach(function addNode(branch) {
+    nodesById.set(branch.id, { branch, children: [] });
+  });
+
+  branches.forEach(function linkNode(branch) {
+    const node = nodesById.get(branch.id);
+
+    if (!node) {
+      return;
+    }
+
+    if (!branch.parentBranchId) {
+      roots.push(node);
+      return;
+    }
+
+    const parent = nodesById.get(branch.parentBranchId);
+
+    if (!parent) {
+      roots.push(node);
+      return;
+    }
+
+    parent.children.push(node);
+  });
+
+  sortBranchNodes(roots);
+
+  return roots;
+}
+
+function sortBranchNodes(nodes: BranchTreeNode[]) {
+  nodes.sort(function sortByName(first, second) {
+    return first.branch.displayName.localeCompare(second.branch.displayName);
+  });
+
+  nodes.forEach(function sortChildren(node) {
+    sortBranchNodes(node.children);
+  });
 }
 
 export function BranchesPanel(props: BranchesPanelProps) {
