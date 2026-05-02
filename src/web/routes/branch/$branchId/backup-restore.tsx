@@ -40,6 +40,7 @@ import {
   AppSidebar,
   StatusBadge,
 } from '#web/components/control-plane';
+import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
 
 export const Route = createFileRoute('/branch/$branchId/backup-restore')({
   component: BackupRestorePage,
@@ -90,6 +91,11 @@ function BackupRestorePage() {
   }
 
   const state = dashboard.data;
+
+  if (!isSetupComplete(state)) {
+    return <OnboardingWizard />;
+  }
+
   const branchId = params.branchId;
   const isProd = branchId === 'prod';
   const branch = isProd ? null : state.branches.find(function findBranch(item) {
