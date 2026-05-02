@@ -1,6 +1,5 @@
 import { PATHS } from '../utils/paths';
 import { $ } from 'bun';
-import { CLI_NAME } from '../config/constants';
 
 export interface WALArchiveInfo {
   datasetName: string;

@@ -1,4 +1,4 @@
-name: Test
+name: CI
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  fast:
+  test:
     runs-on: ubuntu-22.04
 
     steps:
@@ -25,72 +25,11 @@ jobs:
     - name: Run typecheck
       run: bun run typecheck
 
-    - name: Run control plane tests
-      run: bun run test:control
+    - name: Run tests
+      run: bun run test
 
     - name: Build web UI
       run: bun run web:build
 
     - name: Check shell scripts
       run: bash -n scripts/*.sh
-
-  test:
-    runs-on: ubuntu-22.04
-    needs: fast
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
-
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v2
-      with:
-        bun-version: latest
-
-    - name: Install dependencies
-      run: bun install
-
-    - name: Install PostgreSQL client tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y postgresql-client jq
-
-    - name: Install ZFS
-      run: |
-        sudo apt-get install -y zfsutils-linux
-
-    - name: Create ZFS pool
-      run: |
-        # Create a file-based ZFS pool for testing (since we don't have real disks)
-        sudo truncate -s 10G /tmp/zfs-pool.img
-        sudo zpool create tank /tmp/zfs-pool.img
-        sudo zpool status tank
-
-    - name: Setup Docker permissions
-      run: |
-        # Ensure user can access Docker
-        sudo usermod -aG docker $USER
-        # Docker should already be running in GitHub Actions
-
-    - name: Build velo
-      run: bun run build
-
-    - name: Pre-pull Docker images
-      run: |
-        # Pre-pull PostgreSQL image to avoid Docker Hub rate limits during tests
-        docker pull postgres:17-alpine
-
-    - name: Run test suite
-      run: ./scripts/test.sh
-      timeout-minutes: 15
-      env:
-        BAIL_COUNT: 5
-
-    - name: Cleanup
-      if: always()
-      run: |
-        # Clean up containers
-        docker ps -a | grep velo- | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
-        # Clean up ZFS
-        sudo zpool destroy tank 2>/dev/null || true
-        sudo rm -f /tmp/zfs-pool.img

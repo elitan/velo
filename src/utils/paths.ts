@@ -1,12 +1,11 @@
 import * as path from 'path';
 import * as os from 'os';
-import { CLI_NAME } from '../config/constants';
+import { APP_SLUG } from '../config/constants';
 
 const homeDir = os.homedir();
-const pgdDir = path.join(homeDir, `.${CLI_NAME}`);
+const dataDir = path.join(homeDir, `.${APP_SLUG}`);
 
 export const PATHS = {
-  STATE: path.join(pgdDir, 'state.json'),
-  WAL_ARCHIVE: path.join(pgdDir, 'wal-archive'),
-  DATA_DIR: pgdDir,
+  WAL_ARCHIVE: path.join(dataDir, 'wal-archive'),
+  DATA_DIR: dataDir,
 };

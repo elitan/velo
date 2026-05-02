@@ -81,12 +81,11 @@ Useful checks:
 
 ```sh
 bun run typecheck
-bun run test:control
+bun run test
 bun run web:build
 bash -n scripts/*.sh
 ```
 
 `bun run web:build` may add a TanStack footer to `src/web/routeTree.gen.ts`; remove that generated footer before committing unless routes changed.
-`scripts/test.sh` is destructive: it removes local `velo-*` containers, ZFS datasets, and `.velo` state. Do not run it without explicit approval.
 
 CI runs on `main`.

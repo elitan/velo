@@ -97,7 +97,7 @@ Bring two Ubuntu servers. Run Velo on the dev server. Get production Postgres wi
 - keep this file updated
 - decide state model
 - decide web stack
-- decide command/job boundaries
+- decide service/job boundaries
 
 ### M1: Local web shell
 
@@ -186,19 +186,23 @@ src/
     routes/
     components/
     lib/
+  managers/
+    docker.ts
+    zfs.ts
+    wal.ts
 ```
 
-Keep the web/control-plane code separate from legacy CLI engine code until it can absorb the old paths.
+Keep product flows in server services. The web UI should call server APIs, not shell out to local commands.
 
 ## Development Plan
 
-Work in this repo. Treat current CLI code as useful engine code, not sacred.
+Work in this repo. Velo v2 is web only.
 
 Preferred order:
 
 1. add SQLite schema and Kysely client
 2. add migrations and generated DB types
-3. add SSH command runner
+3. add SSH runner
 4. add setup/check services
 5. add TanStack Start web shell
 6. add tRPC routes
@@ -226,10 +230,12 @@ The script:
 
 ## Test Gates
 
-Use two test gates:
+Use one CI gate:
 
-- CI fast gate: `bun run typecheck`, `bun run test:control`, `bun run web:build`, and shell syntax checks.
-- CI integration gate: existing Docker/ZFS test suite through `./scripts/test.sh`.
+- `bun run typecheck`
+- `bun run test`
+- `bun run web:build`
+- `bash -n scripts/*.sh`
 
 For this project, “tested” means more than CI:
 
