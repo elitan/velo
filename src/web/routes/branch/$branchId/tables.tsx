@@ -1,18 +1,43 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import type { FormEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Database,
+  Loader2,
+  Pencil,
+  Plus,
   RefreshCw,
   Search,
   Table2,
+  Trash2,
 } from 'lucide-react';
 import { AppSidebar } from '#web/components/control-plane';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '#web/components/ui/alert-dialog';
 import { Badge } from '#web/components/ui/badge';
 import { Button } from '#web/components/ui/button';
+import { Checkbox } from '#web/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#web/components/ui/dialog';
 import { Input } from '#web/components/ui/input';
+import { Label } from '#web/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -28,11 +53,17 @@ export const Route = createFileRoute('/branch/$branchId/tables')({
   component: BranchTablesPage,
 });
 
+const TABLE_ROW_ID_COLUMN = '__velo_ctid';
+
 function BranchTablesPage() {
   const params = Route.useParams();
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
   const [selected, setSelected] = useState<TableKey | null>(null);
   const [search, setSearch] = useState('');
+  const [editor, setEditor] = useState<RowEditorState | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [rowToDelete, setRowToDelete] = useState<DeleteRowState | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const metadata = useQuery(orpc.tables.browse.queryOptions({
     input: {
       branchId: params.branchId,
@@ -58,6 +89,23 @@ function BranchTablesPage() {
       return previousData;
     },
   });
+  const insertRow = useMutation(orpc.tables.insert.mutationOptions({
+    onSuccess: refreshAfterMutation,
+  }));
+  const updateRow = useMutation(orpc.tables.update.mutationOptions({
+    onSuccess: refreshAfterMutation,
+  }));
+  const deleteRow = useMutation(orpc.tables.delete.mutationOptions({
+    onSuccess: refreshAfterMutation,
+  }));
+
+  useEffect(function resetBranchScopedState() {
+    setSelected(null);
+    setEditor(null);
+    setEditorError(null);
+    setRowToDelete(null);
+    setDeleteError(null);
+  }, [params.branchId]);
 
   useEffect(function setInitialTable() {
     if (selected || !metadata.data?.selectedTable) {
@@ -106,24 +154,199 @@ function BranchTablesPage() {
     });
   }
 
+  function refreshAfterMutation() {
+    void rows.refetch();
+  }
+
+  function getCurrentRowsTarget(): TableActionTarget | null {
+    if (!rows.data || !rowDataMatches(rows.data, params.branchId, selectedDatabase, selectedSchema, selectedTable)) {
+      return null;
+    }
+
+    return {
+      branchId: rows.data.branchId,
+      database: rows.data.database,
+      schema: rows.data.schema,
+      table: rows.data.table,
+    };
+  }
+
+  function openAddRow() {
+    const target = getCurrentRowsTarget();
+
+    if (!rows.data || !target) {
+      return;
+    }
+
+    setEditor({
+      mode: 'insert',
+      target,
+      rowId: null,
+      fields: createInsertDraft(rows.data.columns),
+    });
+    setEditorError(null);
+  }
+
+  function openEditRow(row: Record<string, unknown>) {
+    const target = getCurrentRowsTarget();
+
+    if (!rows.data || !target) {
+      return;
+    }
+
+    setEditor({
+      mode: 'edit',
+      target,
+      rowId: formatCell(row[TABLE_ROW_ID_COLUMN]),
+      fields: createEditDraft(rows.data.columns, row),
+    });
+    setEditorError(null);
+  }
+
+  function openDeleteRow(row: Record<string, unknown>) {
+    const target = getCurrentRowsTarget();
+
+    if (!rows.data || !target) {
+      return;
+    }
+
+    setRowToDelete({
+      target,
+      rowId: formatCell(row[TABLE_ROW_ID_COLUMN]),
+      label: createDeleteLabel(row, rows.data.columns),
+    });
+    setDeleteError(null);
+  }
+
+  function closeEditor() {
+    if (insertRow.isPending || updateRow.isPending) {
+      return;
+    }
+
+    setEditor(null);
+    setEditorError(null);
+  }
+
+  function closeDeleteDialog() {
+    if (deleteRow.isPending) {
+      return;
+    }
+
+    setRowToDelete(null);
+    setDeleteError(null);
+  }
+
+  async function confirmDeleteRow() {
+    if (!rowToDelete) {
+      return;
+    }
+
+    if (rowToDelete.target.branchId !== params.branchId) {
+      setDeleteError('Branch changed. Reopen this row from the current branch.');
+      return;
+    }
+
+    try {
+      setDeleteError(null);
+      await deleteRow.mutateAsync({
+        branchId: rowToDelete.target.branchId,
+        database: rowToDelete.target.database,
+        schema: rowToDelete.target.schema,
+        table: rowToDelete.target.table,
+        rowId: rowToDelete.rowId,
+      });
+      setRowToDelete(null);
+    } catch (caught: any) {
+      setDeleteError(caught?.message || 'Could not delete row');
+    }
+  }
+
+  function updateDraftField(column: string, patch: Partial<RowDraftField>) {
+    setEditor(function updateCurrentEditor(current) {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        fields: current.fields.map(function updateField(field) {
+          if (field.column !== column) {
+            return field;
+          }
+
+          return {
+            ...field,
+            ...patch,
+          };
+        }),
+      };
+    });
+  }
+
+  async function saveEditor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!editor) {
+      return;
+    }
+
+    if (editor.target.branchId !== params.branchId) {
+      setEditorError('Branch changed. Reopen this row from the current branch.');
+      return;
+    }
+
+    const values = buildEditorValues(editor);
+
+    try {
+      setEditorError(null);
+
+      if (editor.mode === 'insert') {
+        await insertRow.mutateAsync({
+          branchId: editor.target.branchId,
+          database: editor.target.database,
+          schema: editor.target.schema,
+          table: editor.target.table,
+          values,
+        });
+      } else if (editor.rowId) {
+        await updateRow.mutateAsync({
+          branchId: editor.target.branchId,
+          database: editor.target.database,
+          schema: editor.target.schema,
+          table: editor.target.table,
+          rowId: editor.rowId,
+          values,
+        });
+      }
+
+      setEditor(null);
+    } catch (caught: any) {
+      setEditorError(caught?.message || 'Could not save row');
+    }
+  }
+
   const rowOffset = rows.data?.rowOffset || selected?.offset || 0;
   const rowLimit = rows.data?.rowLimit || 50;
   const rowEnd = rows.data ? Math.min(rows.data.rowOffset + rows.data.rowLimit, rows.data.rowCount) : rowOffset + rowLimit;
   const canPageBack = rowOffset > 0;
   const canPageForward = rows.data ? rowOffset + rowLimit < rows.data.rowCount : false;
+  const saving = insertRow.isPending || updateRow.isPending;
+  const deleting = deleteRow.isPending;
+  const rowsReady = Boolean(rows.data && rowDataMatches(rows.data, params.branchId, selectedDatabase, selectedSchema, selectedTable));
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
-        <AppSidebar branches={branches} activeBranchPage="tables" selectedBranch={params.branchId} />
+    <>
+      <main className="min-h-screen bg-background text-foreground">
+        <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
+          <AppSidebar branches={branches} activeBranchPage="tables" selectedBranch={params.branchId} />
 
-        <section className="grid min-h-screen min-w-0 grid-rows-[auto_1fr]">
+          <section className="grid min-h-screen min-w-0 grid-rows-[auto_1fr]">
           <header className="border-b border-border px-5 py-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">Tables</Badge>
-                  <Badge variant="secondary">read only</Badge>
+                  <Badge variant="secondary">editable</Badge>
                 </div>
                 <h1 className="mt-2 text-2xl font-semibold tracking-normal">Tables</h1>
                 <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
@@ -233,6 +456,17 @@ function BranchTablesPage() {
                 <div className="text-xs text-muted-foreground">
                   {rows.data ? `${rows.data.rowLimit} rows · ${rows.data.elapsedMs}ms` : 'Loading...'}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  disabled={!rowsReady || !rows.data || rows.data.columns.length === 0}
+                  onClick={openAddRow}
+                >
+                  <Plus className="size-3.5" />
+                  Add row
+                </Button>
                 <div className="flex h-8 overflow-hidden rounded-md border border-input bg-background">
                   <Button
                     type="button"
@@ -279,12 +513,108 @@ function BranchTablesPage() {
                 </Button>
               </div>
 
-              <TableGrid data={rows.data} loading={rows.isLoading} error={rows.error} />
+              <TableGrid
+                data={rows.data}
+                loading={rows.isLoading}
+                error={rows.error}
+                actionsDisabled={!rowsReady}
+                onEditRow={openEditRow}
+                onDeleteRow={openDeleteRow}
+              />
             </div>
           </div>
-        </section>
-      </div>
-    </main>
+          </section>
+        </div>
+      </main>
+
+      <Dialog open={editor !== null} onOpenChange={function handleEditorOpenChange(open) {
+        if (!open) {
+          closeEditor();
+        }
+      }}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{editor?.mode === 'insert' ? 'Add row' : 'Edit row'}</DialogTitle>
+            <DialogDescription>
+              {editor ? `${editor.target.schema}.${editor.target.table}` : `${selectedSchema}.${selectedTable}`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="grid gap-4" onSubmit={saveEditor}>
+            {editorError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {editorError}
+              </div>
+            ) : null}
+
+            {editor ? (
+              <RowFieldsEditor
+                fields={editor.fields}
+                mode={editor.mode}
+                disabled={saving}
+                onChangeField={updateDraftField}
+              />
+            ) : null}
+
+            <DialogFooter>
+              <Button type="button" variant="ghost" disabled={saving} onClick={closeEditor}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving || !editor}>
+                {saving ? <Loader2 className="animate-spin" /> : null}
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={rowToDelete !== null} onOpenChange={function handleDeleteOpenChange(open) {
+        if (!open) {
+          closeDeleteDialog();
+        }
+      }}>
+        <AlertDialogContent
+          onKeyDown={function handleDeleteDialogKeyDown(event) {
+            if (event.key !== 'Enter' || deleting) {
+              return;
+            }
+
+            event.preventDefault();
+            void confirmDeleteRow();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete row?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {rowToDelete ? `Delete ${rowToDelete.label} from ${rowToDelete.target.schema}.${rowToDelete.target.table}.` : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {deleteError ? (
+            <div className="whitespace-pre-wrap rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {deleteError}
+            </div>
+          ) : null}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              autoFocus
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={function deleteConfirmed(event) {
+                event.preventDefault();
+                void confirmDeleteRow();
+              }}
+            >
+              {deleting ? <Loader2 className="animate-spin" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -299,6 +629,9 @@ interface TableGridProps {
   data: Awaited<ReturnType<typeof orpc.tables.rows.call>> | undefined;
   loading: boolean;
   error: Error | null;
+  actionsDisabled: boolean;
+  onEditRow: (row: Record<string, unknown>) => void;
+  onDeleteRow: (row: Record<string, unknown>) => void;
 }
 
 function TableGrid(props: TableGridProps) {
@@ -335,19 +668,20 @@ function TableGrid(props: TableGridProps) {
                 </th>
               );
             })}
+            <th className="sticky right-0 z-20 h-9 w-20 border-b border-l border-r border-border bg-white px-3 text-left font-medium text-muted-foreground" />
           </tr>
         </thead>
         <tbody>
           {props.data.rows.length === 0 ? (
             <tr>
-              <td className="p-6 text-sm text-muted-foreground" colSpan={data.columns.length + 1}>
+              <td className="p-6 text-sm text-muted-foreground" colSpan={data.columns.length + 2}>
                 No rows.
               </td>
             </tr>
           ) : (
             data.rows.map(function renderRow(row, index) {
               return (
-                <tr key={index} className="hover:bg-muted/40">
+                <tr key={index} className="group hover:bg-muted/40">
                   <td className="h-9 border-b border-r border-border px-3 font-mono text-xs text-muted-foreground">
                     {data.rowOffset + index + 1}
                   </td>
@@ -362,12 +696,196 @@ function TableGrid(props: TableGridProps) {
                       </td>
                     );
                   })}
+                  <td className="sticky right-0 h-9 border-b border-l border-r border-border bg-white px-2 group-hover:bg-white">
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 bg-white hover:bg-accent"
+                        aria-label="Edit row"
+                        disabled={props.actionsDisabled}
+                        onClick={function editRow() {
+                          props.onEditRow(row);
+                        }}
+                      >
+                        <Pencil className="size-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 bg-white hover:bg-accent"
+                        aria-label="Delete row"
+                        disabled={props.actionsDisabled}
+                        onClick={function deleteRow() {
+                          props.onDeleteRow(row);
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </td>
                 </tr>
               );
             })
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+type RowEditorMode = 'insert' | 'edit';
+
+interface TableActionTarget {
+  branchId: string;
+  database: string;
+  schema: string;
+  table: string;
+}
+
+interface RowDraftField {
+  column: string;
+  type: string;
+  value: string;
+  isNull: boolean;
+  enabled: boolean;
+}
+
+interface RowEditorState {
+  mode: RowEditorMode;
+  target: TableActionTarget;
+  rowId: string | null;
+  fields: RowDraftField[];
+}
+
+interface DeleteRowState {
+  target: TableActionTarget;
+  rowId: string;
+  label: string;
+}
+
+function createInsertDraft(columns: Array<{ name: string; type: string; nullable: boolean; defaultValue: string | null }>): RowDraftField[] {
+  return columns.map(function createField(column) {
+    return {
+      column: column.name,
+      type: column.type,
+      value: '',
+      isNull: column.nullable && column.defaultValue === null,
+      enabled: column.defaultValue === null,
+    };
+  });
+}
+
+function createEditDraft(columns: Array<{ name: string; type: string }>, row: Record<string, unknown>): RowDraftField[] {
+  return columns.map(function createField(column) {
+    const value = row[column.name];
+    const isNull = value === null;
+
+    return {
+      column: column.name,
+      type: column.type,
+      value: isNull ? '' : formatCell(value),
+      isNull,
+      enabled: true,
+    };
+  });
+}
+
+function createDeleteLabel(row: Record<string, unknown>, columns: Array<{ name: string }>): string {
+  const firstColumn = columns[0]?.name;
+
+  if (!firstColumn) {
+    return `row ${formatCell(row[TABLE_ROW_ID_COLUMN])}`;
+  }
+
+  const firstValue = formatCell(row[firstColumn]);
+  return `${firstColumn} ${firstValue}`;
+}
+
+function rowDataMatches(
+  data: Awaited<ReturnType<typeof orpc.tables.rows.call>>,
+  branchId: string,
+  database: string,
+  schema: string,
+  table: string
+): boolean {
+  return data.branchId === branchId
+    && data.database === database
+    && data.schema === schema
+    && data.table === table;
+}
+
+function buildEditorValues(editor: RowEditorState): Record<string, string | null> {
+  return Object.fromEntries(
+    editor.fields
+      .filter(function keepField(field) {
+        return field.enabled;
+      })
+      .map(function mapField(field) {
+        return [field.column, field.isNull ? null : field.value];
+      })
+  );
+}
+
+interface RowFieldsEditorProps {
+  fields: RowDraftField[];
+  mode: RowEditorMode;
+  disabled: boolean;
+  onChangeField: (column: string, patch: Partial<RowDraftField>) => void;
+}
+
+function RowFieldsEditor(props: RowFieldsEditorProps) {
+  return (
+    <div className="grid gap-2">
+      {props.fields.map(function renderField(field) {
+        const valueDisabled = props.disabled || field.isNull || !field.enabled;
+
+        return (
+          <div
+            key={field.column}
+            className="grid gap-2 rounded-md border border-border bg-muted/20 p-2 md:grid-cols-[minmax(140px,1fr)_minmax(180px,2fr)_auto_auto]"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              {props.mode === 'insert' ? (
+                <Checkbox
+                  checked={field.enabled}
+                  disabled={props.disabled}
+                  onChange={function toggleEnabled(event) {
+                    props.onChangeField(field.column, { enabled: event.target.checked });
+                  }}
+                  aria-label={`Include ${field.column}`}
+                />
+              ) : null}
+              <div className="min-w-0">
+                <div className="truncate font-mono text-xs font-medium">{field.column}</div>
+                <div className="truncate text-[11px] text-muted-foreground">{field.type}</div>
+              </div>
+            </div>
+
+            <Input
+              value={field.value}
+              disabled={valueDisabled}
+              className="h-8 font-mono text-xs"
+              onChange={function updateValue(event) {
+                props.onChangeField(field.column, { value: event.target.value });
+              }}
+            />
+
+            <Label className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={field.isNull}
+                disabled={props.disabled || !field.enabled}
+                onChange={function toggleNull(event) {
+                  props.onChangeField(field.column, { isNull: event.target.checked });
+                }}
+              />
+              null
+            </Label>
+          </div>
+        );
+      })}
     </div>
   );
 }

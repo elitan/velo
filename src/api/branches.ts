@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { getDb } from '#db/client';
 import { publicProcedure } from './context';
+import { userFacingError } from './errors';
 import { createJob, runJob } from '#server/services/job-service';
 import { createBranchFromBase, createPreviewBranch, deleteBranch, normalizeBranchSlug, resetBranchFromParent } from '#server/services/branch-service';
 import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest } from '#server/services/pgbackrest-restore-service';
@@ -73,7 +74,11 @@ export const branchesRouter = {
     run: publicProcedure
       .input(runSqlInput)
       .handler(async function runSql({ input }) {
-        return runBranchSql(input);
+        try {
+          return await runBranchSql(input);
+        } catch (error) {
+          throw userFacingError(error, 'SQL failed');
+        }
       }),
   },
   restore: publicProcedure
