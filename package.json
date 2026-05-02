@@ -64,6 +64,7 @@
     "deploy": "scripts/deploy-hetzner.sh",
     "deploy:hetzner": "scripts/deploy-hetzner.sh",
     "deploy:dev": "scripts/deploy-dev.sh",
+    "e2e:hetzner": "scripts/e2e-hetzner.sh",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:generate": "bun run db:migrate && kysely-codegen --camel-case --dialect bun-sqlite --url ${VELO_DB:-$HOME/.velo/velo.sqlite} --out-file src/db/generated.ts",
     "typecheck": "tsc --noEmit"

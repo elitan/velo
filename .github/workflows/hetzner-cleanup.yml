@@ -1,0 +1,42 @@
+name: Hetzner Cleanup
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Delete old Velo CI servers and SSH keys
+      env:
+        HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+      run: |
+        set -euo pipefail
+        test -n "$HETZNER_API_TOKEN"
+        now="$(date +%s)"
+        max_age=7200
+
+        servers="$(curl -fsS -H "Authorization: Bearer $HETZNER_API_TOKEN" "https://api.hetzner.cloud/v1/servers?label_selector=purpose=velo-ci")"
+        echo "$servers" | jq -r '.servers[] | "\(.id) \(.created)"' | while read -r id created; do
+          created_ts="$(date -d "$created" +%s)"
+          age="$((now - created_ts))"
+          if [ "$age" -gt "$max_age" ]; then
+            echo "Deleting server $id"
+            curl -fsS -X DELETE -H "Authorization: Bearer $HETZNER_API_TOKEN" "https://api.hetzner.cloud/v1/servers/$id" >/dev/null || true
+          fi
+        done
+
+        keys="$(curl -fsS -H "Authorization: Bearer $HETZNER_API_TOKEN" "https://api.hetzner.cloud/v1/ssh_keys?label_selector=purpose=velo-ci")"
+        echo "$keys" | jq -r '.ssh_keys[] | "\(.id) \(.name) \(.created)"' | while read -r id name created; do
+          created_ts="$(date -d "$created" +%s)"
+          age="$((now - created_ts))"
+          if [ "$age" -gt "$max_age" ]; then
+            echo "Deleting SSH key $name ($id)"
+            curl -fsS -X DELETE -H "Authorization: Bearer $HETZNER_API_TOKEN" "https://api.hetzner.cloud/v1/ssh_keys/$id" >/dev/null || true
+          fi
+        done

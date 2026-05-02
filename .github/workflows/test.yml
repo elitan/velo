@@ -34,10 +34,11 @@ jobs:
     - name: Check shell scripts
       run: bash -n scripts/*.sh
 
-  deploy:
+  hetzner-e2e:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
 
     steps:
     - name: Checkout code
@@ -52,9 +53,11 @@ jobs:
         printf '%s\n' "$HETZNER_SSH_KEY" > "$RUNNER_TEMP/ssh/hetzner_key"
         chmod 600 "$RUNNER_TEMP/ssh/hetzner_key"
 
-    - name: Reset and deploy Hetzner servers
+    - name: Run Hetzner E2E
       env:
+        HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
         VELO_DEPLOY_KEY: ${{ runner.temp }}/ssh/hetzner_key
         VELO_REPO: https://github.com/${{ github.repository }}.git
         VELO_REF: ${{ github.sha }}
-      run: scripts/deploy-hetzner.sh
+        VELO_CI_RUN_ID: ${{ github.run_id }}
+      run: scripts/ci-hetzner.sh
