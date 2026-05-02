@@ -13,10 +13,12 @@ export interface Branches {
   connection_url: string | null;
   created_at: Generated<string>;
   dataset: string;
+  display_name: string;
   id: Generated<number | null>;
-  name: string;
+  parent_branch_id: number | null;
   port: number | null;
   project_id: number;
+  slug: string;
   source_replay_at: string | null;
   status: Generated<string>;
   updated_at: Generated<string>;

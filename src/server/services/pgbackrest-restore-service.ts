@@ -27,7 +27,8 @@ export interface RestoreBranchInput {
 
 export interface RestoreBranchResult {
   id: number;
-  name: string;
+  slug: string;
+  displayName: string;
   connectionUrl: string;
 }
 
@@ -119,7 +120,8 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
       .insertInto('branches')
       .values({
         project_id: project.id,
-        name: branchName,
+        slug: branchName,
+        display_name: branchName,
         dataset,
         port,
         status: 'running',
@@ -131,14 +133,15 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
 
     const row = await db
       .selectFrom('branches')
-      .select(['id', 'name', 'connection_url'])
+      .select(['id', 'slug', 'display_name as displayName', 'connection_url'])
       .where('project_id', '=', project.id)
-      .where('name', '=', branchName)
+      .where('slug', '=', branchName)
       .executeTakeFirstOrThrow();
 
     return {
       id: row.id,
-      name: row.name,
+      slug: row.slug,
+      displayName: row.displayName,
       connectionUrl: row.connection_url || connectionUrl,
     };
   } catch (error) {

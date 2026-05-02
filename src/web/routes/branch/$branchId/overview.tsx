@@ -80,7 +80,7 @@ function BranchOverviewPage() {
 
     await runBusy('create-child', async function createChildBranch() {
       await createBranch({ data: { name, parentBranchId: branch.rowId } });
-      setMessage(`Creating child branch ${name} from ${branch.id}.`);
+      setMessage(`Creating child branch ${name} from ${branch.name}.`);
     });
   }
 
@@ -89,13 +89,13 @@ function BranchOverviewPage() {
       return;
     }
 
-    if (!window.confirm(`Reset ${branch.id} from parent ${branch.parentName}? This replaces the branch data.`)) {
+    if (!window.confirm(`Reset ${branch.name} from parent ${branch.parentName}? This replaces the branch data.`)) {
       return;
     }
 
     await runBusy('reset', async function resetFromParent() {
       await resetBranch({ data: { id: branch.rowId! } });
-      setMessage(`Resetting ${branch.id} from ${branch.parentName}.`);
+      setMessage(`Resetting ${branch.name} from ${branch.parentName}.`);
     });
   }
 
@@ -104,13 +104,13 @@ function BranchOverviewPage() {
       return;
     }
 
-    if (!window.confirm(`Delete branch "${branch.id}"?`)) {
+    if (!window.confirm(`Delete branch "${branch.name}"?`)) {
       return;
     }
 
     await runBusy('delete', async function deleteCurrentBranch() {
       await deleteBranch({ data: { id: branch.rowId! } });
-      window.location.href = `/branch/${encodeURIComponent(branch.parentName || 'prod')}/overview`;
+      window.location.href = `/branch/${encodeURIComponent(branch.parentSlug || 'prod')}/overview`;
     });
   }
 
@@ -129,7 +129,7 @@ function BranchOverviewPage() {
                 </div>
                 <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">Branch overview</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Current branch: {branch.id}
+                  Current branch: {branch.name}
                   {branch.parentName ? ` · Parent: ${branch.parentName}` : ''}
                 </p>
               </div>
@@ -210,8 +210,10 @@ function getBranchView(state: Awaited<ReturnType<typeof getSetupState>>, branchI
       id: 'prod',
       name: 'Production',
       rowId: null,
+      slug: 'prod',
       parentBranchId: null,
       parentName: null,
+      parentSlug: null,
       badge: 'Production',
       status: state.prodConnectionUrl ? 'ready' : 'pending',
       connectionUrl: state.prodConnectionUrl,
@@ -219,15 +221,17 @@ function getBranchView(state: Awaited<ReturnType<typeof getSetupState>>, branchI
   }
 
   const branch = state.branches.find(function findBranch(item) {
-    return item.name === branchId;
+    return item.slug === branchId;
   });
 
   return {
-    id: branch?.name || branchId,
-    name: branch?.name || branchId,
+    id: branch?.slug || branchId,
+    slug: branch?.slug || branchId,
+    name: branch?.displayName || branchId,
     rowId: branch?.id || null,
     parentBranchId: branch?.parentBranchId || null,
     parentName: branch?.parentName || 'prod',
+    parentSlug: branch?.parentSlug || 'prod',
     badge: 'Development',
     status: branch?.status || 'missing',
     connectionUrl: branch?.connectionUrl || null,

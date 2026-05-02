@@ -44,7 +44,8 @@ export interface ProjectsTable {
 export interface BranchesTable {
   id: Generated<number>;
   project_id: number;
-  name: string;
+  slug: string;
+  display_name: string;
   dataset: string;
   port: number | null;
   status: 'creating' | 'running' | 'stopped' | 'error';

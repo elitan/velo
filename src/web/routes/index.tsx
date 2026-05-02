@@ -337,7 +337,8 @@ export interface NavItemProps {
 export interface AppSidebarProps {
   branches: Array<{
     id: number;
-    name: string;
+    slug: string;
+    displayName: string;
   }>;
   activeProject?: 'dashboard' | 'settings';
   activeBranchPage?: 'overview' | 'backup';
@@ -382,8 +383,8 @@ export function AppSidebar(props: AppSidebarProps) {
               <SelectItem value="prod">prod</SelectItem>
               {props.branches.map(function renderBranchOption(branch) {
                 return (
-                  <SelectItem key={branch.id} value={branch.name}>
-                    {branch.name}
+                  <SelectItem key={branch.id} value={branch.slug}>
+                    {branch.displayName}
                   </SelectItem>
                 );
               })}
@@ -587,7 +588,8 @@ export function SetupPanel(props: SetupPanelProps) {
 export interface BranchesPanelProps {
   branches: Array<{
     id: number;
-    name: string;
+    slug: string;
+    displayName: string;
     status: string;
     port: number | null;
     connectionUrl: string | null;
@@ -620,7 +622,7 @@ export function BranchesPanel(props: BranchesPanelProps) {
               const isDeleting = props.busy === `delete-branch-${branch.id}`;
 
               async function deleteClick() {
-                await props.onDelete(branch.id, branch.name);
+                await props.onDelete(branch.id, branch.displayName);
               }
 
               return (
@@ -628,7 +630,7 @@ export function BranchesPanel(props: BranchesPanelProps) {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <GitBranch className="size-4 text-muted-foreground" />
-                      <p className="font-medium">{branch.name}</p>
+                      <p className="font-medium">{branch.displayName}</p>
                     </div>
                     <div className="mt-2 md:hidden">
                       <ConnectionString value={branch.connectionUrl} />

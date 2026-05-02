@@ -24,10 +24,12 @@ export interface DashboardState {
   }>;
   branches: Array<{
     id: number;
-    name: string;
+    slug: string;
+    displayName: string;
     status: string;
     parentBranchId: number | null;
     parentName: string | null;
+    parentSlug: string | null;
     port: number | null;
     connectionUrl: string | null;
     createdAt: string;
@@ -52,15 +54,17 @@ export async function getDashboardState(): Promise<DashboardState> {
       .leftJoin('branches as parent', 'parent.id', 'branches.parent_branch_id')
       .select([
         'branches.id as id',
-        'branches.name as name',
+        'branches.slug as slug',
+        'branches.display_name as displayName',
         'branches.status as status',
         'branches.parent_branch_id as parentBranchId',
-        'parent.name as parentName',
+        'parent.display_name as parentName',
+        'parent.slug as parentSlug',
         'branches.port as port',
         'branches.connection_url as connectionUrl',
         'branches.created_at as createdAt',
       ])
-      .where('branches.name', 'not like', 'preview-%')
+      .where('branches.slug', 'not like', 'preview-%')
       .orderBy('branches.created_at', 'desc')
       .execute(),
     listJobs(10),

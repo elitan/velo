@@ -17,6 +17,7 @@ const BASE_BRANCH_NAME = 'base';
 export interface CreateBranchInput {
   name: string;
   parentBranchId?: number | null;
+  slug?: string;
 }
 
 export interface CreatePreviewBranchInput {
@@ -26,7 +27,8 @@ export interface CreatePreviewBranchInput {
 
 export interface CreateBranchResult {
   id: number;
-  name: string;
+  slug: string;
+  displayName: string;
   connectionUrl: string;
 }
 
@@ -36,22 +38,25 @@ export interface DeleteBranchInput {
 
 export interface DeleteBranchResult {
   id: number;
-  name: string;
+  slug: string;
+  displayName: string;
 }
 
 export async function createBranchFromBase(input: CreateBranchInput): Promise<CreateBranchResult> {
-  const branchName = normalizeBranchName(input.name);
+  const displayName = normalizeDisplayName(input.name);
+  const branchSlug = normalizeBranchSlug(input.slug || input.name);
   const source = await resolveBranchSource(input.parentBranchId);
 
-  if (source.name === branchName) {
+  if (source.slug === branchSlug) {
     throw new Error('A branch cannot be created from itself');
   }
 
-  await setStepStatus('first-branch', 'running', `creating ${branchName}`);
+  await setStepStatus('first-branch', 'running', `creating ${displayName}`);
 
   const result = await createBranchClone({
-    name: branchName,
-    sourceBranch: source.name,
+    slug: branchSlug,
+    displayName,
+    sourceBranch: source.slug,
     sourceDataset: source.dataset,
     sourceReplayAt: new Date().toISOString(),
     parentBranchId: source.id,
@@ -59,7 +64,7 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
     readOnly: false,
   });
 
-  await setStepStatus('first-branch', 'done', `${branchName} ready`);
+  await setStepStatus('first-branch', 'done', `${displayName} ready`);
 
   return result;
 }
@@ -67,14 +72,14 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
 export async function createPreviewBranch(input: CreatePreviewBranchInput): Promise<CreateBranchResult> {
   const sourceBranch = normalizeSourceBranch(input.sourceBranch);
   const restoreTime = parseRestoreTime(input.restoreTime);
-  const branchName = buildPreviewBranchName(sourceBranch);
+  const branchSlug = buildPreviewBranchName(sourceBranch);
 
   if (sourceBranch !== 'prod') {
     throw new Error('PITR preview currently supports production as the source branch');
   }
 
   return createBranchFromPgBackRest({
-    targetBranch: branchName,
+    targetBranch: branchSlug,
     sourceBranch,
     restoreTime: restoreTime.toISOString(),
     publicAccess: false,
@@ -83,7 +88,8 @@ export async function createPreviewBranch(input: CreatePreviewBranchInput): Prom
 }
 
 async function createBranchClone(options: {
-  name: string;
+  slug: string;
+  displayName: string;
   sourceBranch: string;
   sourceDataset: string;
   sourceReplayAt: string;
@@ -91,7 +97,7 @@ async function createBranchClone(options: {
   publicAccess: boolean;
   readOnly: boolean;
 }): Promise<CreateBranchResult> {
-  const branchName = normalizeBranchName(options.name);
+  const branchSlug = normalizeBranchSlug(options.slug);
   const db = getDb();
   const project = await ensureProject();
   const devServer = await db
@@ -105,8 +111,8 @@ async function createBranchClone(options: {
   const wal = new WALManager();
   const cert = new CertManager();
 
-  const targetDataset = getDatasetName(PROJECT_NAME, branchName);
-  const targetContainer = getContainerName(PROJECT_NAME, branchName);
+  const targetDataset = getDatasetName(PROJECT_NAME, branchSlug);
+  const targetContainer = getContainerName(PROJECT_NAME, branchSlug);
 
   if (!(await zfs.datasetExists(options.sourceDataset))) {
     if (options.sourceBranch === 'prod') {
@@ -172,7 +178,8 @@ async function createBranchClone(options: {
       .insertInto('branches')
       .values({
         project_id: project.id,
-        name: branchName,
+        slug: branchSlug,
+        display_name: options.displayName,
         dataset: targetDataset,
         port,
         status: 'running',
@@ -184,14 +191,15 @@ async function createBranchClone(options: {
 
     const row = await db
       .selectFrom('branches')
-      .select(['id', 'name', 'connection_url'])
+      .select(['id', 'slug', 'display_name as displayName', 'connection_url'])
       .where('project_id', '=', project.id)
-      .where('name', '=', branchName)
+      .where('slug', '=', branchSlug)
       .executeTakeFirstOrThrow();
 
     return {
       id: row.id,
-      name: row.name,
+      slug: row.slug,
+      displayName: row.displayName,
       connectionUrl: row.connection_url || connectionUrl,
     };
   } catch (error) {
@@ -212,30 +220,31 @@ export async function resetBranchFromParent(input: DeleteBranchInput): Promise<C
   const db = getDb();
   const branch = await db
     .selectFrom('branches')
-    .select(['id', 'name', 'parent_branch_id as parentBranchId'])
+    .select(['id', 'slug', 'display_name as displayName', 'parent_branch_id as parentBranchId'])
     .where('id', '=', input.id)
     .executeTakeFirstOrThrow();
 
   await deleteBranch({ id: branch.id });
 
   return createBranchFromBase({
-    name: branch.name,
+    name: branch.displayName,
+    slug: branch.slug,
     parentBranchId: branch.parentBranchId,
   });
 }
 
-async function resolveBranchSource(parentBranchId: number | null | undefined): Promise<{ id: number | null; name: string; dataset: string }> {
+async function resolveBranchSource(parentBranchId: number | null | undefined): Promise<{ id: number | null; slug: string; dataset: string }> {
   if (!parentBranchId) {
     return {
       id: null,
-      name: 'prod',
+      slug: 'prod',
       dataset: getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME),
     };
   }
 
   const sourceBranch = await getDb()
     .selectFrom('branches')
-    .select(['id', 'name', 'dataset'])
+    .select(['id', 'slug', 'dataset'])
     .where('id', '=', parentBranchId)
     .executeTakeFirst();
 
@@ -245,7 +254,7 @@ async function resolveBranchSource(parentBranchId: number | null | undefined): P
 
   return {
     id: sourceBranch.id,
-    name: sourceBranch.name,
+    slug: sourceBranch.slug,
     dataset: sourceBranch.dataset,
   };
 }
@@ -254,12 +263,12 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
   const db = getDb();
   const child = await db
     .selectFrom('branches')
-    .select(['id', 'name'])
+    .select(['id', 'display_name as displayName'])
     .where('parent_branch_id', '=', input.id)
     .executeTakeFirst();
 
   if (child) {
-    throw new Error(`Branch has child branches. Delete ${child.name} first.`);
+    throw new Error(`Branch has child branches. Delete ${child.displayName} first.`);
   }
 
   const branch = await db
@@ -272,7 +281,7 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
   const zfs = new ZFSManager(pool, DEFAULTS.zfs.datasetBase);
   const docker = new DockerManager();
   const wal = new WALManager();
-  const containerName = getContainerName(PROJECT_NAME, branch.name);
+  const containerName = getContainerName(PROJECT_NAME, branch.slug);
   const containerId = await docker.getContainerByName(containerName);
   const originSnapshot = await getOriginSnapshot(zfs, branch.dataset);
 
@@ -316,7 +325,8 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
 
   return {
     id: branch.id,
-    name: branch.name,
+    slug: branch.slug,
+    displayName: branch.display_name,
   };
 }
 
@@ -419,11 +429,21 @@ async function cleanupFailedClone(options: {
   await options.wal.deleteArchiveDir(options.dataset).catch(function ignoreWalCleanupError() {});
 }
 
-function normalizeBranchName(name: string): string {
+function normalizeBranchSlug(name: string): string {
   const normalized = name.trim().toLowerCase();
 
   if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(normalized)) {
     throw new Error('Branch name must use lowercase letters, numbers, hyphens, or underscores');
+  }
+
+  return normalized;
+}
+
+function normalizeDisplayName(name: string): string {
+  const normalized = name.trim();
+
+  if (!normalized) {
+    throw new Error('Branch name is required');
   }
 
   return normalized;
@@ -436,12 +456,12 @@ function normalizeSourceBranch(name: string): string {
     return normalized;
   }
 
-  return normalizeBranchName(normalized);
+  return normalizeBranchSlug(normalized);
 }
 
 function buildPreviewBranchName(sourceBranch: string): string {
   const safeSource = sourceBranch.replace(/[^a-z0-9_-]/g, '-').slice(0, 28);
-  return normalizeBranchName(`preview-${safeSource}-${formatTimestamp(new Date())}`.slice(0, 63));
+  return normalizeBranchSlug(`preview-${safeSource}-${formatTimestamp(new Date())}`.slice(0, 63));
 }
 
 function parseRestoreTime(value: string): Date {

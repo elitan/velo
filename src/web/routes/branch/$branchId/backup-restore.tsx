@@ -63,9 +63,10 @@ function BackupRestorePage() {
   const branchId = params.branchId;
   const isProd = branchId === 'prod';
   const branch = isProd ? null : state.branches.find(function findBranch(item) {
-    return item.name === branchId;
+    return item.slug === branchId;
   });
-  const selectedBranch = isProd ? 'prod' : branch?.name || branchId;
+  const selectedBranch = isProd ? 'prod' : branch?.slug || branchId;
+  const selectedBranchLabel = isProd ? 'prod' : branch?.displayName || branchId;
   const status = isProd ? (state.prodConnectionUrl ? 'ready' : 'pending') : branch?.status || 'missing';
   const branchOptions = getBranchOptions(state);
   const backupOptions = getBackupOptions(state.backupAvailability.backups);
@@ -118,7 +119,7 @@ function BackupRestorePage() {
     try {
       await deletePreviewBranch({ data: { id: branchToDelete.id } });
     } catch (error: any) {
-      setPreviewError(error?.message || `Could not delete preview branch ${branchToDelete.name}`);
+      setPreviewError(error?.message || `Could not delete preview branch ${branchToDelete.displayName}`);
     }
   }
 
@@ -160,7 +161,7 @@ function BackupRestorePage() {
               <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">Backup & Restore</h1>
               <div className="mt-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
                 <GitBranch className="size-4" />
-                <span>{selectedBranch}</span>
+                <span>{selectedBranchLabel}</span>
               </div>
               <p className="mt-6 max-w-2xl text-sm leading-6 text-muted-foreground">
                 Use point-in-time restore for exact recent recovery, or daily backups for older recovery.
@@ -467,7 +468,7 @@ function HistoricPreviewModal(props: {
                 <PreviewTab active={tab === 'compare'} label="Compare schemas" onClick={function selectCompare() { setTab('compare'); }} />
               </div>
               {props.previewBranch ? (
-                <Badge variant="info">Preview branch: {props.previewBranch.name}</Badge>
+                <Badge variant="info">Preview branch: {props.previewBranch.displayName}</Badge>
               ) : null}
             </div>
           </div>
@@ -624,7 +625,8 @@ type BranchOption = {
 
 type PreviewBranch = {
   id: number;
-  name: string;
+  slug: string;
+  displayName: string;
   connectionUrl: string;
 };
 
@@ -636,8 +638,8 @@ function getBranchOptions(state: Awaited<ReturnType<typeof getSetupState>>) {
     },
     ...state.branches.map(function mapBranch(branch) {
       return {
-        value: branch.name,
-        label: branch.name,
+        value: branch.slug,
+        label: branch.displayName,
       };
     }),
   ];

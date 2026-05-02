@@ -96,7 +96,7 @@ export const setupRouter = router({
           return;
         }
 
-        const existing = await findBranchByName(normalizeBranchLookup(input.targetBranch));
+        const existing = await findBranchBySlug(normalizeBranchLookup(input.targetBranch));
 
         if (existing) {
           await context.log(`replacing existing branch ${input.targetBranch}`);
@@ -104,7 +104,7 @@ export const setupRouter = router({
         }
 
         const result = await restoreDevelopmentBranchFromPgBackRest(input);
-        await context.log(`branch restored: ${result.name}`);
+        await context.log(`branch restored: ${result.displayName}`);
       });
       return job;
     }),
@@ -164,7 +164,7 @@ export const setupRouter = router({
       runJob(job, async function runResetBranchJob(context) {
         await context.log(`resetting branch ${input.id} from parent`);
         const result = await resetBranchFromParent(input);
-        await context.log(`reset branch ${result.name}`);
+        await context.log(`reset branch ${result.displayName}`);
       });
       return job;
     }),
@@ -175,17 +175,17 @@ export const setupRouter = router({
       runJob(job, async function runDeleteBranchJob(context) {
         await context.log(`deleting branch ${input.id}`);
         const result = await deleteBranch(input);
-        await context.log(`deleted branch ${result.name}`);
+        await context.log(`deleted branch ${result.displayName}`);
       });
       return job;
     }),
 });
 
-async function findBranchByName(name: string): Promise<{ id: number } | undefined> {
+async function findBranchBySlug(slug: string): Promise<{ id: number } | undefined> {
   return getDb()
     .selectFrom('branches')
     .select(['id'])
-    .where('name', '=', name)
+    .where('slug', '=', slug)
     .executeTakeFirst();
 }
 
