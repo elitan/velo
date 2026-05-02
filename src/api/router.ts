@@ -7,6 +7,7 @@ import { dashboardRouter } from './dashboard';
 import { jobsRouter } from './jobs';
 import { replicaBaseRouter } from './replica-base';
 import { serversRouter } from './servers';
+import { tablesRouter } from './tables';
 
 export const appRouter = {
   dashboard: dashboardRouter,
@@ -16,6 +17,7 @@ export const appRouter = {
   bootstrap: bootstrapRouter,
   replicaBase: replicaBaseRouter,
   branches: branchesRouter,
+  tables: tablesRouter,
 };
 
 export type AppRouter = typeof appRouter;

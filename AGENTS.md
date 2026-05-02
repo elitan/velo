@@ -7,6 +7,7 @@
 - Commit and PR titles use `type(scope): short description`.
 - In PR descriptions, clearly state any API routes, procedures, or contracts that were added, updated, or deleted.
 - For UI, use shadcn components from `src/web/components/ui`. If a needed shadcn component is missing, add the local wrapper first, then use it. Avoid raw browser prompts/confirms and custom one-off buttons, menus, modals, tabs, inputs, or textareas in routes.
+- For UI data loading, keep stable metadata separate from volatile content. A page/filter/poll/refresh action should only reload the UI region it affects. Use smaller APIs and query keys, preserve previous data during page changes when useful, and avoid making sidebars, titles, selectors, or table lists flash because a grid page, row set, or job status changed.
 
 ## Current Velo Setup
 

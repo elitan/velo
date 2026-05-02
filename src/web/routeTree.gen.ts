@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BranchBranchIdTablesRouteImport } from './routes/branch/$branchId/tables'
 import { Route as BranchBranchIdSqlRouteImport } from './routes/branch/$branchId/sql'
 import { Route as BranchBranchIdOverviewRouteImport } from './routes/branch/$branchId/overview'
 import { Route as BranchBranchIdBackupRestoreRouteImport } from './routes/branch/$branchId/backup-restore'
@@ -25,6 +26,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BranchBranchIdTablesRoute = BranchBranchIdTablesRouteImport.update({
+  id: '/branch/$branchId/tables',
+  path: '/branch/$branchId/tables',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BranchBranchIdSqlRoute = BranchBranchIdSqlRouteImport.update({
@@ -62,6 +68,7 @@ export interface FileRoutesByFullPath {
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
   '/branch/$branchId/sql': typeof BranchBranchIdSqlRoute
+  '/branch/$branchId/tables': typeof BranchBranchIdTablesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -71,6 +78,7 @@ export interface FileRoutesByTo {
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
   '/branch/$branchId/sql': typeof BranchBranchIdSqlRoute
+  '/branch/$branchId/tables': typeof BranchBranchIdTablesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -81,6 +89,7 @@ export interface FileRoutesById {
   '/branch/$branchId/backup-restore': typeof BranchBranchIdBackupRestoreRoute
   '/branch/$branchId/overview': typeof BranchBranchIdOverviewRoute
   '/branch/$branchId/sql': typeof BranchBranchIdSqlRoute
+  '/branch/$branchId/tables': typeof BranchBranchIdTablesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -92,6 +101,7 @@ export interface FileRouteTypes {
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
     | '/branch/$branchId/sql'
+    | '/branch/$branchId/tables'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -101,6 +111,7 @@ export interface FileRouteTypes {
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
     | '/branch/$branchId/sql'
+    | '/branch/$branchId/tables'
   id:
     | '__root__'
     | '/'
@@ -110,6 +121,7 @@ export interface FileRouteTypes {
     | '/branch/$branchId/backup-restore'
     | '/branch/$branchId/overview'
     | '/branch/$branchId/sql'
+    | '/branch/$branchId/tables'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -120,6 +132,7 @@ export interface RootRouteChildren {
   BranchBranchIdBackupRestoreRoute: typeof BranchBranchIdBackupRestoreRoute
   BranchBranchIdOverviewRoute: typeof BranchBranchIdOverviewRoute
   BranchBranchIdSqlRoute: typeof BranchBranchIdSqlRoute
+  BranchBranchIdTablesRoute: typeof BranchBranchIdTablesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -136,6 +149,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/branch/$branchId/tables': {
+      id: '/branch/$branchId/tables'
+      path: '/branch/$branchId/tables'
+      fullPath: '/branch/$branchId/tables'
+      preLoaderRoute: typeof BranchBranchIdTablesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/branch/$branchId/sql': {
@@ -184,6 +204,7 @@ const rootRouteChildren: RootRouteChildren = {
   BranchBranchIdBackupRestoreRoute: BranchBranchIdBackupRestoreRoute,
   BranchBranchIdOverviewRoute: BranchBranchIdOverviewRoute,
   BranchBranchIdSqlRoute: BranchBranchIdSqlRoute,
+  BranchBranchIdTablesRoute: BranchBranchIdTablesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
