@@ -71,7 +71,7 @@ function SqlEditorPage() {
         return;
       }
 
-      setError(caught?.message || 'SQL failed');
+      setError(getErrorMessage(caught, 'SQL failed'));
       setResult(null);
     }
   }
@@ -229,6 +229,10 @@ function formatDuration(durationMs: number): string {
   }
 
   return `${(durationMs / 1000).toFixed(2)} s`;
+}
+
+function getErrorMessage(error: any, fallback: string): string {
+  return error?.data?.message || error?.json?.data?.message || error?.message || fallback;
 }
 
 function SqlLoadingPage(props: { message: string }) {
