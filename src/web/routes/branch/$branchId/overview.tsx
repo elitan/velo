@@ -194,6 +194,7 @@ function BranchOverviewPage() {
                 <Button
                   type="button"
                   size="lg"
+                  className="h-8"
                   onClick={function createChildClick() {
                     openCreateChildModal();
                   }}
@@ -204,7 +205,7 @@ function BranchOverviewPage() {
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" size="lg">
+                    <Button type="button" variant="outline" size="lg" className="h-8">
                       More
                       <ChevronDown />
                     </Button>
