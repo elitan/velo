@@ -45,5 +45,5 @@ class BunSqliteStatement {
 
 function isReadStatement(sql: string): boolean {
   const firstWord = sql.trimStart().split(/\s+/, 1)[0]?.toLowerCase();
-  return firstWord === 'select' || firstWord === 'pragma' || firstWord === 'with';
+  return firstWord === 'select' || firstWord === 'pragma' || firstWord === 'with' || /\breturning\b/i.test(sql);
 }

@@ -11,7 +11,7 @@ import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
 import { createLocalDockerBranch, deleteLocalDockerBranch, isLocalDockerMode } from './local-docker-service';
-import { createJob, getActiveJobs, runJob } from './job-service';
+import { createJob, getActiveJobs } from './job-service';
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
@@ -313,16 +313,10 @@ export async function runExpiredBranchCleanup(): Promise<void> {
       continue;
     }
 
-    const job = await createJob('branch-cleanup', {
+    await createJob('branch-cleanup', {
       branchId: branch.id,
       branchSlug: branch.slug,
       expiresAt: branch.expiresAt,
-    });
-
-    runJob(job, async function runBranchCleanupJob(context) {
-      await context.log(`deleting expired branch ${branch.displayName}`);
-      const result = await deleteBranch({ id: branch.id });
-      await context.log(`deleted expired branch ${result.displayName}`);
     });
   }
 }

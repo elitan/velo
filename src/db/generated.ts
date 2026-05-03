@@ -34,11 +34,17 @@ export interface JobLogs {
 }
 
 export interface Jobs {
+  attempts: Generated<number>;
   createdAt: Generated<string>;
   error: string | null;
   finishedAt: string | null;
+  heartbeatAt: string | null;
   id: Generated<number | null>;
   inputJson: string | null;
+  lockedAt: string | null;
+  lockedBy: string | null;
+  maxAttempts: Generated<number>;
+  runAfter: string | null;
   startedAt: string | null;
   status: Generated<string>;
   type: string;

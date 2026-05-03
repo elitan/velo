@@ -3,12 +3,23 @@ import { getDb } from '../../db/client';
 import type { Job, JobLog } from '../../db/schema';
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
+export type JobHandler = (input: unknown, context: JobContext) => Promise<void>;
+export type JobHandlers = Record<string, JobHandler>;
+
+const DEFAULT_STALE_TIMEOUT_SECONDS = 5 * 60;
+const DEFAULT_POLL_INTERVAL_MS = 1000;
 
 export interface JobRecord {
   id: number;
   type: string;
   status: JobStatus;
   error: string | null;
+  attempts: number;
+  maxAttempts: number;
+  runAfter: string | null;
+  lockedAt: string | null;
+  lockedBy: string | null;
+  heartbeatAt: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -23,29 +34,88 @@ export interface JobRecord {
 
 export interface JobContext {
   jobId: number;
+  attempt: number;
   log(message: string): Promise<void>;
+  disableRetry(): void;
 }
 
-export async function createJob(type: string, input?: unknown): Promise<Job> {
-  await getDb()
+export interface CreateJobOptions {
+  maxAttempts?: number;
+}
+
+export interface JobWorker {
+  tick(): Promise<void>;
+  stop(): void;
+}
+
+export interface StartJobWorkerOptions {
+  pollIntervalMs?: number;
+  staleTimeoutSeconds?: number;
+  workerId?: string;
+  autoStart?: boolean;
+}
+
+export async function createJob(type: string, input?: unknown, options: CreateJobOptions = {}): Promise<Job> {
+  return getDb()
     .insertInto('jobs')
     .values({
       type,
       status: 'queued',
       inputJson: input === undefined ? null : JSON.stringify(input),
       error: null,
+      attempts: 0,
+      maxAttempts: options.maxAttempts ?? getDefaultMaxAttempts(type, input),
+      runAfter: sql<string>`datetime('now')`,
     })
-    .execute();
-
-  return getDb()
-    .selectFrom('jobs')
-    .selectAll()
-    .orderBy('id', 'desc')
+    .returningAll()
     .executeTakeFirstOrThrow();
 }
 
-export function runJob(job: Job, handler: (context: JobContext) => Promise<void>): void {
-  void runJobInternal(job, handler);
+export function startJobWorker(handlers: JobHandlers, options: StartJobWorkerOptions = {}): JobWorker {
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const staleTimeoutSeconds = options.staleTimeoutSeconds ?? DEFAULT_STALE_TIMEOUT_SECONDS;
+  const workerId = options.workerId ?? `worker-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  let stopped = false;
+  let running = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  async function tick(): Promise<void> {
+    if (running || stopped) {
+      return;
+    }
+
+    running = true;
+
+    try {
+      await recoverStaleJobs(staleTimeoutSeconds);
+      const job = await claimNextJob(workerId);
+
+      if (job) {
+        await runClaimedJob(job, handlers, workerId, staleTimeoutSeconds);
+      }
+    } finally {
+      running = false;
+    }
+  }
+
+  function stop(): void {
+    stopped = true;
+
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+  }
+
+  if (options.autoStart !== false) {
+    void tick();
+    timer = setInterval(function runWorkerTick() {
+      void tick();
+    }, pollIntervalMs);
+    (timer as { unref?: () => void }).unref?.();
+  }
+
+  return { tick, stop };
 }
 
 export async function listJobs(limit = 20): Promise<JobRecord[]> {
@@ -96,51 +166,196 @@ export async function getActiveJobs(): Promise<Job[]> {
     .execute();
 }
 
-async function runJobInternal(job: Job, handler: (context: JobContext) => Promise<void>): Promise<void> {
-  await updateJob(job.id, 'running', null, {
-    startedAt: new Date().toISOString(),
-  });
-  await appendJobLog(job.id, 'info', `started ${job.type}`);
+async function claimNextJob(workerId: string): Promise<Job | undefined> {
+  return getDb()
+    .updateTable('jobs')
+    .set({
+      status: 'running',
+      attempts: sql<number>`attempts + 1`,
+      error: null,
+      lockedAt: sql<string>`datetime('now')`,
+      lockedBy: workerId,
+      heartbeatAt: sql<string>`datetime('now')`,
+      startedAt: sql<string>`datetime('now')`,
+      finishedAt: null,
+      updatedAt: sql<string>`datetime('now')`,
+    })
+    .where('id', '=', function selectNextQueuedJob(eb) {
+      return eb
+        .selectFrom('jobs')
+        .select('id')
+        .where('status', '=', 'queued')
+        .where('runAfter', '<=', sql<string>`datetime('now')`)
+        .orderBy('id')
+        .limit(1);
+    })
+    .where('status', '=', 'queued')
+    .returningAll()
+    .executeTakeFirst();
+}
+
+async function runClaimedJob(
+  job: Job,
+  handlers: JobHandlers,
+  workerId: string,
+  staleTimeoutSeconds: number
+): Promise<void> {
+  let retryEnabled = true;
+  const heartbeatMs = Math.max(1000, Math.floor(staleTimeoutSeconds * 500));
+  const heartbeat = setInterval(function updateHeartbeat() {
+    void touchJobHeartbeat(job.id, workerId);
+  }, heartbeatMs);
+  (heartbeat as { unref?: () => void }).unref?.();
 
   const context: JobContext = {
     jobId: job.id,
+    attempt: job.attempts,
     async log(message: string) {
       await appendJobLog(job.id, 'info', message);
+    },
+    disableRetry() {
+      retryEnabled = false;
     },
   };
 
   try {
-    await handler(context);
-    await appendJobLog(job.id, 'info', `finished ${job.type}`);
-    await updateJob(job.id, 'done', null, {
-      finishedAt: new Date().toISOString(),
-    });
+    const handler = handlers[job.type];
+
+    if (!handler) {
+      throw new Error(`No job handler registered for ${job.type}`);
+    }
+
+    await appendJobLog(job.id, 'info', `attempt ${job.attempts} started ${job.type}`);
+    await handler(parseJobInput(job), context);
+    await appendJobLog(job.id, 'info', `attempt ${job.attempts} finished ${job.type}`);
+    await finishJob(job.id, workerId);
   } catch (error: any) {
     const message = sanitizeLogMessage(error?.message || String(error));
     await appendJobLog(job.id, 'error', message);
-    await updateJob(job.id, 'error', message, {
-      finishedAt: new Date().toISOString(),
-    });
+
+    if (retryEnabled && job.attempts < job.maxAttempts) {
+      const backoffSeconds = getBackoffSeconds(job.attempts);
+      await appendJobLog(job.id, 'info', `retrying ${job.type} in ${backoffSeconds}s`);
+      await retryJob(job.id, message, backoffSeconds, workerId);
+      return;
+    }
+
+    await errorJob(job.id, message, workerId);
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
-async function updateJob(
-  jobId: number,
-  status: JobStatus,
-  error: string | null,
-  options: { startedAt?: string; finishedAt?: string } = {}
-): Promise<void> {
+async function recoverStaleJobs(staleTimeoutSeconds: number): Promise<void> {
+  const staleBefore = sql<string>`datetime('now', ${`-${staleTimeoutSeconds} seconds`})`;
+  const staleJobs = await getDb()
+    .selectFrom('jobs')
+    .selectAll()
+    .where('status', '=', 'running')
+    .where(function findStaleJobs(eb) {
+      return eb.or([
+        eb('heartbeatAt', 'is', null),
+        eb('heartbeatAt', '<', staleBefore),
+      ]);
+    })
+    .execute();
+
+  for (const job of staleJobs) {
+    if (job.attempts < job.maxAttempts) {
+      await appendJobLog(job.id, 'error', `attempt ${job.attempts} lost heartbeat`);
+      await getDb()
+        .updateTable('jobs')
+        .set({
+          status: 'queued',
+          runAfter: sql<string>`datetime('now')`,
+          lockedAt: null,
+          lockedBy: null,
+          heartbeatAt: null,
+          updatedAt: sql<string>`datetime('now')`,
+        })
+        .where('id', '=', job.id)
+        .where('status', '=', 'running')
+        .execute();
+      continue;
+    }
+
+    const message = `attempt ${job.attempts} lost heartbeat`;
+    await appendJobLog(job.id, 'error', message);
+    await errorJob(job.id, message);
+  }
+}
+
+async function touchJobHeartbeat(jobId: number, workerId: string): Promise<void> {
   await getDb()
     .updateTable('jobs')
     .set({
-      status,
-      error,
-      startedAt: options.startedAt,
-      finishedAt: options.finishedAt,
-      updatedAt: sql`datetime('now')`,
+      heartbeatAt: sql<string>`datetime('now')`,
+      updatedAt: sql<string>`datetime('now')`,
     })
     .where('id', '=', jobId)
+    .where('status', '=', 'running')
+    .where('lockedBy', '=', workerId)
     .execute();
+}
+
+async function finishJob(jobId: number, workerId: string): Promise<void> {
+  await getDb()
+    .updateTable('jobs')
+    .set({
+      status: 'done',
+      error: null,
+      lockedAt: null,
+      lockedBy: null,
+      heartbeatAt: null,
+      finishedAt: sql<string>`datetime('now')`,
+      updatedAt: sql<string>`datetime('now')`,
+    })
+    .where('id', '=', jobId)
+    .where('status', '=', 'running')
+    .where('lockedBy', '=', workerId)
+    .execute();
+}
+
+async function retryJob(jobId: number, error: string, backoffSeconds: number, workerId: string): Promise<void> {
+  await getDb()
+    .updateTable('jobs')
+    .set({
+      status: 'queued',
+      error,
+      runAfter: sql<string>`datetime('now', ${`+${backoffSeconds} seconds`})`,
+      lockedAt: null,
+      lockedBy: null,
+      heartbeatAt: null,
+      finishedAt: null,
+      updatedAt: sql<string>`datetime('now')`,
+    })
+    .where('id', '=', jobId)
+    .where('status', '=', 'running')
+    .where('lockedBy', '=', workerId)
+    .execute();
+}
+
+async function errorJob(jobId: number, error: string, workerId?: string): Promise<void> {
+  let query = getDb()
+    .updateTable('jobs')
+    .set({
+      status: 'error',
+      error,
+      lockedAt: null,
+      lockedBy: null,
+      heartbeatAt: null,
+      finishedAt: sql<string>`datetime('now')`,
+      updatedAt: sql<string>`datetime('now')`,
+    })
+    .where('id', '=', jobId);
+
+  if (workerId) {
+    query = query
+      .where('status', '=', 'running')
+      .where('lockedBy', '=', workerId);
+  }
+
+  await query.execute();
 }
 
 export async function appendJobLog(jobId: number, level: 'info' | 'error', message: string): Promise<void> {
@@ -171,6 +386,12 @@ function mapJob(job: Job, logs: JobLog[]): JobRecord {
     type: job.type,
     status: job.status,
     error: job.error,
+    attempts: job.attempts,
+    maxAttempts: job.maxAttempts,
+    runAfter: job.runAfter,
+    lockedAt: job.lockedAt,
+    lockedBy: job.lockedBy,
+    heartbeatAt: job.heartbeatAt,
     createdAt: job.createdAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
@@ -184,6 +405,46 @@ function mapJob(job: Job, logs: JobLog[]): JobRecord {
       };
     }),
   };
+}
+
+function parseJobInput(job: Job): unknown {
+  if (job.inputJson === null) {
+    return undefined;
+  }
+
+  return JSON.parse(job.inputJson);
+}
+
+function getDefaultMaxAttempts(type: string, input: unknown): number {
+  if (type === 'restore-branch' && isProductionRestore(input)) {
+    return 1;
+  }
+
+  if ([
+    'dev-bootstrap',
+    'prod-bootstrap',
+    'setup',
+    'replica-base',
+    'create-branch',
+    'delete-branch',
+    'branch-cleanup',
+    'restore-branch',
+  ].includes(type)) {
+    return 3;
+  }
+
+  return 1;
+}
+
+function isProductionRestore(input: unknown): boolean {
+  return typeof input === 'object'
+    && input !== null
+    && 'targetBranch' in input
+    && String(input.targetBranch).trim().toLowerCase() === 'prod';
+}
+
+function getBackoffSeconds(attempt: number): number {
+  return Math.min(60, 5 * (2 ** Math.max(0, attempt - 1)));
 }
 
 function sanitizeLogMessage(message: string): string {
