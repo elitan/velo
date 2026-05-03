@@ -34,6 +34,12 @@ jobs:
     - name: Check shell scripts
       run: bash -n scripts/*.sh
 
+    - name: Test release artifact
+      run: scripts/test-release-artifact.sh
+
+    - name: Test update flow
+      run: scripts/test-update-flow.sh
+
   hetzner-e2e:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
