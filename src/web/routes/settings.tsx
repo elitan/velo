@@ -1,9 +1,30 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import { Activity, ArchiveRestore, Database, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import { Activity, AlertTriangle, ArchiveRestore, CheckCircle2, Database, Loader2, RefreshCw, SlidersHorizontal, XCircle } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '#web/components/ui/alert-dialog';
 import { Badge } from '#web/components/ui/badge';
 import { Button } from '#web/components/ui/button';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#web/components/ui/card';
+import { Checkbox } from '#web/components/ui/checkbox';
+import { Label } from '#web/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#web/components/ui/select';
 import { orpc } from '#web/lib/api-client';
 import {
   AppSidebar,
@@ -218,6 +239,7 @@ function SettingsPage() {
                   backupMode={backupMode}
                   activeJobs={activeJobs}
                 />
+                <UpdatePanel />
                 <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
               </div>
             </div>
@@ -226,6 +248,282 @@ function SettingsPage() {
       </div>
     </main>
   );
+}
+
+type UpdateState = 'idle' | 'restarting' | 'success' | 'failed';
+
+function UpdatePanel() {
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<UpdateState>('idle');
+  const [showApplyDialog, setShowApplyDialog] = useState(false);
+  const [showLog, setShowLog] = useState(false);
+  const [error, setError] = useState('');
+
+  const status = useQuery(orpc.updates.get.queryOptions());
+  const auto = useQuery(orpc.updates.auto.get.queryOptions());
+  const result = useQuery({
+    ...orpc.updates.result.queryOptions(),
+    refetchInterval: state === 'restarting' ? 2000 : false,
+  });
+
+  const check = useMutation(orpc.updates.check.mutationOptions({
+    onSuccess: refreshUpdates,
+    onError: function handleCheckError() {
+      setError('Could not check for updates.');
+    },
+  }));
+
+  const apply = useMutation(orpc.updates.apply.mutationOptions({
+    onSuccess: function handleApplySuccess() {
+      setState('restarting');
+    },
+    onError: function handleApplyError(cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not apply update.');
+      setState('idle');
+    },
+  }));
+
+  const clearResult = useMutation(orpc.updates.clearResult.mutationOptions());
+  const saveAuto = useMutation(orpc.updates.auto.update.mutationOptions({
+    onSuccess: function refreshAutoUpdates() {
+      void queryClient.invalidateQueries({ queryKey: orpc.updates.auto.get.key() });
+    },
+  }));
+
+  useEffect(function watchResult() {
+    if (state !== 'restarting' || !result.data?.completed) {
+      return;
+    }
+
+    if (result.data.success) {
+      setState('success');
+      void refreshUpdates();
+      return;
+    }
+
+    setState('failed');
+    setShowLog(true);
+  }, [result.data, state]);
+
+  async function refreshUpdates() {
+    await queryClient.invalidateQueries({ queryKey: orpc.updates.get.key() });
+  }
+
+  function handleCheck() {
+    setError('');
+    check.mutate(undefined);
+  }
+
+  function handleApply() {
+    setError('');
+    setShowLog(false);
+    setShowApplyDialog(false);
+    apply.mutate(undefined);
+  }
+
+  async function dismissResult() {
+    await clearResult.mutateAsync(undefined);
+    setState('idle');
+    setShowLog(false);
+    await result.refetch();
+  }
+
+  function updateAutoEnabled(checked: boolean) {
+    saveAuto.mutate({ enabled: checked });
+  }
+
+  function updateAutoPatches(checked: boolean) {
+    saveAuto.mutate({ applyPatches: checked });
+  }
+
+  function updateAutoMigrations(checked: boolean) {
+    saveAuto.mutate({ applyMigrations: checked });
+  }
+
+  function updateAutoHour(value: string) {
+    saveAuto.mutate({ hour: localToUtcHour(Number(value)) });
+  }
+
+  const isBusy = check.isPending || apply.isPending || state === 'restarting';
+  const update = status.data;
+  const autoSettings = auto.data;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle>Updates</CardTitle>
+            <CardDescription>GitHub releases and app updates</CardDescription>
+          </div>
+          <Badge variant={update?.updateAvailable ? 'info' : 'secondary'}>
+            {update?.currentVersion ? `v${update.currentVersion}` : 'checking'}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {state === 'restarting' ? (
+          <UpdateNotice icon={<Loader2 className="size-4 animate-spin" />} title="Restarting" detail="Update is running." />
+        ) : null}
+
+        {state === 'success' ? (
+          <UpdateNotice icon={<CheckCircle2 className="size-4" />} title="Update complete" detail={result.data?.newVersion ? `Now on v${result.data.newVersion}` : 'Done.'} />
+        ) : null}
+
+        {state === 'failed' ? (
+          <UpdateNotice icon={<XCircle className="size-4" />} title="Update failed" detail={error || 'Rolled back to previous app files.'} tone="destructive" />
+        ) : null}
+
+        {update?.updateAvailable ? (
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">v{update.latestVersion} available</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Last checked {formatLastCheck(update.lastCheck)}
+                </p>
+              </div>
+              {update.hasMigrations ? (
+                <Badge variant="warning">
+                  <AlertTriangle className="size-3" />
+                  migration
+                </Badge>
+              ) : null}
+            </div>
+            {update.releaseNotes ? (
+              <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-xs text-muted-foreground">
+                {update.releaseNotes}
+              </pre>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+            {update ? `Latest version. Last checked ${formatLastCheck(update.lastCheck)}.` : 'Loading update status...'}
+          </div>
+        )}
+
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+        {result.data?.log ? (
+          <div className="grid gap-2">
+            <Button type="button" variant="outline" onClick={function toggleLog() { setShowLog(!showLog); }}>
+              {showLog ? 'Hide log' : 'Show log'}
+            </Button>
+            {showLog ? (
+              <pre className="max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 text-xs text-muted-foreground">
+                {stripAnsi(result.data.log)}
+              </pre>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4">
+          <Label className="flex items-center gap-2">
+            <Checkbox checked={autoSettings?.enabled ?? true} onChange={function changeEnabled(event) { updateAutoEnabled(event.currentTarget.checked); }} />
+            Auto check
+          </Label>
+          <Label className="flex items-center gap-2">
+            <Checkbox checked={autoSettings?.applyPatches ?? false} onChange={function changePatches(event) { updateAutoPatches(event.currentTarget.checked); }} />
+            Auto apply patch releases
+          </Label>
+          <Label className="flex items-center gap-2">
+            <Checkbox checked={autoSettings?.applyMigrations ?? false} onChange={function changeMigrations(event) { updateAutoMigrations(event.currentTarget.checked); }} />
+            Allow migration updates
+          </Label>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="update-hour">Hour</Label>
+            <Select value={String(utcToLocalHour(autoSettings?.hour ?? 4))} onValueChange={updateAutoHour}>
+              <SelectTrigger id="update-hour" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 24 }, function renderHour(_, hour) {
+                  return (
+                    <SelectItem key={hour} value={String(hour)}>
+                      {formatHour(hour)}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </CardContent>
+      <CardFooter className="flex justify-between gap-2">
+        {state === 'success' || state === 'failed' ? (
+          <Button type="button" variant="secondary" onClick={dismissResult}>
+            Dismiss
+          </Button>
+        ) : (
+          <Button type="button" variant="outline" onClick={handleCheck} disabled={isBusy}>
+            {check.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            Check
+          </Button>
+        )}
+        <Button type="button" disabled={!update?.updateAvailable || isBusy} onClick={function openApplyDialog() { setShowApplyDialog(true); }}>
+          {apply.isPending || state === 'restarting' ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+          Update
+        </Button>
+      </CardFooter>
+
+      <AlertDialog open={showApplyDialog} onOpenChange={setShowApplyDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apply update?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Velo will restart. App files roll back if the update fails.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleApply}>Update</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  );
+}
+
+function UpdateNotice(props: Readonly<{ icon: ReactNode; title: string; detail: string; tone?: 'default' | 'destructive' }>) {
+  return (
+    <div className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${props.tone === 'destructive' ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-border bg-muted/20'}`}>
+      {props.icon}
+      <div>
+        <p className="font-medium">{props.title}</p>
+        <p className="mt-1 text-xs opacity-80">{props.detail}</p>
+      </div>
+    </div>
+  );
+}
+
+function formatLastCheck(value: string | null | undefined): string {
+  if (!value) {
+    return 'never';
+  }
+
+  return new Date(value).toLocaleString();
+}
+
+function utcToLocalHour(utcHour: number): number {
+  const date = new Date();
+  date.setUTCHours(utcHour, 0, 0, 0);
+  return date.getHours();
+}
+
+function localToUtcHour(localHour: number): number {
+  const date = new Date();
+  date.setHours(localHour, 0, 0, 0);
+  return date.getUTCHours();
+}
+
+function formatHour(hour: number): string {
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const value = hour % 12 || 12;
+  return `${value}:00 ${suffix}`;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 function SettingsLoadingPage(props: Readonly<{ message: string }>) {

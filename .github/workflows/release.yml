@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version bump type
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Calculate version
+        id: version
+        run: |
+          current="$(jq -r .version package.json)"
+          IFS='.' read -r major minor patch <<< "$current"
+          case "${{ inputs.version }}" in
+            major)
+              major=$((major + 1))
+              minor=0
+              patch=0
+              ;;
+            minor)
+              minor=$((minor + 1))
+              patch=0
+              ;;
+            patch)
+              patch=$((patch + 1))
+              ;;
+          esac
+          echo "value=$major.$minor.$patch" >> "$GITHUB_OUTPUT"
+
+      - name: Bump package version
+        run: |
+          jq '.version = "${{ steps.version.outputs.value }}"' package.json > package.tmp
+          mv package.tmp package.json
+
+      - name: Commit version bump
+        run: |
+          git add package.json
+          git commit -m "chore(release): bump version to ${{ steps.version.outputs.value }}"
+          git push
+
+      - name: Tag release
+        run: |
+          git tag "v${{ steps.version.outputs.value }}"
+          git push origin "v${{ steps.version.outputs.value }}"
+
+      - name: Generate release notes
+        run: |
+          version="${{ steps.version.outputs.value }}"
+          last_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [ -n "$last_tag" ]; then
+            range="$last_tag..HEAD^"
+          else
+            range="HEAD^"
+          fi
+
+          notes=""
+          if [ -n "$last_tag" ] && git diff --name-only "$last_tag" HEAD -- src/db/migrations src/db/migrate.ts | grep -q .; then
+            notes="> This release includes Velo SQLite migrations. Back up /opt/velo/.velo before updating.\n\n"
+          fi
+
+          for type in feat fix refactor docs test chore; do
+            items="$(git log --pretty=format:'- %s (`%h`)' --no-merges "$range" | grep "^- $type" || true)"
+            if [ -n "$items" ]; then
+              title="$(printf '%s' "$type" | sed 's/.*/\u&/')"
+              notes="$notes### $title\n$items\n\n"
+            fi
+          done
+
+          if [ -n "$last_tag" ]; then
+            notes="$notes---\nFull changelog: https://github.com/elitan/velo/compare/$last_tag...v$version"
+          fi
+
+          printf '%b\n' "$notes" > release_notes.md
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check
+        run: |
+          bun run typecheck
+          bun run test
+          bun run web:build
+          bash -n scripts/*.sh
+
+      - name: Create release tarball
+        run: |
+          version="${{ steps.version.outputs.value }}"
+          scripts/create-release-tarball.sh "$version" "velo-v$version.tar.gz"
+
+      - name: Smoke test tarball
+        run: |
+          version="${{ steps.version.outputs.value }}"
+          mkdir -p /tmp/velo-smoke
+          tar -xzf "velo-v$version.tar.gz" -C /tmp/velo-smoke
+          cd /tmp/velo-smoke
+          bun install --production --frozen-lockfile
+          VELO_DB=/tmp/velo-smoke/.velo/velo.sqlite bun run db:migrate
+          test -f dist/server/server.js
+          test -d dist/client
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.version.outputs.value }}"
+          gh release create "v$version" \
+            --title "v$version" \
+            --notes-file release_notes.md \
+            "velo-v$version.tar.gz"
