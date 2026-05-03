@@ -7,6 +7,7 @@ import { DockerManager } from '../../managers/docker';
 import { WALManager } from '../../managers/wal';
 import { ZFSManager } from '../../managers/zfs';
 import { CertManager } from '../../managers/cert';
+import { formatPostgresOwner, resolvePostgresOwner, type PostgresOwner } from '../../managers/postgres-owner';
 import { formatTimestamp } from '../../utils/helpers';
 import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getZFSPool } from '../../utils/zfs-pool';
@@ -90,8 +91,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
 
     const mountpoint = await zfs.getMountpoint(dataset);
     const pgdata = `${mountpoint}/pgdata`;
-    await restorePgBackRestLocally(mountpoint, pgdata, restoreTime);
-    await ensurePortablePostgresConfig(pgdata);
+    await restorePgBackRestLocally(pgdata, restoreTime);
 
     const pgVersion = await readPgVersion(pgdata);
     const image = await ensurePgBackRestPostgresImage(pgVersion);
@@ -100,8 +100,13 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
       await docker.pullImage(image);
     }
 
-    const certPaths = await cert.generateCerts(PROJECT_NAME);
-    await wal.ensureArchiveDir(dataset);
+    const postgresOwner = await resolvePostgresOwner(image);
+    await setPostgresDataOwner(pgdata, postgresOwner);
+    await writeContainerPgBackRestConfig(mountpoint, pgdata, postgresOwner);
+    await ensurePortablePostgresConfig(pgdata, postgresOwner);
+
+    const certPaths = await cert.generateCerts(PROJECT_NAME, postgresOwner);
+    await wal.ensureArchiveDir(dataset, postgresOwner);
 
     containerId = await docker.createContainer({
       name: containerName,
@@ -266,7 +271,7 @@ async function getProdPassword(): Promise<string | null> {
   }
 }
 
-async function restorePgBackRestLocally(mountpoint: string, pgdata: string, restoreTime: Date): Promise<void> {
+async function restorePgBackRestLocally(pgdata: string, restoreTime: Date): Promise<void> {
   const tempDir = await mkdtemp(join(tmpdir(), 'velo-pgbackrest-'));
   const configPath = join(tempDir, 'pgbackrest.conf');
 
@@ -281,7 +286,6 @@ async function restorePgBackRestLocally(mountpoint: string, pgdata: string, rest
         `rm -rf ${shellQuote(pgdata)}`,
         `mkdir -p ${shellQuote(pgdata)}`,
         `pgbackrest --config=${shellQuote(configPath)} --stanza=main --pg1-path=${shellQuote(pgdata)} --type=time --target=${shellQuote(formatPgBackRestTime(restoreTime))} --target-action=promote restore`,
-        `sudo chown -R 70:70 ${shellQuote(pgdata)}`,
       ].join('\n'),
     ], 60 * 60 * 1000);
 
@@ -292,10 +296,13 @@ async function restorePgBackRestLocally(mountpoint: string, pgdata: string, rest
     await rm(tempDir, { force: true, recursive: true }).catch(function ignoreCleanupError() {});
   }
 
-  await writeContainerPgBackRestConfig(mountpoint, pgdata);
 }
 
-async function writeContainerPgBackRestConfig(mountpoint: string, pgdata: string): Promise<void> {
+async function writeContainerPgBackRestConfig(
+  mountpoint: string,
+  pgdata: string,
+  postgresOwner: PostgresOwner
+): Promise<void> {
   const hostConfig = await buildPgBackRestConfig();
   const containerConfigPath = `${mountpoint}/pgbackrest.conf`;
   const containerPgdata = '/var/lib/postgresql/data/pgdata';
@@ -314,7 +321,7 @@ async function writeContainerPgBackRestConfig(mountpoint: string, pgdata: string
       'else',
       `  printf '\\n%s\\n' ${shellQuote(restoreCommand)} >> ${shellQuote(autoConfPath)}`,
       'fi',
-      `sudo chown 70:70 ${shellQuote(containerConfigPath)} ${shellQuote(autoConfPath)}`,
+      `sudo chown ${formatPostgresOwner(postgresOwner)} ${shellQuote(containerConfigPath)} ${shellQuote(autoConfPath)}`,
       `sudo chmod 600 ${shellQuote(containerConfigPath)} ${shellQuote(autoConfPath)}`,
     ].join('\n'),
   ]);
@@ -351,7 +358,7 @@ async function ensurePgBackRestPostgresImage(pgVersion: string): Promise<string>
   return tag;
 }
 
-async function ensurePortablePostgresConfig(pgdata: string): Promise<void> {
+async function ensurePortablePostgresConfig(pgdata: string, postgresOwner: PostgresOwner): Promise<void> {
   const result = await runCommand([
     'sh',
     '-lc',
@@ -369,13 +376,25 @@ async function ensurePortablePostgresConfig(pgdata: string): Promise<void> {
       'host replication all ::/0 scram-sha-256',
       'HBA',
       `touch ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
-      `sudo chown 70:70 ${shellQuote(`${pgdata}/postgresql.conf`)} ${shellQuote(`${pgdata}/pg_hba.conf`)} ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
+      `sudo chown ${formatPostgresOwner(postgresOwner)} ${shellQuote(`${pgdata}/postgresql.conf`)} ${shellQuote(`${pgdata}/pg_hba.conf`)} ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
       `sudo chmod 600 ${shellQuote(`${pgdata}/postgresql.conf`)} ${shellQuote(`${pgdata}/pg_hba.conf`)} ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
     ].join('\n'),
   ]);
 
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || result.stdout || 'failed to write portable Postgres config');
+  }
+}
+
+async function setPostgresDataOwner(pgdata: string, postgresOwner: PostgresOwner): Promise<void> {
+  const result = await runCommand([
+    'sh',
+    '-lc',
+    `sudo chown -R ${formatPostgresOwner(postgresOwner)} ${shellQuote(pgdata)}`,
+  ]);
+
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || 'failed to set Postgres data ownership');
   }
 }
 

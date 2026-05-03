@@ -1,5 +1,6 @@
 import { PATHS } from '../utils/paths';
 import { $ } from 'bun';
+import { DEFAULT_POSTGRES_OWNER, formatPostgresOwner, type PostgresOwner } from './postgres-owner';
 
 export interface WALArchiveInfo {
   datasetName: string;
@@ -14,13 +15,16 @@ export interface WALArchiveInfo {
 
 export interface WALManagerOptions {
   basePath?: string;
+  postgresOwner?: PostgresOwner;
 }
 
 export class WALManager {
   private basePath: string;
+  private postgresOwner: PostgresOwner;
 
   constructor(options: WALManagerOptions = {}) {
     this.basePath = options.basePath || PATHS.WAL_ARCHIVE;
+    this.postgresOwner = options.postgresOwner || DEFAULT_POSTGRES_OWNER;
   }
 
   /**
@@ -32,9 +36,8 @@ export class WALManager {
 
   /**
    * Ensure WAL archive directory exists for a dataset
-   * Sets permissions to allow Docker postgres user (UID 70/999) to write
    */
-  async ensureArchiveDir(datasetName: string): Promise<void> {
+  async ensureArchiveDir(datasetName: string, postgresOwner = this.postgresOwner): Promise<void> {
     const walArchivePath = this.getArchivePath(datasetName);
     await $`mkdir -p ${walArchivePath}`.quiet();
     // Create .keep file first while directory is still owned by current user
@@ -42,8 +45,8 @@ export class WALManager {
     // Set permissions before changing ownership (can't chmod after chown to different user)
     await $`chmod 770 ${walArchivePath}`.quiet();
     await $`chmod 660 ${walArchivePath}/.keep`.quiet();
-    // Set ownership to postgres user/group (UID/GID 70) - must be last
-    await $`sudo chown -R 70:70 ${walArchivePath}`.quiet();
+    // Set ownership to postgres user/group - must be last
+    await $`sudo chown -R ${formatPostgresOwner(postgresOwner)} ${walArchivePath}`.quiet();
   }
 
   /**
