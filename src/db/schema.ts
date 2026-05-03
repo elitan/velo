@@ -51,6 +51,7 @@ export interface BranchesTable {
   status: 'creating' | 'running' | 'stopped' | 'error';
   parentBranchId: number | null;
   sourceReplayAt: string | null;
+  expiresAt: string | null;
   connectionUrl: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;

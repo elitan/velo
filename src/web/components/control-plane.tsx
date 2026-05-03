@@ -426,6 +426,7 @@ export interface BranchesPanelProps {
     status: string;
     port: number | null;
     connectionUrl: string | null;
+    expiresAt: string | null;
   }>;
   busy: string | null;
   onCreate: (formData: FormData) => Promise<void>;
@@ -441,6 +442,7 @@ interface BranchTreePanelProps {
     parentBranchId: number | null;
     parentName: string | null;
     parentSlug: string | null;
+    expiresAt: string | null;
   }>;
   prodReady: boolean;
 }
@@ -521,7 +523,7 @@ function BranchTreeItem(props: { node: BranchTreeNode }) {
             <p className="truncate font-medium">{branch.displayName}</p>
           </div>
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            from {branch.parentName || branch.parentSlug || 'prod'}
+            {formatBranchLine(branch.parentName || branch.parentSlug || 'prod', branch.expiresAt)}
           </p>
         </div>
         <StatusBadge status={branch.status} />
@@ -591,7 +593,7 @@ export function BranchesPanel(props: BranchesPanelProps) {
           <CardTitle>Branches</CardTitle>
           <CardDescription>Writable ZFS clones from the dev base.</CardDescription>
         </div>
-        <BranchCreateForm busy={props.busy === 'create-branch'} onCreate={props.onCreate} />
+        <BranchCreateForm branches={props.branches} busy={props.busy === 'create-branch'} onCreate={props.onCreate} />
       </CardHeader>
       <CardContent className="p-0">
         {props.branches.length === 0 ? (
@@ -610,7 +612,7 @@ export function BranchesPanel(props: BranchesPanelProps) {
               }
 
               return (
-                <div className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_120px_80px_auto] md:items-center" key={branch.id}>
+                <div className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_120px_150px_80px_auto] md:items-center" key={branch.id}>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <GitBranch className="size-4 text-muted-foreground" />
@@ -621,6 +623,7 @@ export function BranchesPanel(props: BranchesPanelProps) {
                     </div>
                   </div>
                   <StatusBadge status={branch.status} />
+                  <div className="text-sm text-muted-foreground">{formatExpiry(branch.expiresAt)}</div>
                   <div className="text-sm text-muted-foreground">{branch.port || '-'}</div>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -655,7 +658,7 @@ export function BranchesPanel(props: BranchesPanelProps) {
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
-                  <div className="hidden md:col-span-4 md:block">
+                  <div className="hidden md:col-span-5 md:block">
                     <ConnectionString value={branch.connectionUrl} />
                   </div>
                 </div>
@@ -669,6 +672,7 @@ export function BranchesPanel(props: BranchesPanelProps) {
 }
 
 interface BranchCreateFormProps {
+  branches: BranchesPanelProps['branches'];
   busy: boolean;
   onCreate: (formData: FormData) => Promise<void>;
 }
@@ -682,14 +686,73 @@ function BranchCreateForm(props: BranchCreateFormProps) {
   }
 
   return (
-    <form className="grid grid-cols-[minmax(0,180px)_auto] gap-2" onSubmit={submitForm}>
+    <form className="grid grid-cols-[minmax(0,180px)_140px_120px_auto] gap-2" onSubmit={submitForm}>
       <Input name="name" placeholder="preview-1" />
+      <Select name="parentBranchId" defaultValue="prod">
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="prod">production</SelectItem>
+          {props.branches.map(function renderParentOption(branch) {
+            return (
+              <SelectItem key={branch.id} value={String(branch.id)}>
+                {branch.displayName}
+              </SelectItem>
+            );
+          })}
+        </SelectContent>
+      </Select>
+      <Select name="ttlHours" defaultValue="none">
+        <SelectTrigger>
+          <SelectValue placeholder="no expiry" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">no expiry</SelectItem>
+          <SelectItem value="1">1h</SelectItem>
+          <SelectItem value="24">1 day</SelectItem>
+          <SelectItem value="168">7 days</SelectItem>
+        </SelectContent>
+      </Select>
       <Button type="submit" variant="secondary" disabled={props.busy}>
         {props.busy ? <Loader2 className="animate-spin" /> : <GitBranch />}
         Create
       </Button>
     </form>
   );
+}
+
+function formatBranchLine(parent: string, expiresAt: string | null): string {
+  const expiry = formatExpiry(expiresAt);
+
+  if (expiry === 'no expiry') {
+    return `from ${parent}`;
+  }
+
+  return `from ${parent} · ${expiry}`;
+}
+
+export function formatExpiry(expiresAt: string | null): string {
+  if (!expiresAt) {
+    return 'no expiry';
+  }
+
+  const time = new Date(expiresAt).getTime();
+
+  if (Number.isNaN(time)) {
+    return 'invalid expiry';
+  }
+
+  const diffMs = time - Date.now();
+  const suffix = diffMs < 0 ? 'expired' : 'expires';
+  const absMs = Math.abs(diffMs);
+  const hours = Math.ceil(absMs / (60 * 60 * 1000));
+
+  if (hours < 48) {
+    return `${suffix} in ${hours}h`;
+  }
+
+  return `${suffix} in ${Math.ceil(hours / 24)}d`;
 }
 
 export interface ServerPanelProps {

@@ -157,6 +157,15 @@ export async function getActiveJob(type: string): Promise<Job | undefined> {
     .executeTakeFirst();
 }
 
+export async function getActiveJobs(): Promise<Job[]> {
+  return getDb()
+    .selectFrom('jobs')
+    .selectAll()
+    .where('status', 'in', ['queued', 'running'])
+    .orderBy('id', 'desc')
+    .execute();
+}
+
 async function claimNextJob(workerId: string): Promise<Job | undefined> {
   return getDb()
     .updateTable('jobs')
@@ -418,6 +427,7 @@ function getDefaultMaxAttempts(type: string, input: unknown): number {
     'replica-base',
     'create-branch',
     'delete-branch',
+    'branch-cleanup',
     'restore-branch',
   ].includes(type)) {
     return 3;

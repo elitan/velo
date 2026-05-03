@@ -7,8 +7,8 @@
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "allowJs": true,
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
       "#api/*": ["./src/api/*"],
       "#config/*": ["./src/config/*"],
       "#db/*": ["./src/db/*"],

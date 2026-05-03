@@ -20,6 +20,7 @@ export interface Branches {
   projectId: number;
   slug: string;
   sourceReplayAt: string | null;
+  expiresAt: string | null;
   status: Generated<string>;
   updatedAt: Generated<string>;
 }

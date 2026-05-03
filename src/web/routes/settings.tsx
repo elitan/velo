@@ -167,7 +167,13 @@ function SettingsPage() {
 
   async function handleCreateBranch(formData: FormData) {
     const name = String(formData.get('name') || '');
-    await createBranch.mutateAsync({ name });
+    const ttlHours = formData.get('ttlHours');
+    const parentBranchId = formData.get('parentBranchId');
+    await createBranch.mutateAsync({
+      name,
+      parentBranchId: parentBranchId && parentBranchId !== 'prod' ? Number(parentBranchId) : null,
+      ttlHours: ttlHours && ttlHours !== 'none' ? Number(ttlHours) : null,
+    });
   }
 
   async function handleDeleteBranch(id: number) {
@@ -417,19 +423,19 @@ function UpdatePanel() {
           </div>
         ) : null}
 
-	        <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4">
-	          <Label className="flex items-center gap-2">
-	            <Checkbox checked={autoSettings?.enabled ?? true} onCheckedChange={function changeEnabled(checked) { updateAutoEnabled(checked === true); }} />
-	            Auto check
-	          </Label>
-	          <Label className="flex items-center gap-2">
-	            <Checkbox checked={autoSettings?.applyPatches ?? false} onCheckedChange={function changePatches(checked) { updateAutoPatches(checked === true); }} />
-	            Auto apply patch releases
-	          </Label>
-	          <Label className="flex items-center gap-2">
-	            <Checkbox checked={autoSettings?.applyMigrations ?? false} onCheckedChange={function changeMigrations(checked) { updateAutoMigrations(checked === true); }} />
-	            Allow migration updates
-	          </Label>
+        <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4">
+          <Label className="flex items-center gap-2">
+            <Checkbox checked={autoSettings?.enabled ?? true} onCheckedChange={function changeEnabled(checked) { updateAutoEnabled(checked === true); }} />
+            Auto check
+          </Label>
+          <Label className="flex items-center gap-2">
+            <Checkbox checked={autoSettings?.applyPatches ?? false} onCheckedChange={function changePatches(checked) { updateAutoPatches(checked === true); }} />
+            Auto apply patch releases
+          </Label>
+          <Label className="flex items-center gap-2">
+            <Checkbox checked={autoSettings?.applyMigrations ?? false} onCheckedChange={function changeMigrations(checked) { updateAutoMigrations(checked === true); }} />
+            Allow migration updates
+          </Label>
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor="update-hour">Hour</Label>
             <Select value={String(utcToLocalHour(autoSettings?.hour ?? 4))} onValueChange={updateAutoHour}>

@@ -2,16 +2,23 @@ import { z } from 'zod';
 import { publicProcedure } from './context';
 import { userFacingError } from './errors';
 import { createJob } from '#server/services/job-service';
-import { createPreviewBranch, normalizeBranchSlug } from '#server/services/branch-service';
+import { createPreviewBranch, normalizeBranchSlug, updateBranchExpiry } from '#server/services/branch-service';
 import { runBranchSql } from '#server/services/sql-editor-service';
 
 const branchInput = z.object({
   name: z.string().min(1),
   parentBranchId: z.number().int().positive().nullable().optional(),
+  ttlHours: z.number().positive().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
 });
 
 const branchIdInput = z.object({
   id: z.number().int().positive(),
+});
+
+const branchExpiryInput = z.object({
+  id: z.number().int().positive(),
+  expiresAt: z.string().nullable(),
 });
 
 const previewBranchInput = z.object({
@@ -47,6 +54,13 @@ export const branchesRouter = {
       const job = await createJob('delete-branch', input);
       return job;
     }),
+  expiry: {
+    update: publicProcedure
+      .input(branchExpiryInput)
+      .handler(async function updateExpiry({ input }) {
+        return updateBranchExpiry(input);
+      }),
+  },
   preview: {
     create: publicProcedure
       .input(previewBranchInput)

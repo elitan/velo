@@ -7,7 +7,7 @@ import { sql } from 'kysely';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
 import { createJob, getActiveJob, getJob, listJobs, startJobWorker, type JobHandlers } from './services/job-service';
-import { createBranchFromBase } from './services/branch-service';
+import { createBranchFromBase, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, saveServer } from './services/setup-state-service';
@@ -189,6 +189,57 @@ describe('control plane database', function controlPlaneDatabase() {
       .executeTakeFirstOrThrow();
 
     expect(firstBranchStep.status).toBe('pending');
+  });
+
+  test('tracks branch expiry and skips active cleanup targets', async function testBranchExpiry() {
+    const db = getDb();
+    await db
+      .insertInto('projects')
+      .values({
+        name: 'prod',
+        postgresVersion: '17',
+        databaseName: 'postgres',
+        appUser: 'postgres',
+      })
+      .execute();
+    const project = await db
+      .selectFrom('projects')
+      .select('id')
+      .where('name', '=', 'prod')
+      .executeTakeFirstOrThrow();
+
+    await db
+      .insertInto('branches')
+      .values({
+        projectId: project.id,
+        slug: 'preview-1',
+        displayName: 'preview-1',
+        dataset: 'prod_preview_1',
+        status: 'running',
+        expiresAt: '2026-05-01T00:00:00.000Z',
+      })
+      .execute();
+
+    const branch = await db
+      .selectFrom('branches')
+      .select(['id'])
+      .where('slug', '=', 'preview-1')
+      .executeTakeFirstOrThrow();
+    const activeJob = await createJob('reset-branch', { id: branch.id });
+
+    await updateBranchExpiry({ id: branch.id, expiresAt: '2026-05-02T00:00:00.000Z' });
+    await runExpiredBranchCleanup();
+
+    const updated = await db
+      .selectFrom('branches')
+      .select(['expiresAt'])
+      .where('id', '=', branch.id)
+      .executeTakeFirstOrThrow();
+    const cleanupJob = await getActiveJob('branch-cleanup');
+
+    expect(activeJob.status).toBe('queued');
+    expect(updated.expiresAt).toBe('2026-05-02T00:00:00.000Z');
+    expect(cleanupJob).toBeUndefined();
   });
 });
 

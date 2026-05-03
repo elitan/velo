@@ -16,6 +16,12 @@ const branchIdInput = z.object({
   id: z.number().int().positive(),
 });
 
+const branchCleanupInput = z.object({
+  branchId: z.number().int().positive(),
+  branchSlug: z.string().min(1),
+  expiresAt: z.string().nullable(),
+});
+
 const restoreBranchInput = z.object({
   targetBranch: z.string().min(1),
   sourceBranch: z.string().min(1),
@@ -39,6 +45,18 @@ export const jobHandlers: JobHandlers = {
 
     const result = await deleteBranch(parsed);
     await context.log(`deleted branch ${result.displayName}`);
+  },
+  'branch-cleanup': async function branchCleanupJob(input, context) {
+    const parsed = branchCleanupInput.parse(input);
+    await context.log(`deleting expired branch ${parsed.branchSlug}`);
+
+    if (!(await branchExists(parsed.branchId))) {
+      await context.log(`branch ${parsed.branchSlug} already deleted`);
+      return;
+    }
+
+    const result = await deleteBranch({ id: parsed.branchId });
+    await context.log(`deleted expired branch ${result.displayName}`);
   },
   'restore-branch': async function restoreBranchJob(input, context) {
     const parsed = restoreBranchInput.parse(input);
