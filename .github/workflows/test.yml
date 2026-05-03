@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  typecheck:
     runs-on: ubuntu-22.04
 
     steps:
@@ -24,6 +24,21 @@ jobs:
 
     - name: Run typecheck
       run: bun run typecheck
+
+  test:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install dependencies
+      run: bun install
 
     - name: Run tests
       run: bun run test
@@ -42,7 +57,7 @@ jobs:
 
   hetzner-e2e:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
+    needs: [ typecheck, test ]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
 
