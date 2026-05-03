@@ -26,7 +26,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '#web/components/ui/alert-dialog';
-import { Badge } from '#web/components/ui/badge';
 import { Button } from '#web/components/ui/button';
 import { Checkbox } from '#web/components/ui/checkbox';
 import {
@@ -349,25 +348,8 @@ function BranchTablesPage() {
         <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
           <AppSidebar branches={branches} activeBranchPage="tables" selectedBranch={params.branchId} />
 
-          <section className="grid min-h-screen min-w-0 grid-rows-[auto_1fr]">
-          <header className="border-b border-border px-5 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">Tables</Badge>
-                  <Badge variant="secondary">editable</Badge>
-                </div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-normal">Tables</h1>
-                <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-                  <span>{params.branchId}</span>
-                  <span>/</span>
-                  <span>{selectedTable || 'no table'}</span>
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <div className="grid min-h-0 lg:grid-cols-[280px_1fr]">
+          <section className="min-h-screen min-w-0">
+          <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
             <aside className="grid min-h-0 grid-rows-[auto_auto_1fr] border-r border-border bg-muted/20">
               <div className="border-b border-border p-4">
                 <Select value={selectedDatabase} onValueChange={selectDatabase}>
@@ -676,7 +658,7 @@ function TableGrid(props: TableGridProps) {
                 </th>
               );
             })}
-            <th className="sticky right-0 z-20 h-9 w-20 border-b border-l border-r border-border bg-white px-3 text-left font-medium text-muted-foreground" />
+            <th className="sticky right-0 z-20 h-9 w-20 border-b border-l border-r border-border bg-background px-3 text-left font-medium text-muted-foreground" />
           </tr>
         </thead>
         <tbody>
@@ -704,13 +686,13 @@ function TableGrid(props: TableGridProps) {
                       </td>
                     );
                   })}
-                  <td className="sticky right-0 h-9 border-b border-l border-r border-border bg-white px-2 group-hover:bg-white">
+                  <td className="sticky right-0 h-9 border-b border-l border-r border-border bg-background px-2 group-hover:bg-muted">
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="size-7 bg-white hover:bg-accent"
+                        className="size-7 hover:bg-accent"
                         aria-label="Edit row"
                         disabled={props.actionsDisabled}
                         onClick={function editRow() {
@@ -723,7 +705,7 @@ function TableGrid(props: TableGridProps) {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="size-7 bg-white hover:bg-accent"
+                        className="size-7 hover:bg-accent"
                         aria-label="Delete row"
                         disabled={props.actionsDisabled}
                         onClick={function deleteRow() {
@@ -853,15 +835,15 @@ function RowFieldsEditor(props: RowFieldsEditorProps) {
         return (
           <div
             key={field.column}
-            className="grid gap-2 rounded-md border border-border bg-muted/20 p-2 md:grid-cols-[minmax(140px,1fr)_minmax(180px,2fr)_auto_auto]"
+            className="grid gap-2 border-t border-border pt-2 first:border-t-0 first:pt-0 md:grid-cols-[minmax(140px,1fr)_minmax(180px,2fr)_auto_auto]"
           >
             <div className="flex min-w-0 items-center gap-2">
               {props.mode === 'insert' ? (
                 <Checkbox
                   checked={field.enabled}
                   disabled={props.disabled}
-                  onChange={function toggleEnabled(event) {
-                    props.onChangeField(field.column, { enabled: event.target.checked });
+                  onCheckedChange={function toggleEnabled(checked) {
+                    props.onChangeField(field.column, { enabled: checked === true });
                   }}
                   aria-label={`Include ${field.column}`}
                 />
@@ -885,8 +867,8 @@ function RowFieldsEditor(props: RowFieldsEditorProps) {
               <Checkbox
                 checked={field.isNull}
                 disabled={props.disabled || !field.enabled}
-                onChange={function toggleNull(event) {
-                  props.onChangeField(field.column, { isNull: event.target.checked });
+                onCheckedChange={function toggleNull(checked) {
+                  props.onChangeField(field.column, { isNull: checked === true });
                 }}
               />
               null

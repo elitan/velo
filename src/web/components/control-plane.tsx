@@ -82,7 +82,7 @@ export function ProductionSummaryPanel(props: ProductionSummaryPanelProps) {
           </div>
           <ConnectionString value={props.connectionUrl} />
         </div>
-        <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4">
+        <div className="grid gap-3 border-t border-border pt-4">
           <InfoCell label="Backup repo" value={props.backupMode} />
           <InfoCell label="Backup status" value={props.backupMessage || props.backupStatus} />
         </div>
@@ -170,7 +170,7 @@ export function AppSidebar(props: AppSidebarProps) {
   return (
     <aside className="hidden bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
       <div className="flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+        <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
           <Database className="size-4" />
         </div>
         <div>
@@ -279,10 +279,10 @@ export interface MetricCardProps {
 export function MetricCard(props: MetricCardProps) {
   const Icon = props.icon;
   const toneClass = {
-    emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-    blue: 'bg-blue-50 text-blue-700 ring-blue-100',
-    violet: 'bg-violet-50 text-violet-700 ring-violet-100',
-    amber: 'bg-amber-50 text-amber-700 ring-amber-100',
+    emerald: 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/20',
+    blue: 'bg-sky-500/10 text-sky-300 ring-sky-500/20',
+    violet: 'bg-violet-500/10 text-violet-300 ring-violet-500/20',
+    amber: 'bg-amber-500/10 text-amber-300 ring-amber-500/20',
   }[props.tone];
 
   return (
@@ -293,7 +293,7 @@ export function MetricCard(props: MetricCardProps) {
           <div className="mt-1 text-2xl font-semibold">{props.value}</div>
           <p className="mt-1 text-xs text-muted-foreground">{props.detail}</p>
         </div>
-        <div className={cn('grid size-10 place-items-center rounded-lg ring-1', toneClass)}>
+        <div className={cn('grid size-10 place-items-center rounded-md ring-1', toneClass)}>
           <Icon className="size-5" />
         </div>
       </CardContent>
@@ -396,7 +396,7 @@ export function SetupPanel(props: SetupPanelProps) {
         <div className="grid gap-3 md:grid-cols-2">
           {props.steps.map(function renderStep(step, index) {
             return (
-              <div className="rounded-lg border border-border bg-muted/20 p-4" key={step.key}>
+              <div className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={step.key}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <StepIcon status={step.status} index={index + 1} />
@@ -877,7 +877,7 @@ export function JobsPanel(props: JobsPanelProps) {
           <div className="grid gap-3">
             {props.jobs.map(function renderJob(job) {
               return (
-                <div className="rounded-lg border border-border bg-muted/20 p-3" key={job.id}>
+                <div className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={job.id}>
                   <div className="flex items-center justify-between gap-3">
                     <p className="truncate text-sm font-medium">{job.type}</p>
                     <StatusBadge status={job.status} />
@@ -987,7 +987,7 @@ function EmptyState(props: EmptyStateProps) {
 
   return (
     <div className={cn('grid place-items-center px-5 text-center', props.compact ? 'py-6' : 'py-12')}>
-      <div className="grid size-10 place-items-center rounded-lg bg-muted text-muted-foreground">
+      <div className="grid size-10 place-items-center rounded-md bg-muted text-muted-foreground">
         <Icon className="size-5" />
       </div>
       <p className="mt-3 text-sm font-medium">{props.title}</p>
@@ -999,7 +999,7 @@ function EmptyState(props: EmptyStateProps) {
 function StepIcon(props: { status: string; index: number }) {
   if (props.status === 'done') {
     return (
-      <div className="grid size-8 shrink-0 place-items-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100">
+      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
         <CheckCircle2 className="size-4" />
       </div>
     );
@@ -1007,7 +1007,7 @@ function StepIcon(props: { status: string; index: number }) {
 
   if (props.status === 'running') {
     return (
-      <div className="grid size-8 shrink-0 place-items-center rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-100">
+      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-sky-500/10 text-sky-300 ring-1 ring-sky-500/20">
         <Loader2 className="size-4 animate-spin" />
       </div>
     );
@@ -1015,14 +1015,14 @@ function StepIcon(props: { status: string; index: number }) {
 
   if (props.status === 'error') {
     return (
-      <div className="grid size-8 shrink-0 place-items-center rounded-full bg-red-50 text-red-700 ring-1 ring-red-100">
+      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-red-500/10 text-red-300 ring-1 ring-red-500/20">
         <AlertTriangle className="size-4" />
       </div>
     );
   }
 
   return (
-    <div className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+    <div className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-xs font-medium text-muted-foreground">
       {props.index}
     </div>
   );

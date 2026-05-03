@@ -52,7 +52,7 @@ function HomePage() {
           <div className="mx-auto grid w-full max-w-4xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
             <div className="flex items-center justify-between gap-4 lg:hidden">
               <div className="flex items-center gap-3">
-                <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
+                <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
                   <Database className="size-4" />
                 </div>
                 <div>

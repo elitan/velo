@@ -4,24 +4,15 @@ import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
   Database,
-  GitBranch,
   Loader2,
   Play,
   Terminal,
 } from 'lucide-react';
-import { Badge } from '#web/components/ui/badge';
 import { Button } from '#web/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '#web/components/ui/card';
 import { Textarea } from '#web/components/ui/textarea';
 import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
-  StatusBadge,
 } from '#web/components/control-plane';
 import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
 
@@ -87,70 +78,53 @@ function SqlEditorPage() {
       <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
         <AppSidebar branches={state.branches} activeBranchPage="sql" selectedBranch={branch.id} />
 
-        <section className="min-w-0">
-          <div className="mx-auto grid w-full max-w-[1400px] gap-4 px-4 py-5 sm:px-6 lg:px-8">
-            <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{branch.badge}</Badge>
-                  <StatusBadge status={branch.status} />
-                </div>
-                <h1 className="mt-2 font-mono text-2xl font-semibold tracking-normal md:text-3xl">SQL editor</h1>
-                <div className="mt-2 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <GitBranch className="size-4" />
-                  <span>{branch.name}</span>
-                </div>
-              </div>
-            </header>
-
-            <form className="grid gap-3" onSubmit={handleRunSql}>
-              <Card className="overflow-hidden shadow-sm">
-                <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="grid size-7 place-items-center rounded border border-border bg-background text-muted-foreground">
-                      <Terminal className="size-4" />
-                    </div>
-                    <CardTitle className="font-mono text-sm font-medium">query.sql</CardTitle>
+        <section className="min-w-0 bg-background">
+          <div className="grid min-h-screen grid-rows-[minmax(280px,42vh)_1fr]">
+            <form className="min-h-0 border-b border-border" onSubmit={handleRunSql}>
+              <div className="flex h-12 items-center justify-between gap-3 border-b border-border px-4">
+                <div className="flex items-center gap-3">
+                  <div className="grid size-7 place-items-center rounded-sm border border-border bg-muted text-muted-foreground">
+                    <Terminal className="size-4" />
                   </div>
-                  <Button
-                    type="submit"
-                    size="sm"
-                    className="h-8"
-                    disabled={runSql.isPending || !sql.trim() || branch.status === 'missing'}
-                  >
-                    {runSql.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-                    Run
-                  </Button>
-                </CardHeader>
-                <CardContent className="p-0">
-                  <Textarea
-                    className="max-h-72 min-h-40 resize-y rounded-none border-0 bg-background p-4 font-mono text-sm leading-6 shadow-none focus-visible:ring-0"
-                    value={sql}
-                    onChange={function updateSql(event) {
-                      setSql(event.target.value);
-                    }}
-                  />
-                </CardContent>
-              </Card>
+                  <div className="font-mono text-sm font-medium">query.sql</div>
+                </div>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-8"
+                  disabled={runSql.isPending || !sql.trim() || branch.status === 'missing'}
+                >
+                  {runSql.isPending ? <Loader2 className="animate-spin" /> : <Play />}
+                  Run
+                </Button>
+              </div>
+
+              <Textarea
+                className="h-[calc(100%-3rem)] min-h-0 resize-none rounded-none border-0 !bg-background px-4 py-3 font-mono text-sm leading-6 shadow-none focus-visible:ring-0"
+                value={sql}
+                onChange={function updateSql(event) {
+                  setSql(event.target.value);
+                }}
+              />
             </form>
 
-            <Card className="overflow-hidden shadow-sm">
-              <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border bg-muted/30 px-4 py-3">
+            <section className="min-h-0">
+              <div className="flex h-12 items-center justify-between gap-3 border-b border-border px-4">
                 <div className="flex items-center gap-3">
-                  <div className="grid size-7 place-items-center rounded border border-border bg-background text-muted-foreground">
+                  <div className="grid size-7 place-items-center rounded-sm border border-border bg-muted text-muted-foreground">
                     <Database className="size-4" />
                   </div>
-                  <CardTitle className="font-mono text-sm font-medium">stdout</CardTitle>
+                  <div className="font-mono text-sm font-medium">stdout</div>
                 </div>
                 {result ? (
                   <div className="font-mono text-xs text-muted-foreground">
                     {result.command} · {result.rowCount} rows · {formatDuration(result.durationMs)}
                   </div>
                 ) : null}
-              </CardHeader>
-              <CardContent className="p-0">
+              </div>
+              <div className="min-h-0">
                 {error ? (
-                  <div className="m-4 rounded border border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-sm text-destructive">
+                  <div className="m-4 border border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-sm text-destructive">
                     {error}
                   </div>
                 ) : null}
@@ -160,8 +134,8 @@ function SqlEditorPage() {
                     <span className="text-foreground">$</span> run query to print rows
                   </div>
                 ) : null}
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           </div>
         </section>
       </div>
@@ -181,7 +155,7 @@ interface SqlResult {
 function SqlResultTable(props: { result: SqlResult }) {
   if (props.result.columns.length === 0) {
     return (
-      <div className="m-4 rounded border border-border bg-muted/30 px-3 py-2 font-mono text-sm text-muted-foreground">
+      <div className="m-4 font-mono text-sm text-muted-foreground">
         Query completed.
       </div>
     );
