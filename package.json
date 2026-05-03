@@ -68,7 +68,7 @@
     "e2e:hetzner": "scripts/e2e-hetzner.sh",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:generate": "bun run db:migrate && kysely-codegen --camel-case --dialect bun-sqlite --url ${VELO_DB:-$HOME/.velo/velo.sqlite} --out-file src/db/generated.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsgo --noEmit"
   },
   "devDependencies": {
     "@types/bun": "latest",
@@ -76,6 +76,7 @@
     "@types/node": "^24.6.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@typescript/native-preview": "^7.0.0-dev.20260503.1",
     "kysely-codegen": "^0.20.0"
   },
   "peerDependencies": {
