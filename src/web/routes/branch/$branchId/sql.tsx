@@ -47,8 +47,11 @@ function SqlEditorPage() {
 
   const branch = getBranchView(state, params.branchId);
 
-  async function handleRunSql(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function runCurrentSql() {
+    if (runSql.isPending || !sql.trim() || branch.status === 'missing') {
+      return;
+    }
+
     const branchId = params.branchId;
     setError(null);
 
@@ -71,6 +74,11 @@ function SqlEditorPage() {
       setError(getErrorMessage(caught, 'SQL failed'));
       setResult(null);
     }
+  }
+
+  function handleRunSql(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void runCurrentSql();
   }
 
   return (
@@ -104,6 +112,14 @@ function SqlEditorPage() {
                 value={sql}
                 onChange={function updateSql(event) {
                   setSql(event.target.value);
+                }}
+                onKeyDown={function runSqlShortcut(event) {
+                  if (event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)) {
+                    return;
+                  }
+
+                  event.preventDefault();
+                  void runCurrentSql();
                 }}
               />
             </form>
