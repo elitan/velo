@@ -11,6 +11,7 @@ import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
 import { createLocalDockerBranch, deleteLocalDockerBranch, isLocalDockerMode } from './local-docker-service';
+import { createJob, getActiveJobs, runJob } from './job-service';
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
@@ -19,6 +20,8 @@ export interface CreateBranchInput {
   name: string;
   parentBranchId?: number | null;
   slug?: string;
+  expiresAt?: string | null;
+  ttlHours?: number | null;
 }
 
 export interface CreatePreviewBranchInput {
@@ -43,10 +46,16 @@ export interface DeleteBranchResult {
   displayName: string;
 }
 
+export interface UpdateBranchExpiryInput {
+  id: number;
+  expiresAt: string | null;
+}
+
 export async function createBranchFromBase(input: CreateBranchInput): Promise<CreateBranchResult> {
   const displayName = normalizeDisplayName(input.name);
   const branchSlug = normalizeBranchSlug(input.slug || input.name);
   const source = await resolveBranchSource(input.parentBranchId);
+  const expiresAt = resolveExpiresAt(input);
 
   if (source.slug === branchSlug) {
     throw new Error('A branch cannot be created from itself');
@@ -64,6 +73,7 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
         sourceDatabase: source.dataset,
         sourceReplayAt: new Date().toISOString(),
         parentBranchId: source.id,
+        expiresAt,
       });
 
       await setStepStatus('first-branch', 'done', `${displayName} ready`);
@@ -78,6 +88,7 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
       sourceDataset: source.dataset,
       sourceReplayAt: new Date().toISOString(),
       parentBranchId: source.id,
+      expiresAt,
       publicAccess: true,
       readOnly: false,
     });
@@ -116,6 +127,7 @@ async function createBranchClone(options: {
   sourceDataset: string;
   sourceReplayAt: string;
   parentBranchId: number | null;
+  expiresAt: string | null;
   publicAccess: boolean;
   readOnly: boolean;
 }): Promise<CreateBranchResult> {
@@ -208,6 +220,7 @@ async function createBranchClone(options: {
         parentBranchId: options.parentBranchId,
         connectionUrl: connectionUrl,
         sourceReplayAt: options.sourceReplayAt,
+        expiresAt: options.expiresAt,
       })
       .execute();
 
@@ -253,6 +266,65 @@ export async function resetBranchFromParent(input: DeleteBranchInput): Promise<C
     slug: branch.slug,
     parentBranchId: branch.parentBranchId,
   });
+}
+
+export async function updateBranchExpiry(input: UpdateBranchExpiryInput): Promise<void> {
+  const branch = await getDb()
+    .selectFrom('branches')
+    .select(['id'])
+    .where('id', '=', input.id)
+    .executeTakeFirst();
+
+  if (!branch) {
+    throw new Error('Branch not found');
+  }
+
+  await getDb()
+    .updateTable('branches')
+    .set({
+      expiresAt: parseOptionalExpiry(input.expiresAt),
+    })
+    .where('id', '=', input.id)
+    .execute();
+}
+
+export async function runExpiredBranchCleanup(): Promise<void> {
+  const active = await getActiveJobs();
+  const expired = await getDb()
+    .selectFrom('branches')
+    .select(['id', 'slug', 'displayName', 'expiresAt'])
+    .where('expiresAt', 'is not', null)
+    .where('expiresAt', '<=', new Date().toISOString())
+    .orderBy('expiresAt', 'asc')
+    .execute();
+
+  for (const branch of expired) {
+    if (hasActiveBranchJob(branch.id, branch.slug, active)) {
+      continue;
+    }
+
+    const child = await getDb()
+      .selectFrom('branches')
+      .select(['id'])
+      .where('parentBranchId', '=', branch.id)
+      .executeTakeFirst();
+
+    if (child) {
+      continue;
+    }
+
+    const job = await createJob('branch-cleanup', {
+      branchId: branch.id,
+      branchSlug: branch.slug,
+      expiresAt: branch.expiresAt,
+    });
+
+    runJob(job, async function runBranchCleanupJob(context) {
+      await context.log(`deleting expired branch ${branch.displayName}`);
+      const result = await deleteBranch({ id: branch.id });
+      await context.log(`deleted expired branch ${result.displayName}`);
+    });
+  }
 }
 
 async function resolveBranchSource(parentBranchId: number | null | undefined): Promise<{ id: number | null; slug: string; dataset: string }> {
@@ -522,6 +594,55 @@ function parseRestoreTime(value: string): Date {
   }
 
   return date;
+}
+
+function resolveExpiresAt(input: CreateBranchInput): string | null {
+  if (input.expiresAt !== undefined) {
+    return parseOptionalExpiry(input.expiresAt);
+  }
+
+  if (!input.ttlHours) {
+    return null;
+  }
+
+  if (!Number.isFinite(input.ttlHours) || input.ttlHours <= 0) {
+    throw new Error('TTL must be greater than zero');
+  }
+
+  return new Date(Date.now() + input.ttlHours * 60 * 60 * 1000).toISOString();
+}
+
+function parseOptionalExpiry(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const expiresAt = new Date(value);
+
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw new Error('Expiry time is invalid');
+  }
+
+  return expiresAt.toISOString();
+}
+
+function hasActiveBranchJob(branchId: number, branchSlug: string, jobs: Awaited<ReturnType<typeof getActiveJobs>>): boolean {
+  return jobs.some(function isBranchJob(job) {
+    if (job.type === 'branch-cleanup') {
+      return true;
+    }
+
+    if (!job.inputJson) {
+      return false;
+    }
+
+    try {
+      const input = JSON.parse(job.inputJson) as Record<string, unknown>;
+      return input.id === branchId || input.branchId === branchId || input.targetBranch === branchSlug;
+    } catch {
+      return false;
+    }
+  });
 }
 
 function shellQuote(value: string): string {

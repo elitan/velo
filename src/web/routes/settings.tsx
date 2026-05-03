@@ -167,7 +167,13 @@ function SettingsPage() {
 
   async function handleCreateBranch(formData: FormData) {
     const name = String(formData.get('name') || '');
-    await createBranch.mutateAsync({ name });
+    const ttlHours = formData.get('ttlHours');
+    const parentBranchId = formData.get('parentBranchId');
+    await createBranch.mutateAsync({
+      name,
+      parentBranchId: parentBranchId && parentBranchId !== 'prod' ? Number(parentBranchId) : null,
+      ttlHours: ttlHours && ttlHours !== 'none' ? Number(ttlHours) : null,
+    });
   }
 
   async function handleDeleteBranch(id: number) {
