@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Database } from 'bun:sqlite';
+import { sql } from 'kysely';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
-import { createJob, getActiveJob, getJob, listJobs, runJob } from './services/job-service';
+import { createJob, getActiveJob, getJob, listJobs, startJobWorker, type JobHandlers } from './services/job-service';
 import { createBranchFromBase } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
@@ -76,6 +78,37 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(steps.every(function isPending(step) {
       return step.status === 'pending';
     })).toBe(true);
+  });
+
+  test('migrates job queue columns on existing databases', async function testExistingJobMigration() {
+    const originalDb = process.env.VELO_DB;
+    const existingDir = mkdtempSync(join(tmpdir(), 'velo-existing-jobs-'));
+    const existingDbPath = join(existingDir, 'velo.sqlite');
+
+    await closeDb();
+
+    try {
+      createPreQueueDatabase(existingDbPath);
+      process.env.VELO_DB = existingDbPath;
+      migrateDatabase();
+
+      const db = new Database(existingDbPath);
+      const job = db
+        .query('select type, attempts, max_attempts, run_after from jobs where type = ?')
+        .get('old-job') as { type: string; attempts: number; max_attempts: number; run_after: string | null };
+      db.close();
+
+      expect(job).toMatchObject({
+        type: 'old-job',
+        attempts: 0,
+        max_attempts: 1,
+      });
+      expect(job.run_after).toBeTruthy();
+    } finally {
+      await closeDb();
+      process.env.VELO_DB = originalDb;
+      rmSync(existingDir, { recursive: true, force: true });
+    }
   });
 
   test('returns dashboard state without leaking backup secrets', async function testControlPlaneState() {
@@ -159,15 +192,36 @@ describe('control plane database', function controlPlaneDatabase() {
   });
 });
 
+function createPreQueueDatabase(databasePath: string): void {
+  const db = new Database(databasePath);
+  db.exec(`
+    create table schema_migrations (
+      id text primary key,
+      applied_at text not null default (datetime('now'))
+    );
+  `);
+
+  for (const id of ['001_initial', '002_jobs', '003_branch_parent', '004_branch_identity']) {
+    db.exec(readFileSync(join(process.cwd(), 'src/db/migrations', `${id}.sql`), 'utf8'));
+    db.prepare('insert into schema_migrations (id) values (?)').run(id);
+  }
+
+  db.prepare('insert into jobs (type, status) values (?, ?)').run('old-job', 'running');
+  db.close();
+}
+
 describe('control plane jobs', function controlPlaneJobs() {
   test('runs jobs, stores logs, and sanitizes secrets', async function testSuccessfulJob() {
     const job = await createJob('test-job', { branch: 'preview-1' });
-
-    runJob(job, async function handleJob(context) {
-      await context.log('using password=secret-value and secret access key abc');
+    const worker = startTestWorker({
+      'test-job': async function handleJob(_input, context) {
+        await context.log('using password=secret-value and secret access key abc');
+      },
     });
 
+    await worker.tick();
     const record = await waitForJob(job.id);
+    worker.stop();
 
     expect(record.status).toBe('done');
     expect(record.logs.some(function hasSanitizedLog(log) {
@@ -179,13 +233,16 @@ describe('control plane jobs', function controlPlaneJobs() {
 
   test('stores sanitized job failures', async function testFailedJob() {
     const job = await createJob('failing-job');
-
-    runJob(job, async function handleJob() {
-      throw new Error('failed with access key id abc123 and password=bad');
+    const worker = startTestWorker({
+      'failing-job': async function handleJob() {
+        throw new Error('failed with access key id abc123 and password=bad');
+      },
     });
 
+    await worker.tick();
     const record = await waitForJob(job.id);
     const jobs = await listJobs();
+    worker.stop();
 
     expect(record.status).toBe('error');
     expect(record.error).toContain('access_key_id=***');
@@ -195,8 +252,12 @@ describe('control plane jobs', function controlPlaneJobs() {
 
   test('finds only queued or running jobs by type', async function testActiveJob() {
     const finished = await createJob('prod-bootstrap');
-    runJob(finished, async function handleJob() {});
+    const worker = startTestWorker({
+      'prod-bootstrap': async function handleJob() {},
+    });
+    await worker.tick();
     await waitForJob(finished.id);
+    worker.stop();
 
     const active = await createJob('prod-bootstrap');
     const ignored = await createJob('dev-bootstrap');
@@ -205,7 +266,126 @@ describe('control plane jobs', function controlPlaneJobs() {
     expect(await getActiveJob('dev-bootstrap')).toMatchObject({ id: ignored.id });
     expect(await getActiveJob('missing-job')).toBeUndefined();
   });
+
+  test('retries failed jobs with backoff', async function testRetryJob() {
+    const job = await createJob('retry-job', undefined, { maxAttempts: 2 });
+    let runs = 0;
+    const worker = startTestWorker({
+      'retry-job': async function handleJob() {
+        runs += 1;
+
+        if (runs === 1) {
+          throw new Error('ssh failed');
+        }
+      },
+    });
+
+    await worker.tick();
+    const queued = await getJob(job.id);
+
+    expect(queued.status).toBe('queued');
+    expect(queued.attempts).toBe(1);
+    expect(queued.error).toBe('ssh failed');
+    expect(queued.logs.some(function hasRetryLog(log) {
+      return log.message.includes('retrying retry-job');
+    })).toBe(true);
+
+    await getDb()
+      .updateTable('jobs')
+      .set({ runAfter: sql<string>`datetime('now')` })
+      .where('id', '=', job.id)
+      .execute();
+
+    await worker.tick();
+    const done = await waitForJob(job.id);
+    worker.stop();
+
+    expect(done.status).toBe('done');
+    expect(done.attempts).toBe(2);
+  });
+
+  test('recovers stale running jobs', async function testRecoverStaleJob() {
+    const job = await createJob('stale-job', undefined, { maxAttempts: 2 });
+    const worker = startTestWorker({
+      'stale-job': async function handleJob(_input, context) {
+        await context.log('recovered');
+      },
+    });
+
+    await markRunningStale(job.id, 1);
+    await worker.tick();
+    const record = await waitForJob(job.id);
+    worker.stop();
+
+    expect(record.status).toBe('done');
+    expect(record.attempts).toBe(2);
+    expect(record.logs.some(function hasLostHeartbeatLog(log) {
+      return log.message.includes('lost heartbeat');
+    })).toBe(true);
+  });
+
+  test('marks exhausted stale jobs as error', async function testExhaustedStaleJob() {
+    const job = await createJob('stale-job', undefined, { maxAttempts: 1 });
+    const worker = startTestWorker({
+      'stale-job': async function handleJob() {},
+    });
+
+    await markRunningStale(job.id, 1);
+    await worker.tick();
+    const record = await waitForJob(job.id);
+    worker.stop();
+
+    expect(record.status).toBe('error');
+    expect(record.error).toContain('lost heartbeat');
+  });
+
+  test('does not let duplicate workers claim the same job', async function testDuplicateWorkerClaim() {
+    const job = await createJob('slow-job', undefined, { maxAttempts: 1 });
+    let runs = 0;
+    const handlers: JobHandlers = {
+      'slow-job': async function handleJob() {
+        runs += 1;
+        await Bun.sleep(50);
+      },
+    };
+    const firstWorker = startTestWorker(handlers, 'first-worker');
+    const secondWorker = startTestWorker(handlers, 'second-worker');
+
+    await Promise.all([
+      firstWorker.tick(),
+      secondWorker.tick(),
+    ]);
+    const record = await waitForJob(job.id);
+    firstWorker.stop();
+    secondWorker.stop();
+
+    expect(record.status).toBe('done');
+    expect(runs).toBe(1);
+  });
 });
+
+function startTestWorker(handlers: JobHandlers, workerId = 'test-worker') {
+  return startJobWorker(handlers, {
+    autoStart: false,
+    staleTimeoutSeconds: 1,
+    workerId,
+  });
+}
+
+async function markRunningStale(jobId: number, attempts: number): Promise<void> {
+  await getDb()
+    .updateTable('jobs')
+    .set({
+      status: 'running',
+      attempts,
+      lockedAt: sql<string>`datetime('now', '-10 seconds')`,
+      lockedBy: 'dead-worker',
+      heartbeatAt: sql<string>`datetime('now', '-10 seconds')`,
+      updatedAt: sql<string>`datetime('now', '-10 seconds')`,
+    })
+    .where('id', '=', jobId)
+    .execute();
+}
 
 async function waitForJob(jobId: number) {
   const startedAt = Date.now();

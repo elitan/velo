@@ -62,6 +62,12 @@ export interface JobsTable {
   status: 'queued' | 'running' | 'done' | 'error';
   inputJson: string | null;
   error: string | null;
+  attempts: Generated<number>;
+  maxAttempts: Generated<number>;
+  runAfter: string | null;
+  lockedAt: string | null;
+  lockedBy: string | null;
+  heartbeatAt: string | null;
   createdAt: Timestamp;
   startedAt: string | null;
   finishedAt: string | null;
