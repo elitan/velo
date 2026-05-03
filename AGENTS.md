@@ -99,7 +99,23 @@ Production-like deployed code path:
 
 ## Deploy
 
-Use this for stable checkpoints:
+### Hetzner Test Setup
+
+Use this to redeploy latest `main` fresh to the two-server test setup:
+
+```sh
+bun run deploy:main
+```
+
+The test setup is:
+
+- app/control server: `157.180.22.136`
+- prod-db server: `89.167.89.255`
+
+`deploy:main` uses `gh` to resolve latest `main`, resets both servers, installs Velo, bootstraps Postgres/pgBackRest, and starts `velo-web`.
+Do not add auth to this test setup. The app URL should stay directly open.
+
+Use this to deploy the current local commit instead:
 
 ```sh
 VELO_DEPLOY_DEV_HOST=157.180.22.136 \
@@ -109,7 +125,7 @@ VELO_DEPLOY_KEY=$HOME/.ssh/frost-e2e-ci \
 bun run deploy
 ```
 
-`deploy` resets the Hetzner app/database state, installs Velo, bootstraps Postgres/pgBackRest, and starts `velo-web`.
+`deploy` resets the Hetzner app/database state, installs Velo from local `HEAD`, bootstraps Postgres/pgBackRest, and starts `velo-web`.
 `deploy:dev` only rsyncs the local worktree to the app server.
 `remote:dev` stops `velo-web` and starts `velo-web-dev`.
 

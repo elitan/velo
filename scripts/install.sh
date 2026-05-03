@@ -57,8 +57,7 @@ if [ ! -f /etc/velo.env ]; then
 fi
 
 grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' "$VELO_PUBLIC_URL" >>/etc/velo.env
-grep -q '^VELO_BASIC_AUTH_USERNAME=' /etc/velo.env || printf 'VELO_BASIC_AUTH_USERNAME=%s\n' "${VELO_BASIC_AUTH_USERNAME:-velo}" >>/etc/velo.env
-grep -q '^VELO_BASIC_AUTH_PASSWORD=' /etc/velo.env || printf 'VELO_BASIC_AUTH_PASSWORD=%s\n' "${VELO_BASIC_AUTH_PASSWORD:-$(openssl rand -base64 32)}" >>/etc/velo.env
+sed -i '/^VELO_BASIC_AUTH_USERNAME=/d; /^VELO_BASIC_AUTH_PASSWORD=/d' /etc/velo.env
 
 cat >/etc/systemd/system/velo-web.service <<SERVICE
 [Unit]

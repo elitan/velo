@@ -375,10 +375,7 @@ async function waitForProdArchive(): Promise<void> {
 async function appHead(path: string): Promise<void> {
   const command = [
     'set -e',
-    'set -a',
-    '. /etc/velo.env',
-    'set +a',
-    `curl -fsS -I -u "$VELO_BASIC_AUTH_USERNAME:$VELO_BASIC_AUTH_PASSWORD" ${shellQuote(`http://127.0.0.1:${PORT}${path}`)} >/dev/null`,
+    `curl -fsS -I ${shellQuote(`http://127.0.0.1:${PORT}${path}`)} >/dev/null`,
   ].join('\n');
 
   await assertCommandOk(await runCommand(['sh', '-lc', command], 30000), `HEAD ${path}`);
