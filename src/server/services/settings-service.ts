@@ -83,6 +83,8 @@ export async function setSetting(key: string, value: string): Promise<void> {
 }
 
 export async function saveBackupSettings(input: BackupSettingsInput): Promise<BackupSettings> {
+  await validateBackupSettings(input);
+
   await Promise.all([
     setSetting('backup.s3.enabled', input.enabled ? 'true' : 'false'),
     setSetting('backup.s3.endpoint', input.endpoint.trim()),
@@ -97,6 +99,8 @@ export async function saveBackupSettings(input: BackupSettingsInput): Promise<Ba
   if (input.secretAccessKey && input.secretAccessKey.trim()) {
     await setSetting('backup.s3.secretAccessKey', input.secretAccessKey.trim());
   }
+
+  await setBackupConfigStepDone(input.enabled ? 'S3 backup storage saved' : 'local backup storage saved');
 
   return getBackupSettings();
 }
@@ -133,4 +137,45 @@ function normalizePositiveInteger(value: number | undefined, fallback: number): 
   }
 
   return Math.floor(value);
+}
+
+async function validateBackupSettings(input: BackupSettingsInput): Promise<void> {
+  if (!input.enabled) {
+    return;
+  }
+
+  const missing = [];
+  const existingSecret = await getSetting('backup.s3.secretAccessKey');
+
+  if (!input.endpoint.trim()) {
+    missing.push('endpoint');
+  }
+
+  if (!input.bucket.trim()) {
+    missing.push('bucket');
+  }
+
+  if (!input.accessKeyId.trim()) {
+    missing.push('access key');
+  }
+
+  if (!input.secretAccessKey?.trim() && !existingSecret) {
+    missing.push('secret key');
+  }
+
+  if (missing.length > 0) {
+    throw new Error(`Missing S3 backup ${missing.join(', ')}`);
+  }
+}
+
+async function setBackupConfigStepDone(message: string): Promise<void> {
+  await getDb()
+    .updateTable('setupSteps')
+    .set({
+      status: 'done',
+      message,
+      updatedAt: sql`datetime('now')`,
+    })
+    .where('key', '=', 'backups-config')
+    .execute();
 }
