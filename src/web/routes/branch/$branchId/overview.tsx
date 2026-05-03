@@ -178,8 +178,8 @@ function BranchOverviewPage() {
 
         <section className="min-w-0">
           <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
-            <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
+            <header className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-start md:justify-between">
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{branch.badge}</Badge>
                   <StatusBadge status={branch.status} />
@@ -190,9 +190,10 @@ function BranchOverviewPage() {
                   {branch.parentName ? ` · Parent: ${branch.parentName}` : ''}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 md:ml-auto">
                 <Button
                   type="button"
+                  size="lg"
                   onClick={function createChildClick() {
                     openCreateChildModal();
                   }}
@@ -203,7 +204,7 @@ function BranchOverviewPage() {
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline">
+                    <Button type="button" variant="outline" size="lg">
                       More
                       <ChevronDown />
                     </Button>
@@ -238,7 +239,7 @@ function BranchOverviewPage() {
             </header>
 
             {message ? (
-              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+              <div className="border-t border-border pt-3 text-sm text-muted-foreground">
                 {message}
               </div>
             ) : null}

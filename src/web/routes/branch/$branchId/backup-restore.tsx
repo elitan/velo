@@ -202,7 +202,7 @@ function BackupRestorePage() {
               </CardHeader>
 
               <CardContent className="grid gap-5">
-                <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-2">
+                <div className="grid gap-4 border-t border-border pt-4 md:grid-cols-2">
                   <div className="grid gap-2">
                     <Label>Source branch</Label>
                     <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 text-sm font-medium">
@@ -265,7 +265,7 @@ function BackupRestorePage() {
                 </div>
 
                 {restoreMessage ? (
-                  <div className="rounded-md border border-emerald-500/30 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
                     {restoreMessage}
                   </div>
                 ) : null}
@@ -297,7 +297,7 @@ function BackupRestorePage() {
               </CardHeader>
 
               <CardContent className="grid gap-5">
-                <div className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4 md:grid-cols-2">
+                <div className="grid gap-4 border-t border-border pt-4 md:grid-cols-2">
                   <div className="grid gap-2">
                     <Label>Source branch</Label>
                     <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 text-sm font-medium">
@@ -400,9 +400,9 @@ function RestorePromptModal(props: {
 }) {
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl">
+      <div className="w-full max-w-lg rounded-md border border-border bg-card p-5 text-card-foreground shadow-xl">
         <div className="flex gap-3">
-          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-700">
+          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-amber-500/10 text-amber-300">
             <AlertTriangle className="size-5" />
           </div>
           <div className="min-w-0">
@@ -454,7 +454,7 @@ function HistoricPreviewModal(props: {
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 p-3 backdrop-blur-sm">
-      <div className="grid h-full grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-xl">
+      <div className="grid h-full grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-xl">
         <div className="flex flex-col gap-3 border-b border-border px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold tracking-normal">Preview historic data</h2>

@@ -178,7 +178,7 @@ export function OnboardingWizard() {
               const isActive = nextStep?.key === step.key;
 
               return (
-                <div className="rounded-lg border border-border bg-muted/20 p-4" key={step.key}>
+                <div className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={step.key}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-medium">{step.label}</p>
