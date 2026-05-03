@@ -63,6 +63,7 @@
     "remote:sync:once": "scripts/remote-sync.sh --once",
     "deploy": "scripts/deploy-hetzner.sh",
     "deploy:hetzner": "scripts/deploy-hetzner.sh",
+    "deploy:main": "scripts/deploy-main.sh",
     "deploy:dev": "scripts/deploy-dev.sh",
     "e2e:hetzner": "scripts/e2e-hetzner.sh",
     "db:migrate": "bun run src/db/migrate.ts",
