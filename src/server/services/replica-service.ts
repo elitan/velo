@@ -2,6 +2,7 @@ import { ZFSManager } from '../../managers/zfs';
 import { DockerManager } from '../../managers/docker';
 import { WALManager } from '../../managers/wal';
 import { CertManager } from '../../managers/cert';
+import { formatPostgresOwner, resolvePostgresOwner, type PostgresOwner } from '../../managers/postgres-owner';
 import { DEFAULTS } from '../../config/defaults';
 import { generatePassword } from '../../utils/helpers';
 import { getZFSPool } from '../../utils/zfs-pool';
@@ -80,8 +81,8 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
   }
 
   const mountpoint = await zfs.getMountpoint(baseDataset);
-  await ensurePortablePostgresConfig(`${mountpoint}/pgdata`);
-  const pgVersion = await readPgVersion(`${mountpoint}/pgdata`);
+  const pgdata = `${mountpoint}/pgdata`;
+  const pgVersion = await readPgVersion(pgdata);
   const image = `postgres:${pgVersion}-alpine`;
   const containerName = getContainerName(PROJECT_NAME, BASE_BRANCH_NAME);
 
@@ -90,12 +91,16 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
     await docker.removeContainer(existingContainerId);
   }
 
-  const certPaths = await cert.generateCerts(PROJECT_NAME);
-  await wal.ensureArchiveDir(baseDataset);
-
   if (!(await docker.imageExists(image))) {
     await docker.pullImage(image);
   }
+
+  const postgresOwner = await resolvePostgresOwner(image);
+  await setPostgresDataOwner(pgdata, postgresOwner);
+  await ensurePortablePostgresConfig(pgdata, postgresOwner);
+
+  const certPaths = await cert.generateCerts(PROJECT_NAME, postgresOwner);
+  await wal.ensureArchiveDir(baseDataset, postgresOwner);
 
   const containerId = await docker.createContainer({
     name: containerName,
@@ -173,7 +178,6 @@ async function runBaseBackup(options: {
       `rm -rf ${shellQuote(options.targetDir)}`,
       `mkdir -p ${shellQuote(options.targetDir)}`,
       `PGPASSWORD=${shellQuote(options.replicationPassword)} pg_basebackup -h ${shellQuote(options.prodHost)} -U ${REPLICATION_USER} -D ${shellQuote(options.targetDir)} -R -X stream --checkpoint=fast`,
-      `sudo chown -R 70:70 ${shellQuote(options.targetDir)}`,
     ].join('\n'),
   ], 60 * 60 * 1000);
 
@@ -183,7 +187,7 @@ async function runBaseBackup(options: {
   }
 }
 
-async function ensurePortablePostgresConfig(pgdata: string): Promise<void> {
+async function ensurePortablePostgresConfig(pgdata: string, postgresOwner: PostgresOwner): Promise<void> {
   const result = await runCommand([
     'sh',
     '-lc',
@@ -201,13 +205,25 @@ async function ensurePortablePostgresConfig(pgdata: string): Promise<void> {
       'host replication all ::/0 scram-sha-256',
       'HBA',
       `touch ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
-      `sudo chown 70:70 ${shellQuote(`${pgdata}/postgresql.conf`)} ${shellQuote(`${pgdata}/pg_hba.conf`)} ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
+      `sudo chown ${formatPostgresOwner(postgresOwner)} ${shellQuote(`${pgdata}/postgresql.conf`)} ${shellQuote(`${pgdata}/pg_hba.conf`)} ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
       `sudo chmod 600 ${shellQuote(`${pgdata}/postgresql.conf`)} ${shellQuote(`${pgdata}/pg_hba.conf`)} ${shellQuote(`${pgdata}/pg_ident.conf`)}`,
     ].join('\n'),
   ]);
 
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || result.stdout || 'failed to write portable Postgres config');
+  }
+}
+
+async function setPostgresDataOwner(pgdata: string, postgresOwner: PostgresOwner): Promise<void> {
+  const result = await runCommand([
+    'sh',
+    '-lc',
+    `sudo chown -R ${formatPostgresOwner(postgresOwner)} ${shellQuote(pgdata)}`,
+  ]);
+
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || 'failed to set Postgres data ownership');
   }
 }
 

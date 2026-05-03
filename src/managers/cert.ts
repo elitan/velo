@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { APP_SLUG } from '../config/constants';
 import { SystemError } from '../errors';
+import { DEFAULT_POSTGRES_OWNER, formatPostgresOwner, type PostgresOwner } from './postgres-owner';
 
 export interface CertPaths {
   certDir: string;
@@ -13,9 +14,14 @@ export interface CertPaths {
 
 export class CertManager {
   private baseDir: string;
+  private postgresOwner: PostgresOwner;
 
-  constructor(baseDir: string = join(process.env.HOME || '/root', `.${APP_SLUG}/certs`)) {
+  constructor(
+    baseDir: string = join(process.env.HOME || '/root', `.${APP_SLUG}/certs`),
+    postgresOwner: PostgresOwner = DEFAULT_POSTGRES_OWNER
+  ) {
     this.baseDir = baseDir;
+    this.postgresOwner = postgresOwner;
   }
 
   /**
@@ -33,7 +39,7 @@ export class CertManager {
   /**
    * Generate self-signed SSL certificates for a project
    */
-  async generateCerts(projectName: string): Promise<CertPaths> {
+  async generateCerts(projectName: string, postgresOwner = this.postgresOwner): Promise<CertPaths> {
     const paths = this.getCertPaths(projectName);
 
     // Check if valid certificates already exist
@@ -76,9 +82,8 @@ export class CertManager {
     }
 
     // Set ownership to match PostgreSQL user in container
-    // PostgreSQL alpine image runs as user 'postgres' with UID 70
     try {
-      await $`sudo chown 70:70 ${paths.serverKey} ${paths.serverCert}`;
+      await $`sudo chown ${formatPostgresOwner(postgresOwner)} ${paths.serverKey} ${paths.serverCert}`;
     } catch (error: any) {
       console.error('chown error:', error.message);
       throw error;
@@ -114,7 +119,7 @@ export class CertManager {
     const paths = this.getCertPaths(projectName);
 
     if (existsSync(paths.certDir)) {
-      // Use sudo to remove files that might be owned by postgres user (UID 70)
+      // Use sudo to remove files that might be owned by the container postgres user.
       try {
         await $`sudo rm -rf ${paths.certDir}`.quiet();
       } catch {

@@ -2,6 +2,7 @@ import { ZFSManager } from '../../managers/zfs';
 import { DockerManager } from '../../managers/docker';
 import { WALManager } from '../../managers/wal';
 import { CertManager } from '../../managers/cert';
+import { formatPostgresOwner, resolvePostgresOwner, type PostgresOwner } from '../../managers/postgres-owner';
 import { DEFAULTS } from '../../config/defaults';
 import { formatTimestamp, generatePassword } from '../../utils/helpers';
 import { getZFSPool } from '../../utils/zfs-pool';
@@ -171,10 +172,6 @@ async function createBranchClone(options: {
     const mountpoint = await zfs.getMountpoint(targetDataset);
     await prepareWritableClone(mountpoint);
 
-    const certPaths = await cert.generateCerts(PROJECT_NAME);
-    const walArchivePath = wal.getArchivePath(targetDataset);
-    await wal.ensureArchiveDir(targetDataset);
-
     const password = generatePassword();
     const pgVersion = await readPgVersion(`${mountpoint}/pgdata`);
     const image = `postgres:${pgVersion}-alpine`;
@@ -182,6 +179,13 @@ async function createBranchClone(options: {
     if (!(await docker.imageExists(image))) {
       await docker.pullImage(image);
     }
+
+    const postgresOwner = await resolvePostgresOwner(image);
+    await setPostgresDataOwner(`${mountpoint}/pgdata`, postgresOwner);
+
+    const certPaths = await cert.generateCerts(PROJECT_NAME, postgresOwner);
+    const walArchivePath = wal.getArchivePath(targetDataset);
+    await wal.ensureArchiveDir(targetDataset, postgresOwner);
 
     containerId = await docker.createContainer({
       name: targetContainer,
@@ -501,12 +505,23 @@ async function prepareWritableClone(mountpoint: string): Promise<void> {
       `if [ -f ${shellQuote(pgdata)}/postgresql.auto.conf ]; then`,
       `  sed -i.bak '/primary_conninfo/d;/primary_slot_name/d;/restore_command/d' ${shellQuote(pgdata)}/postgresql.auto.conf`,
       'fi',
-      `sudo chown -R 70:70 ${shellQuote(pgdata)}`,
     ].join('\n'),
   ]);
 
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || result.stdout || 'failed to prepare branch clone');
+  }
+}
+
+async function setPostgresDataOwner(pgdata: string, postgresOwner: PostgresOwner): Promise<void> {
+  const result = await runCommand([
+    'sh',
+    '-lc',
+    `sudo chown -R ${formatPostgresOwner(postgresOwner)} ${shellQuote(pgdata)}`,
+  ]);
+
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || 'failed to set Postgres data ownership');
   }
 }
 
