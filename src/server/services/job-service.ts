@@ -87,6 +87,15 @@ export async function getActiveJob(type: string): Promise<Job | undefined> {
     .executeTakeFirst();
 }
 
+export async function getActiveJobs(): Promise<Job[]> {
+  return getDb()
+    .selectFrom('jobs')
+    .selectAll()
+    .where('status', 'in', ['queued', 'running'])
+    .orderBy('id', 'desc')
+    .execute();
+}
+
 async function runJobInternal(job: Job, handler: (context: JobContext) => Promise<void>): Promise<void> {
   await updateJob(job.id, 'running', null, {
     startedAt: new Date().toISOString(),

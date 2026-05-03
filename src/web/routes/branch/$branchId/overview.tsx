@@ -4,6 +4,7 @@ import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
 import {
   ChevronDown,
+  Clock3,
   GitBranch,
   Loader2,
   Pencil,
@@ -38,10 +39,18 @@ import {
 } from '#web/components/ui/dropdown-menu';
 import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '#web/components/ui/select';
 import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   BranchOverviewPanel,
+  formatExpiry,
   StatusBadge,
 } from '#web/components/control-plane';
 import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
@@ -57,11 +66,14 @@ function BranchOverviewPage() {
   const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
   const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
   const resetBranch = useMutation(orpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
+  const updateExpiry = useMutation(orpc.branches.expiry.update.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
   const busy = getBusyKey();
   const [message, setMessage] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [childBranchName, setChildBranchName] = useState('');
+  const [childParentBranchId, setChildParentBranchId] = useState('prod');
+  const [childTtlHours, setChildTtlHours] = useState('none');
   const [confirmAction, setConfirmAction] = useState<'reset' | 'delete' | null>(null);
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
@@ -115,6 +127,8 @@ function BranchOverviewPage() {
 
   function openCreateChildModal() {
     setChildBranchName(`${branch.id}-child`);
+    setChildParentBranchId(branch.rowId ? String(branch.rowId) : 'prod');
+    setChildTtlHours('none');
     setCreateModalOpen(true);
   }
 
@@ -128,8 +142,12 @@ function BranchOverviewPage() {
     }
 
     setMessage(null);
-    const result = await createBranch.mutateAsync({ name, parentBranchId: branch.rowId });
-    setMessage(`Creating child branch ${name} from ${branch.name}.`);
+    const result = await createBranch.mutateAsync({
+      name,
+      parentBranchId: childParentBranchId !== 'prod' ? Number(childParentBranchId) : null,
+      ttlHours: childTtlHours !== 'none' ? Number(childTtlHours) : null,
+    });
+    setMessage(`Creating branch ${name}.`);
     setCreateModalOpen(false);
 
     if (result.branchSlug) {
@@ -169,6 +187,17 @@ function BranchOverviewPage() {
     if (action === 'delete') {
       void handleDelete();
     }
+  }
+
+  async function handleExpiry(value: string) {
+    if (!branch.rowId) {
+      return;
+    }
+
+    const expiresAt = value === 'none' ? null : new Date(Date.now() + Number(value) * 60 * 60 * 1000).toISOString();
+    setMessage(null);
+    await updateExpiry.mutateAsync({ id: branch.rowId, expiresAt });
+    setMessage(expiresAt ? `Expiry set for ${branch.name}.` : `Expiry disabled for ${branch.name}.`);
   }
 
   return (
@@ -224,6 +253,33 @@ function BranchOverviewPage() {
                       Edit name
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      disabled={branch.id === 'prod' || updateExpiry.isPending}
+                      onSelect={function extendOneDay() {
+                        void handleExpiry('24');
+                      }}
+                    >
+                      <Clock3 />
+                      Expire in 1 day
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={branch.id === 'prod' || updateExpiry.isPending}
+                      onSelect={function extendSevenDays() {
+                        void handleExpiry('168');
+                      }}
+                    >
+                      <Clock3 />
+                      Expire in 7 days
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={branch.id === 'prod' || updateExpiry.isPending}
+                      onSelect={function disableExpiry() {
+                        void handleExpiry('none');
+                      }}
+                    >
+                      <Clock3 />
+                      Disable expiry
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       variant="destructive"
                       disabled={branch.id === 'prod' || busy === 'delete'}
                       onSelect={function selectDelete() {
@@ -249,6 +305,11 @@ function BranchOverviewPage() {
               connectionLabel={`${branch.name} connection string`}
               connectionUrl={branch.connectionUrl}
             />
+
+            <div className="rounded-lg border border-border bg-muted/20 p-4">
+              <p className="text-sm font-medium">Expiry</p>
+              <p className="mt-1 text-sm text-muted-foreground">{branch.id === 'prod' ? 'production never expires' : formatExpiry(branch.expiresAt)}</p>
+            </div>
           </div>
         </section>
       </div>
@@ -266,6 +327,25 @@ function BranchOverviewPage() {
             </DialogHeader>
 
             <div className="mt-5 grid gap-2">
+              <Label>Parent branch</Label>
+              <Select value={childParentBranchId} onValueChange={setChildParentBranchId}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="prod">production</SelectItem>
+                  {state.branches.map(function renderParentOption(item) {
+                    return (
+                      <SelectItem key={item.id} value={String(item.id)}>
+                        {item.displayName}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="mt-4 grid gap-2">
               <Label htmlFor="child-branch-name">Branch name</Label>
               <Input
                 id="child-branch-name"
@@ -275,6 +355,21 @@ function BranchOverviewPage() {
                   setChildBranchName(event.target.value);
                 }}
               />
+            </div>
+
+            <div className="mt-4 grid gap-2">
+              <Label>Expiry</Label>
+              <Select value={childTtlHours} onValueChange={setChildTtlHours}>
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">no expiry</SelectItem>
+                  <SelectItem value="1">1h</SelectItem>
+                  <SelectItem value="24">1 day</SelectItem>
+                  <SelectItem value="168">7 days</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <DialogFooter className="mt-6">
@@ -343,6 +438,7 @@ function getBranchView(state: ControlPlaneState, branchId: string) {
       badge: 'Production',
       status: state.prodConnectionUrl ? 'ready' : 'pending',
       connectionUrl: state.prodConnectionUrl,
+      expiresAt: null,
     };
   }
 
@@ -361,6 +457,7 @@ function getBranchView(state: ControlPlaneState, branchId: string) {
     badge: 'Development',
     status: branch?.status || 'missing',
     connectionUrl: branch?.connectionUrl || null,
+    expiresAt: branch?.expiresAt || null,
   };
 }
 

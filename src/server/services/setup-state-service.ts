@@ -33,6 +33,7 @@ export interface ControlPlaneState {
     parentSlug: string | null;
     port: number | null;
     connectionUrl: string | null;
+    expiresAt: string | null;
     createdAt: string;
   }>;
   jobs: JobRecord[];
@@ -63,6 +64,7 @@ export async function getControlPlaneState(): Promise<ControlPlaneState> {
         'parent.slug as parentSlug',
         'branches.port',
         'branches.connectionUrl',
+        'branches.expiresAt',
         'branches.createdAt',
       ])
       .where('branches.slug', 'not like', 'preview-%')

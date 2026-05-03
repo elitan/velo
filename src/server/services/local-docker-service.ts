@@ -14,6 +14,7 @@ export interface LocalDockerBranchInput {
   sourceDatabase: string;
   sourceReplayAt: string;
   parentBranchId: number | null;
+  expiresAt: string | null;
 }
 
 export interface LocalDockerBranchResult {
@@ -157,6 +158,7 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
       parentBranchId: input.parentBranchId,
       connectionUrl: connectionUrl,
       sourceReplayAt: input.sourceReplayAt,
+      expiresAt: input.expiresAt,
     })
     .execute();
 

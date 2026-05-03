@@ -3,6 +3,7 @@ import { join, normalize, relative } from 'node:path';
 import { migrateDatabase } from '#db/migrate';
 import { persistUpdateResult } from '#server/services/update-service';
 import { startUpdateScheduler } from '#server/services/update-scheduler';
+import { startBranchCleanupScheduler } from '#server/services/branch-cleanup-scheduler';
 
 const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 3000);
@@ -11,6 +12,7 @@ const clientDir = join(process.cwd(), 'dist/client');
 migrateDatabase();
 await persistUpdateResult();
 startUpdateScheduler();
+startBranchCleanupScheduler();
 
 const serverEntryPath = new URL('../../dist/server/server.js', import.meta.url).href;
 const serverEntry = (await import(serverEntryPath)) as {
