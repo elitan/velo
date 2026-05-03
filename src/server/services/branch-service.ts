@@ -52,37 +52,43 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
     throw new Error('A branch cannot be created from itself');
   }
 
+  await ensureBranchSourceReady(source.slug);
   await setStepStatus('first-branch', 'running', `creating ${displayName}`);
 
-  if (isLocalDockerMode()) {
-    const result = await createLocalDockerBranch({
+  try {
+    if (isLocalDockerMode()) {
+      const result = await createLocalDockerBranch({
+        slug: branchSlug,
+        displayName,
+        sourceSlug: source.slug,
+        sourceDatabase: source.dataset,
+        sourceReplayAt: new Date().toISOString(),
+        parentBranchId: source.id,
+      });
+
+      await setStepStatus('first-branch', 'done', `${displayName} ready`);
+
+      return result;
+    }
+
+    const result = await createBranchClone({
       slug: branchSlug,
       displayName,
-      sourceSlug: source.slug,
-      sourceDatabase: source.dataset,
+      sourceBranch: source.slug,
+      sourceDataset: source.dataset,
       sourceReplayAt: new Date().toISOString(),
       parentBranchId: source.id,
+      publicAccess: true,
+      readOnly: false,
     });
 
     await setStepStatus('first-branch', 'done', `${displayName} ready`);
 
     return result;
+  } catch (error: any) {
+    await setStepStatus('first-branch', 'error', error?.message || 'branch create failed');
+    throw error;
   }
-
-  const result = await createBranchClone({
-    slug: branchSlug,
-    displayName,
-    sourceBranch: source.slug,
-    sourceDataset: source.dataset,
-    sourceReplayAt: new Date().toISOString(),
-    parentBranchId: source.id,
-    publicAccess: true,
-    readOnly: false,
-  });
-
-  await setStepStatus('first-branch', 'done', `${displayName} ready`);
-
-  return result;
 }
 
 export async function createPreviewBranch(input: CreatePreviewBranchInput): Promise<CreateBranchResult> {
@@ -281,6 +287,22 @@ async function resolveBranchSource(parentBranchId: number | null | undefined): P
     slug: sourceBranch.slug,
     dataset: sourceBranch.dataset,
   };
+}
+
+async function ensureBranchSourceReady(sourceSlug: string): Promise<void> {
+  if (sourceSlug !== 'prod') {
+    return;
+  }
+
+  const replicaStep = await getDb()
+    .selectFrom('setupSteps')
+    .select(['status'])
+    .where('key', '=', 'replica')
+    .executeTakeFirst();
+
+  if (replicaStep?.status !== 'done') {
+    throw new Error('Create the dev replica before creating a branch');
+  }
 }
 
 export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBranchResult> {

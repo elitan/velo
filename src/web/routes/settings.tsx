@@ -17,6 +17,7 @@ import {
   SystemPanel,
   type ServerRole,
 } from '#web/components/control-plane';
+import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -92,6 +93,10 @@ function SettingsPage() {
   }
 
   const state = dashboard.data;
+
+  if (!isSetupComplete(state)) {
+    return <OnboardingWizard />;
+  }
 
   const prodServer = state.servers.find(function findProd(server) {
     return server.role === 'prod';

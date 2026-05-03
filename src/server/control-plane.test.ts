@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
 import { createJob, getActiveJob, getJob, listJobs, runJob } from './services/job-service';
+import { createBranchFromBase } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, saveServer } from './services/setup-state-service';
@@ -143,6 +144,18 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(backup.endpoint).toBe('https://new.example.com');
     expect(backup.secretConfigured).toBe(true);
     expect(secret.value).toBe('keep-me');
+  });
+
+  test('blocks first branch before replica base is ready', async function testBranchNeedsReplica() {
+    await expect(createBranchFromBase({ name: 'dev' })).rejects.toThrow('Create the dev replica before creating a branch');
+
+    const firstBranchStep = await getDb()
+      .selectFrom('setupSteps')
+      .select(['status'])
+      .where('key', '=', 'first-branch')
+      .executeTakeFirstOrThrow();
+
+    expect(firstBranchStep.status).toBe('pending');
   });
 });
 

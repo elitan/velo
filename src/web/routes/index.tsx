@@ -6,6 +6,7 @@ import {
   AppSidebar,
   BranchTreePanel,
 } from '#web/components/control-plane';
+import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
 import { orpc } from '#web/lib/api-client';
 
 export const Route = createFileRoute('/')({
@@ -37,6 +38,10 @@ function HomePage() {
   }
 
   const state = dashboard.data;
+
+  if (!isSetupComplete(state)) {
+    return <OnboardingWizard />;
+  }
 
   return (
     <main className="min-h-screen bg-background text-foreground">
