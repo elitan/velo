@@ -6,6 +6,7 @@ import { startUpdateScheduler } from '#server/services/update-scheduler';
 import { jobHandlers } from '#server/services/job-handlers';
 import { startJobWorker } from '#server/services/job-service';
 import { startBranchCleanupScheduler } from '#server/services/branch-cleanup-scheduler';
+import { getAppAuthState, verifyAppPassword } from '#server/services/app-auth-service';
 
 const host = process.env.HOST || '0.0.0.0';
 const port = Number(process.env.PORT || 3000);
@@ -28,7 +29,7 @@ Bun.serve({
   hostname: host,
   port,
   async fetch(request) {
-    const authResponse = requireBasicAuth(request);
+    const authResponse = await requireBasicAuth(request);
 
     if (authResponse) {
       return authResponse;
@@ -46,11 +47,14 @@ Bun.serve({
 
 console.log(`Started server: http://${host}:${port}`);
 
-function requireBasicAuth(request: Request): Response | null {
+async function requireBasicAuth(request: Request): Promise<Response | null> {
   const username = process.env.VELO_BASIC_AUTH_USERNAME || '';
   const password = process.env.VELO_BASIC_AUTH_PASSWORD || '';
+  const appAuth = username && password
+    ? { configured: true, envConfigured: true, username }
+    : await getAppAuthState();
 
-  if (!username || !password) {
+  if (!appAuth.configured) {
     return null;
   }
 
@@ -71,7 +75,7 @@ function requireBasicAuth(request: Request): Response | null {
   const providedUsername = decoded.slice(0, separator);
   const providedPassword = decoded.slice(separator + 1);
 
-  if (providedUsername !== username || providedPassword !== password) {
+  if (!(await verifyAppPassword(providedUsername, providedPassword))) {
     return unauthorizedResponse();
   }
 

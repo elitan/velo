@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicProcedure } from './context';
+import { userFacingError } from './errors';
 import { saveBackupSettings } from '#server/services/settings-service';
 
 const backupInput = z.object({
@@ -17,7 +18,11 @@ const backupInput = z.object({
 export const backupRouter = {
   settings: {
     update: publicProcedure.input(backupInput).handler(async function updateBackupSettings({ input }) {
-      return saveBackupSettings(input);
+      try {
+        return await saveBackupSettings(input);
+      } catch (error) {
+        throw userFacingError(error, 'Could not save backup settings');
+      }
     }),
   },
 };

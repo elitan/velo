@@ -74,6 +74,9 @@ describe('control plane database', function controlPlaneDatabase() {
       'backups',
       'replica',
       'first-branch',
+      'app-password',
+      'project',
+      'backups-config',
     ]);
     expect(steps.every(function isPending(step) {
       return step.status === 'pending';

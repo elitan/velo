@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Database, Loader2 } from 'lucide-react';
 import {
   AppSidebar,
@@ -15,6 +15,7 @@ export const Route = createFileRoute('/')({
 
 function HomePage() {
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const [hideCompletedSetup, setHideCompletedSetup] = useState(false);
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
   }).length ?? 0;
@@ -33,14 +34,23 @@ function HomePage() {
     };
   }, [activeJobs, dashboard]);
 
+  useEffect(function loadCompletedSetupPreference() {
+    setHideCompletedSetup(window.localStorage.getItem('velo.onboarding.complete.dismissed') === 'true');
+  }, []);
+
   if (!dashboard.data) {
     return <LoadingPage message={dashboard.error ? 'Could not load dashboard.' : 'Loading dashboard...'} />;
   }
 
   const state = dashboard.data;
 
-  if (!isSetupComplete(state)) {
-    return <OnboardingWizard />;
+  if (!isSetupComplete(state) || !hideCompletedSetup) {
+    return <OnboardingWizard onDismissComplete={handleDismissCompletedSetup} />;
+  }
+
+  function handleDismissCompletedSetup() {
+    window.localStorage.setItem('velo.onboarding.complete.dismissed', 'true');
+    setHideCompletedSetup(true);
   }
 
   return (

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicProcedure } from './context';
+import { userFacingError } from './errors';
 import { checkServer, saveServer } from '#server/services/setup-state-service';
 
 const serverInput = z.object({
@@ -11,11 +12,19 @@ const serverInput = z.object({
 
 export const serversRouter = {
   update: publicProcedure.input(serverInput).handler(async function updateServer({ input }) {
-    return saveServer(input);
+    try {
+      return await saveServer(input);
+    } catch (error) {
+      throw userFacingError(error, 'Could not save server');
+    }
   }),
   check: publicProcedure
     .input(z.object({ role: z.enum(['prod', 'dev']) }))
     .handler(async function checkServerHealth({ input }) {
-      return checkServer(input.role);
+      try {
+        return await checkServer(input.role);
+      } catch (error) {
+        throw userFacingError(error, 'Could not check server');
+      }
     }),
 };
