@@ -9,6 +9,7 @@ import {
   Loader2,
   Pencil,
   RotateCcw,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import {
@@ -39,6 +40,11 @@ import {
 } from '#web/components/ui/dropdown-menu';
 import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '#web/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -207,6 +213,7 @@ function BranchOverviewPage() {
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{branch.badge}</Badge>
                   <StatusBadge status={branch.status} />
+                  {branch.id === 'prod' ? <ProtectedBranchPopover /> : null}
                 </div>
                 <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">Branch overview</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
@@ -418,6 +425,45 @@ function BranchOverviewPage() {
         </AlertDialogContent>
       </AlertDialog>
     </main>
+  );
+}
+
+function ProtectedBranchPopover() {
+  const [open, setOpen] = useState(false);
+
+  function openPopover() {
+    setOpen(true);
+  }
+
+  function closePopover() {
+    setOpen(false);
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+          aria-label="Production protection"
+          title="Production protection"
+          onMouseEnter={openPopover}
+          onMouseLeave={closePopover}
+          onFocus={openPopover}
+          onBlur={closePopover}
+        >
+          <ShieldCheck className="size-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-80 text-sm leading-6"
+        onMouseEnter={openPopover}
+        onMouseLeave={closePopover}
+      >
+        Production is protected. It cannot be deleted, reset, or expired. New branches get separate passwords. Restores keep existing branch credentials when replacing a branch. Backup and restore actions use production history.
+      </PopoverContent>
+    </Popover>
   );
 }
 

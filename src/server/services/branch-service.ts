@@ -23,6 +23,8 @@ export interface CreateBranchInput {
   slug?: string;
   expiresAt?: string | null;
   ttlHours?: number | null;
+  branchPassword?: string | null;
+  preferredPort?: number | null;
 }
 
 export interface CreatePreviewBranchInput {
@@ -73,6 +75,8 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
         sourceReplayAt: new Date().toISOString(),
         parentBranchId: source.id,
         expiresAt,
+        branchPassword: input.branchPassword,
+        preferredPort: input.preferredPort,
       });
 
       return result;
@@ -88,6 +92,8 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
       expiresAt,
       publicAccess: true,
       readOnly: false,
+      branchPassword: input.branchPassword,
+      preferredPort: input.preferredPort,
     });
 
     return result;
@@ -124,6 +130,8 @@ async function createBranchClone(options: {
   expiresAt: string | null;
   publicAccess: boolean;
   readOnly: boolean;
+  branchPassword?: string | null;
+  preferredPort?: number | null;
 }): Promise<CreateBranchResult> {
   const branchSlug = normalizeBranchSlug(options.slug);
   const db = getDb();
@@ -165,7 +173,7 @@ async function createBranchClone(options: {
     const mountpoint = await zfs.getMountpoint(targetDataset);
     await prepareWritableClone(mountpoint);
 
-    const password = generatePassword();
+    const password = options.branchPassword || generatePassword();
     const pgVersion = await readPgVersion(`${mountpoint}/pgdata`);
     const image = `postgres:${pgVersion}-alpine`;
 
@@ -183,7 +191,7 @@ async function createBranchClone(options: {
     containerId = await docker.createContainer({
       name: targetContainer,
       image,
-      port: 0,
+      port: options.preferredPort || 0,
       dataPath: mountpoint,
       walArchivePath,
       sslCertDir: certPaths.certDir,
@@ -196,6 +204,7 @@ async function createBranchClone(options: {
 
     await docker.startContainer(containerId);
     await docker.waitForHealthy(containerId);
+    await setBranchPassword(docker, containerId, password);
     const port = await docker.getContainerPort(containerId);
     const connectionUrl = formatPostgresConnectionUrl(
       'postgres',
@@ -252,9 +261,10 @@ export async function resetBranchFromParent(input: DeleteBranchInput): Promise<C
   const db = getDb();
   const branch = await db
     .selectFrom('branches')
-    .select(['id', 'slug', 'displayName', 'parentBranchId'])
+    .select(['id', 'slug', 'displayName', 'parentBranchId', 'connectionUrl', 'port'])
     .where('id', '=', input.id)
     .executeTakeFirstOrThrow();
+  const branchPassword = getPasswordFromConnectionUrl(branch.connectionUrl);
 
   await deleteBranch({ id: branch.id });
 
@@ -262,6 +272,8 @@ export async function resetBranchFromParent(input: DeleteBranchInput): Promise<C
     name: branch.displayName,
     slug: branch.slug,
     parentBranchId: branch.parentBranchId,
+    branchPassword,
+    preferredPort: branch.port,
   });
 }
 
@@ -431,6 +443,10 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
     slug: branch.slug,
     displayName: branch.displayName,
   };
+}
+
+async function setBranchPassword(docker: DockerManager, containerId: string, password: string): Promise<void> {
+  await docker.execSQL(containerId, `alter role postgres with password ${sqlStringLiteral(password)}`);
 }
 
 async function getOriginSnapshot(zfs: ZFSManager, dataset: string): Promise<string | null> {
@@ -639,6 +655,22 @@ function hasActiveBranchJob(branchId: number, branchSlug: string, jobs: Awaited<
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function sqlStringLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function getPasswordFromConnectionUrl(connectionUrl: string | null): string | null {
+  if (!connectionUrl) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(new URL(connectionUrl).password);
+  } catch {
+    return null;
+  }
 }
 
 function formatPostgresConnectionUrl(

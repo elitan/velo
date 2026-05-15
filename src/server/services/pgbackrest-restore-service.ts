@@ -8,13 +8,13 @@ import { WALManager } from '../../managers/wal';
 import { ZFSManager } from '../../managers/zfs';
 import { CertManager } from '../../managers/cert';
 import { formatPostgresOwner, resolvePostgresOwner, type PostgresOwner } from '../../managers/postgres-owner';
-import { formatTimestamp } from '../../utils/helpers';
+import { formatTimestamp, generatePassword } from '../../utils/helpers';
 import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getZFSPool } from '../../utils/zfs-pool';
 import { getBackupAvailability } from './backup-availability-service';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand, runSshCommand } from './command-service';
-import { getBackupSettings, getSetting, setSetting } from './settings-service';
+import { getBackupSettings, setSetting } from './settings-service';
 import { createLocalDockerPitrBranch, isLocalDockerMode, restoreLocalDockerProduction } from './local-docker-service';
 
 const PROJECT_NAME = 'prod';
@@ -25,6 +25,8 @@ export interface RestoreBranchInput {
   restoreTime: string;
   readOnly?: boolean;
   publicAccess?: boolean;
+  branchPassword?: string | null;
+  preferredPort?: number | null;
 }
 
 export interface RestoreBranchResult {
@@ -44,6 +46,8 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
       restoreTime: restoreTime.toISOString(),
       readOnly: input.readOnly,
       publicAccess: input.publicAccess,
+      branchPassword: input.branchPassword,
+      preferredPort: input.preferredPort,
     });
   }
 
@@ -59,12 +63,8 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     .select(['host'])
     .where('role', '=', 'dev')
     .executeTakeFirst();
-  const prodPassword = await getProdPassword();
   const backup = await getBackupSettings();
-
-  if (!prodPassword) {
-    throw new Error('Production password is missing. Run prod setup first.');
-  }
+  const branchPassword = input.branchPassword || generatePassword();
 
   const pool = await getZFSPool();
   const zfs = new ZFSManager(pool, DEFAULTS.zfs.datasetBase);
@@ -111,11 +111,11 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     containerId = await docker.createContainer({
       name: containerName,
       image,
-      port: 0,
+      port: input.preferredPort || 0,
       dataPath: mountpoint,
       walArchivePath: wal.getArchivePath(dataset),
       sslCertDir: certPaths.certDir,
-      password: prodPassword,
+      password: branchPassword,
       username: 'postgres',
       database: 'postgres',
       publicAccess: input.publicAccess === true,
@@ -126,11 +126,12 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
 
     await docker.startContainer(containerId);
     await docker.waitForHealthy(containerId, 10 * 60 * 1000);
+    await setBranchPassword(docker, containerId, branchPassword);
 
     const port = await docker.getContainerPort(containerId);
     const connectionUrl = formatPostgresConnectionUrl(
       'postgres',
-      prodPassword,
+      branchPassword,
       devServer?.host || 'localhost',
       port,
       'postgres'
@@ -251,26 +252,6 @@ export async function restoreProductionFromPgBackRest(input: RestoreBranchInput)
   await setSetting('prod.lastRestoreAt', restoreTime.toISOString());
 }
 
-async function getProdPassword(): Promise<string | null> {
-  const settingPassword = await getSetting('prod.password');
-
-  if (settingPassword) {
-    return settingPassword;
-  }
-
-  const connectionUrl = await getSetting('prod.connectionUrl');
-
-  if (!connectionUrl) {
-    return null;
-  }
-
-  try {
-    return decodeURIComponent(new URL(connectionUrl).password);
-  } catch {
-    return null;
-  }
-}
-
 async function restorePgBackRestLocally(pgdata: string, restoreTime: Date): Promise<void> {
   const tempDir = await mkdtemp(join(tmpdir(), 'velo-pgbackrest-'));
   const configPath = join(tempDir, 'pgbackrest.conf');
@@ -370,8 +351,8 @@ async function ensurePortablePostgresConfig(pgdata: string, postgresOwner: Postg
       'CONF',
       `cat > ${shellQuote(`${pgdata}/pg_hba.conf`)} <<'HBA'`,
       'local all all trust',
-      'host all all 0.0.0.0/0 trust',
-      'host all all ::/0 trust',
+      'hostssl all all 0.0.0.0/0 scram-sha-256',
+      'hostssl all all ::/0 scram-sha-256',
       'host replication all 0.0.0.0/0 scram-sha-256',
       'host replication all ::/0 scram-sha-256',
       'HBA',
@@ -396,6 +377,10 @@ async function setPostgresDataOwner(pgdata: string, postgresOwner: PostgresOwner
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || result.stdout || 'failed to set Postgres data ownership');
   }
+}
+
+async function setBranchPassword(docker: DockerManager, containerId: string, password: string): Promise<void> {
+  await docker.execSQL(containerId, `alter role postgres with password ${sqlStringLiteral(password)}`);
 }
 
 async function readPgVersion(pgdata: string): Promise<string> {
@@ -500,4 +485,8 @@ function formatPostgresConnectionUrl(
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function sqlStringLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
