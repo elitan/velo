@@ -71,7 +71,6 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
     setup: !requireReady,
     servers: !requireReady,
     prodConnection: !requireReady,
-    branches: !requireReady,
   };
   const errors: string[] = [];
 
@@ -103,9 +102,6 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
         return server.status === 'ok';
       });
       checks.prodConnection = Boolean(state.prodConnectionUrl);
-      checks.branches = state.branches.some(function isRunningBranch(branch) {
-        return branch.status === 'running';
-      });
 
       if (!checks.setup) {
         errors.push('setup: not all setup steps are done');
@@ -117,10 +113,6 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
 
       if (!checks.prodConnection) {
         errors.push('prodConnection: missing production connection URL');
-      }
-
-      if (!checks.branches) {
-        errors.push('branches: no running dev branch found');
       }
     }
   } catch (error) {

@@ -196,16 +196,6 @@ export async function deleteLocalDockerBranch(id: number) {
     .where('id', '=', branch.id)
     .execute();
 
-  const remaining = await db
-    .selectFrom('branches')
-    .select('id')
-    .limit(1)
-    .executeTakeFirst();
-
-  if (!remaining) {
-    await setLocalStepStatus('first-branch', 'pending', 'no branches yet');
-  }
-
   return {
     id: branch.id,
     slug: branch.slug,

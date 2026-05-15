@@ -63,8 +63,6 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
   }
 
   await ensureBranchSourceReady(source.slug);
-  await setStepStatus('first-branch', 'running', `creating ${displayName}`);
-
   try {
     if (isLocalDockerMode()) {
       const result = await createLocalDockerBranch({
@@ -76,8 +74,6 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
         parentBranchId: source.id,
         expiresAt,
       });
-
-      await setStepStatus('first-branch', 'done', `${displayName} ready`);
 
       return result;
     }
@@ -94,11 +90,8 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
       readOnly: false,
     });
 
-    await setStepStatus('first-branch', 'done', `${displayName} ready`);
-
     return result;
   } catch (error: any) {
-    await setStepStatus('first-branch', 'error', error?.message || 'branch create failed');
     throw error;
   }
 }
@@ -432,16 +425,6 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
     .deleteFrom('branches')
     .where('id', '=', branch.id)
     .execute();
-
-  const remaining = await db
-    .selectFrom('branches')
-    .select('id')
-    .limit(1)
-    .executeTakeFirst();
-
-  if (!remaining) {
-    await setStepStatus('first-branch', 'pending', 'no branches yet');
-  }
 
   return {
     id: branch.id,
