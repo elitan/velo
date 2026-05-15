@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
+import { toast } from 'sonner';
 import {
   Activity,
   AlertTriangle,
@@ -13,11 +14,13 @@ import {
   GitBranch,
   LayoutDashboard,
   Loader2,
+  Menu,
   RefreshCw,
   Settings2,
   ShieldCheck,
   Table2,
   Trash2,
+  X,
 } from 'lucide-react';
 import { cn } from '#lib/utils';
 import {
@@ -41,6 +44,14 @@ import {
   CardTitle,
 } from '#web/components/ui/card';
 import { Checkbox } from '#web/components/ui/checkbox';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from '#web/components/ui/dialog';
 import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
 import { Separator } from '#web/components/ui/separator';
@@ -85,7 +96,7 @@ export function ProductionSummaryPanel(props: ProductionSummaryPanelProps) {
           <InfoCell label="Backup repo" value={props.backupMode} />
           <InfoCell label="Backup status" value={props.backupMessage || props.backupStatus} />
         </div>
-        <Link className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} to="/branch/$branchId/overview" params={{ branchId: 'prod' }}>
+        <Link className={cn(buttonVariants({ variant: 'outline' }), 'w-full')} to="/branch/$branchId/overview" params={{ branchId: 'production' }}>
           <Database />
           Open production
         </Link>
@@ -106,16 +117,81 @@ export interface AppSidebarProps {
 }
 
 export function AppSidebar(props: AppSidebarProps) {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  function closeMobileMenu() {
+    setMobileOpen(false);
+  }
+
+  return (
+    <>
+      <div className="sticky top-0 z-40 flex w-screen max-w-full items-center justify-between gap-4 border-b border-border bg-sidebar px-4 py-4 text-sidebar-foreground lg:hidden">
+        <AppBrand />
+        <Dialog open={mobileOpen} onOpenChange={setMobileOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="icon-lg" aria-label="Open navigation">
+              <Menu className="size-4" />
+            </Button>
+          </DialogTrigger>
+          <DialogContent
+            className="top-0 left-0 h-dvh max-w-72 translate-x-0 translate-y-0 rounded-none border-r border-sidebar-border bg-sidebar p-0 text-sidebar-foreground sm:max-w-72"
+            showCloseButton={false}
+          >
+            <DialogTitle className="sr-only">Navigation</DialogTitle>
+            <DialogDescription className="sr-only">
+              Main navigation for Velo.
+            </DialogDescription>
+            <div className="flex items-center justify-between gap-3 border-b border-sidebar-border px-5 py-5">
+              <AppBrand />
+              <DialogClose asChild>
+                <Button variant="ghost" size="icon" aria-label="Close navigation">
+                  <X className="size-4" />
+                </Button>
+              </DialogClose>
+            </div>
+            <SidebarContent {...props} onNavigate={closeMobileMenu} className="px-5 py-5" />
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <aside className="hidden bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
+        <SidebarContent {...props} />
+      </aside>
+    </>
+  );
+}
+
+function AppBrand() {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
+        <Database className="size-4" />
+      </div>
+      <div>
+        <div className="text-sm font-semibold leading-none">Velo</div>
+        <div className="mt-1 text-xs text-muted-foreground">Control plane</div>
+      </div>
+    </div>
+  );
+}
+
+interface SidebarContentProps extends AppSidebarProps {
+  className?: string;
+  onNavigate?: () => void;
+}
+
+function SidebarContent(props: SidebarContentProps) {
   const navigate = useNavigate();
   const [savedBranch, setSavedBranch] = useState(function getInitialBranch() {
-    return props.selectedBranch || 'prod';
+    return props.selectedBranch || 'production';
   });
-  const selectedBranch = getSelectedBranch(props.selectedBranch || savedBranch, props.branches);
+  const selectedBranch = props.selectedBranch || getSelectedBranch(savedBranch, props.branches);
   const selectedBranchParam = encodeURIComponent(selectedBranch);
   const overviewHref = `/branch/${selectedBranchParam}/overview`;
   const sqlHref = `/branch/${selectedBranchParam}/sql`;
   const tablesHref = `/branch/${selectedBranchParam}/tables`;
   const backupHref = `/branch/${selectedBranchParam}/backup-restore`;
+  const selectedBranchIsPending = selectedBranch !== 'production' && !branchExists(selectedBranch, props.branches);
 
   useEffect(function saveSelectedBranch() {
     if (!props.selectedBranch) {
@@ -131,30 +207,25 @@ export function AppSidebar(props: AppSidebarProps) {
       return;
     }
 
-    setSavedBranch(window.localStorage.getItem('velo.selectedBranch') || 'prod');
+    setSavedBranch(window.localStorage.getItem('velo.selectedBranch') || 'production');
   }, [props.selectedBranch]);
 
   function changeBranch(value: string) {
     setSavedBranch(value);
     window.localStorage.setItem('velo.selectedBranch', value);
+    props.onNavigate?.();
     void navigate({ to: '/branch/$branchId/overview', params: { branchId: value } });
   }
 
   return (
-    <aside className="hidden bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
-      <div className="flex items-center gap-3">
-        <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
-          <Database className="size-4" />
-        </div>
-        <div>
-          <div className="text-sm font-semibold leading-none">Velo</div>
-          <div className="mt-1 text-xs text-muted-foreground">Control plane</div>
-        </div>
+    <div className={props.className}>
+      <div className="hidden lg:block">
+        <AppBrand />
       </div>
 
       <SidebarSection label="Project" className="mt-8">
-        <NavItem icon={LayoutDashboard} label="Dashboard" href="/" active={props.activeProject === 'dashboard'} />
-        <NavItem icon={Settings2} label="Settings" href="/settings" active={props.activeProject === 'settings'} />
+        <NavItem icon={LayoutDashboard} label="Dashboard" href="/" active={props.activeProject === 'dashboard'} onNavigate={props.onNavigate} />
+        <NavItem icon={Settings2} label="Settings" href="/settings" active={props.activeProject === 'settings'} onNavigate={props.onNavigate} />
       </SidebarSection>
 
       <SidebarSection label="Branch" className="mt-8">
@@ -165,7 +236,10 @@ export function AppSidebar(props: AppSidebarProps) {
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              <SelectItem value="prod">prod</SelectItem>
+              <SelectItem value="production">production</SelectItem>
+              {selectedBranchIsPending ? (
+                <SelectItem value={selectedBranch}>{selectedBranch}</SelectItem>
+              ) : null}
               {props.branches.map(function renderBranchOption(branch) {
                 return (
                   <SelectItem key={branch.id} value={branch.slug}>
@@ -177,26 +251,28 @@ export function AppSidebar(props: AppSidebarProps) {
           </SelectContent>
         </Select>
         <div className="mt-3 grid gap-1">
-          <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} />
-          <NavItem icon={Code2} label="SQL editor" href={sqlHref} active={props.activeBranchPage === 'sql'} />
-          <NavItem icon={Table2} label="Tables" href={tablesHref} active={props.activeBranchPage === 'tables'} />
-          <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} />
+          <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} onNavigate={props.onNavigate} />
+          <NavItem icon={Code2} label="SQL editor" href={sqlHref} active={props.activeBranchPage === 'sql'} onNavigate={props.onNavigate} />
+          <NavItem icon={Table2} label="Tables" href={tablesHref} active={props.activeBranchPage === 'tables'} onNavigate={props.onNavigate} />
+          <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} onNavigate={props.onNavigate} />
         </div>
       </SidebarSection>
-    </aside>
+    </div>
   );
 }
 
 function getSelectedBranch(selectedBranch: string, branches: AppSidebarProps['branches']): string {
-  if (selectedBranch === 'prod') {
+  if (selectedBranch === 'production') {
     return selectedBranch;
   }
 
-  const branchExists = branches.some(function hasBranch(branch) {
+  return branchExists(selectedBranch, branches) ? selectedBranch : 'production';
+}
+
+function branchExists(selectedBranch: string, branches: AppSidebarProps['branches']): boolean {
+  return branches.some(function hasBranch(branch) {
     return branch.slug === selectedBranch;
   });
-
-  return branchExists ? selectedBranch : 'prod';
 }
 
 interface SidebarSectionProps {
@@ -221,6 +297,7 @@ interface NavItemProps {
   label: string;
   href: string;
   active?: boolean;
+  onNavigate?: () => void;
 }
 
 function NavItem(props: NavItemProps) {
@@ -229,6 +306,7 @@ function NavItem(props: NavItemProps) {
   return (
     <Link
       to={props.href}
+      onClick={props.onNavigate}
       className={cn(
         'flex h-9 items-center gap-2 rounded-md px-3 text-muted-foreground',
         'transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
@@ -285,7 +363,6 @@ export function BranchOverviewPanel(props: BranchOverviewPanelProps) {
     <Card>
       <CardHeader>
         <CardTitle>{props.title || 'Production database'}</CardTitle>
-        <CardDescription>Connection, backup policy, and recovery paths.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
         <div className="grid gap-2">
@@ -357,9 +434,9 @@ export function BranchTreePanel(props: BranchTreePanelProps) {
             'transition-colors hover:bg-accent hover:text-accent-foreground'
           )}
           to="/branch/$branchId/overview"
-          params={{ branchId: 'prod' }}
+          params={{ branchId: 'production' }}
           onClick={function saveProdBranch() {
-            window.localStorage.setItem('velo.selectedBranch', 'prod');
+            window.localStorage.setItem('velo.selectedBranch', 'production');
           }}
         >
           <div className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
@@ -367,8 +444,7 @@ export function BranchTreePanel(props: BranchTreePanelProps) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="truncate font-medium">prod</p>
-              <Badge variant="outline">production</Badge>
+              <p className="truncate font-medium">production</p>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">root branch</p>
           </div>
@@ -416,7 +492,7 @@ function BranchTreeItem(props: { node: BranchTreeNode }) {
             <p className="truncate font-medium">{branch.displayName}</p>
           </div>
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            {formatBranchLine(branch.parentName || branch.parentSlug || 'prod', branch.expiresAt)}
+            {formatBranchLine(formatBranchName(branch.parentName || branch.parentSlug || 'production'), branch.expiresAt)}
           </p>
         </div>
         <StatusBadge status={branch.status} />
@@ -581,12 +657,12 @@ function BranchCreateForm(props: BranchCreateFormProps) {
   return (
     <form className="grid grid-cols-[minmax(0,180px)_140px_120px_auto] gap-2" onSubmit={submitForm}>
       <Input name="name" placeholder="preview-1" />
-      <Select name="parentBranchId" defaultValue="prod">
+      <Select name="parentBranchId" defaultValue="production">
         <SelectTrigger>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="prod">production</SelectItem>
+          <SelectItem value="production">production</SelectItem>
           {props.branches.map(function renderParentOption(branch) {
             return (
               <SelectItem key={branch.id} value={String(branch.id)}>
@@ -623,6 +699,10 @@ function formatBranchLine(parent: string, expiresAt: string | null): string {
   }
 
   return `from ${parent} · ${expiry}`;
+}
+
+function formatBranchName(name: string): string {
+  return name === 'prod' ? 'production' : name;
 }
 
 export function formatExpiry(expiresAt: string | null): string {
@@ -896,21 +976,26 @@ function ConnectionString(props: ConnectionStringProps) {
       return;
     }
 
-    await copyToClipboard(value);
-    setCopied(true);
-    window.setTimeout(function resetCopied() {
-      setCopied(false);
-    }, 1200);
+    try {
+      await copyToClipboard(value);
+      setCopied(true);
+      toast.success('Connection string copied.');
+      window.setTimeout(function resetCopied() {
+        setCopied(false);
+      }, 1400);
+    } catch (error) {
+      toast.error('Could not copy connection string.');
+    }
   }
 
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-      <code className="min-w-0 truncate rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
-        {value || 'not ready'}
-      </code>
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2">
       <Button type="button" size="icon" variant="outline" onClick={copyValue} disabled={!value} title="Copy connection string">
         {copied ? <CheckCircle2 className="text-emerald-600" /> : <Copy />}
       </Button>
+      <code className="min-w-0 truncate rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground">
+        {value || 'not ready'}
+      </code>
     </div>
   );
 }

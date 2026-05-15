@@ -14,6 +14,7 @@ import {
   Table2,
   Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { AppSidebar } from '#web/components/control-plane';
 import {
   AlertDialog,
@@ -60,9 +61,7 @@ function BranchTablesPage() {
   const [selected, setSelected] = useState<TableKey | null>(null);
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<RowEditorState | null>(null);
-  const [editorError, setEditorError] = useState<string | null>(null);
   const [rowToDelete, setRowToDelete] = useState<DeleteRowState | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const metadata = useQuery({
     ...orpc.tables.browse.queryOptions({
       input: {
@@ -103,10 +102,9 @@ function BranchTablesPage() {
 
   useEffect(function resetBranchScopedState() {
     setSelected(null);
+    setSearch('');
     setEditor(null);
-    setEditorError(null);
     setRowToDelete(null);
-    setDeleteError(null);
   }, [params.branchId]);
 
   useEffect(function setInitialTable() {
@@ -131,15 +129,17 @@ function BranchTablesPage() {
     }
 
     return (metadata.data?.tables || []).filter(function tableMatches(table) {
-      return `${table.schema}.${table.name}`.toLowerCase().includes(term);
+      return table.name.toLowerCase().includes(term);
     });
   }, [search, metadata.data?.tables]);
 
   function selectDatabase(database: string) {
+    setSearch('');
     setSelected({ database, schema: 'public', offset: 0 });
   }
 
   function selectSchema(schema: string) {
+    setSearch('');
     setSelected({
       database: metadata.data?.selectedDatabase || selected?.database,
       schema,
@@ -186,7 +186,6 @@ function BranchTablesPage() {
       rowId: null,
       fields: createInsertDraft(rows.data.columns),
     });
-    setEditorError(null);
   }
 
   function openEditRow(row: Record<string, unknown>) {
@@ -202,7 +201,6 @@ function BranchTablesPage() {
       rowId: formatCell(row[TABLE_ROW_ID_COLUMN]),
       fields: createEditDraft(rows.data.columns, row),
     });
-    setEditorError(null);
   }
 
   function openDeleteRow(row: Record<string, unknown>) {
@@ -217,7 +215,6 @@ function BranchTablesPage() {
       rowId: formatCell(row[TABLE_ROW_ID_COLUMN]),
       label: createDeleteLabel(row, rows.data.columns),
     });
-    setDeleteError(null);
   }
 
   function closeEditor() {
@@ -226,7 +223,6 @@ function BranchTablesPage() {
     }
 
     setEditor(null);
-    setEditorError(null);
   }
 
   function closeDeleteDialog() {
@@ -235,7 +231,6 @@ function BranchTablesPage() {
     }
 
     setRowToDelete(null);
-    setDeleteError(null);
   }
 
   async function confirmDeleteRow() {
@@ -244,12 +239,11 @@ function BranchTablesPage() {
     }
 
     if (rowToDelete.target.branchId !== params.branchId) {
-      setDeleteError('Branch changed. Reopen this row from the current branch.');
+      toast.error('Branch changed. Reopen this row from the current branch.');
       return;
     }
 
     try {
-      setDeleteError(null);
       await deleteRow.mutateAsync({
         branchId: rowToDelete.target.branchId,
         database: rowToDelete.target.database,
@@ -258,8 +252,9 @@ function BranchTablesPage() {
         rowId: rowToDelete.rowId,
       });
       setRowToDelete(null);
+      toast.success('Row deleted.');
     } catch (caught: any) {
-      setDeleteError(caught?.message || 'Could not delete row');
+      toast.error(caught?.message || 'Could not delete row');
     }
   }
 
@@ -293,15 +288,13 @@ function BranchTablesPage() {
     }
 
     if (editor.target.branchId !== params.branchId) {
-      setEditorError('Branch changed. Reopen this row from the current branch.');
+      toast.error('Branch changed. Reopen this row from the current branch.');
       return;
     }
 
     const values = buildEditorValues(editor);
 
     try {
-      setEditorError(null);
-
       if (editor.mode === 'insert') {
         await insertRow.mutateAsync({
           branchId: editor.target.branchId,
@@ -322,8 +315,9 @@ function BranchTablesPage() {
       }
 
       setEditor(null);
+      toast.success(editor.mode === 'insert' ? 'Row added.' : 'Row saved.');
     } catch (caught: any) {
-      setEditorError(caught?.message || 'Could not save row');
+      toast.error(caught?.message || 'Could not save row');
     }
   }
 
@@ -339,7 +333,7 @@ function BranchTablesPage() {
   return (
     <>
       <main className="min-h-screen bg-background text-foreground">
-        <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
+        <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
           <AppSidebar branches={branches} activeBranchPage="tables" selectedBranch={params.branchId} />
 
           <section className="min-h-screen min-w-0">
@@ -351,7 +345,7 @@ function BranchTablesPage() {
                     <Database className="size-4 text-muted-foreground" />
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" className="min-w-(--radix-select-trigger-width)">
                     <SelectGroup>
                       {(metadata.data?.databases || [metadata.data?.selectedDatabase || selected?.database || 'postgres']).map(function renderDatabase(database) {
                         return (
@@ -371,7 +365,7 @@ function BranchTablesPage() {
                     <Table2 className="size-4 text-muted-foreground" />
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper" className="min-w-(--radix-select-trigger-width)">
                     <SelectGroup>
                       {(metadata.data?.schemas || [metadata.data?.selectedSchema || selected?.schema || 'public']).map(function renderSchema(schema) {
                         return (
@@ -402,7 +396,7 @@ function BranchTablesPage() {
                 {metadata.isLoading ? (
                   <EmptySideLabel label="Loading tables..." />
                 ) : filteredTables.length === 0 ? (
-                  <EmptySideLabel label="No tables" />
+                  <EmptySideLabel label={search.trim() ? 'No matching tables' : 'No tables'} />
                 ) : (
                   <div className="grid gap-1">
                     {filteredTables.map(function renderTable(table) {
@@ -525,12 +519,6 @@ function BranchTablesPage() {
           </DialogHeader>
 
           <form className="grid gap-4" onSubmit={saveEditor}>
-            {editorError ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {editorError}
-              </div>
-            ) : null}
-
             {editor ? (
               <RowFieldsEditor
                 fields={editor.fields}
@@ -574,12 +562,6 @@ function BranchTablesPage() {
               {rowToDelete ? `Delete ${rowToDelete.label} from ${rowToDelete.target.schema}.${rowToDelete.target.table}.` : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
-
-          {deleteError ? (
-            <div className="whitespace-pre-wrap rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {deleteError}
-            </div>
-          ) : null}
 
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>

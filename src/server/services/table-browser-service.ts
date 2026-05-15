@@ -277,7 +277,7 @@ export async function deleteTableRow(input: TableRowDeleteInput): Promise<void> 
 }
 
 async function getBranchConnectionUrl(branchId: string): Promise<string | null> {
-  if (branchId === 'prod') {
+  if (branchId === 'production') {
     return getSetting('prod.connectionUrl');
   }
 

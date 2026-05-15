@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { Database, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import {
   AppSidebar,
   BranchTreePanel,
@@ -40,23 +40,11 @@ function HomePage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
+      <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
         <AppSidebar branches={state.branches} activeProject="dashboard" />
 
         <section className="min-w-0">
           <div className="mx-auto grid w-full max-w-4xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between gap-4 lg:hidden">
-              <div className="flex items-center gap-3">
-                <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
-                  <Database className="size-4" />
-                </div>
-                <div>
-                  <div className="text-sm font-semibold leading-none">Velo</div>
-                  <div className="mt-1 text-xs text-muted-foreground">Control plane</div>
-                </div>
-              </div>
-            </div>
-
             <header className="pt-2">
               <h1 className="text-3xl font-semibold tracking-normal md:text-4xl">Branches</h1>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">

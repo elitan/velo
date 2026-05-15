@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { ORPCError } from '@orpc/server';
+import { getDb } from '#db/client';
 import { publicProcedure } from './context';
 import { userFacingError } from './errors';
 import { createJob } from '#server/services/job-service';
@@ -42,6 +44,7 @@ export const branchesRouter = {
     .input(branchInput)
     .handler(async function createBranch({ input }) {
       const branchSlug = normalizeBranchSlug(input.name);
+      await assertBranchSlugAvailable(branchSlug);
       const job = await createJob('create-branch', input);
       return {
         ...job,
@@ -97,3 +100,55 @@ export const branchesRouter = {
       return job;
     }),
 };
+
+async function assertBranchSlugAvailable(branchSlug: string): Promise<void> {
+  const db = getDb();
+  const existingBranch = await db
+    .selectFrom('branches')
+    .select('id')
+    .where('slug', '=', branchSlug)
+    .executeTakeFirst();
+
+  if (existingBranch) {
+    throwDuplicateBranch(branchSlug);
+  }
+
+  const activeCreateJobs = await db
+    .selectFrom('jobs')
+    .select(['inputJson'])
+    .where('type', '=', 'create-branch')
+    .where('status', 'in', ['queued', 'running'])
+    .execute();
+
+  const hasActiveCreate = activeCreateJobs.some(function hasMatchingCreateJob(job) {
+    return getCreateBranchSlug(job.inputJson) === branchSlug;
+  });
+
+  if (hasActiveCreate) {
+    throwDuplicateBranch(branchSlug);
+  }
+}
+
+function getCreateBranchSlug(inputJson: string | null): string | null {
+  if (!inputJson) {
+    return null;
+  }
+
+  try {
+    const input = JSON.parse(inputJson) as { name?: unknown };
+
+    if (typeof input.name !== 'string') {
+      return null;
+    }
+
+    return normalizeBranchSlug(input.name);
+  } catch {
+    return null;
+  }
+}
+
+function throwDuplicateBranch(branchSlug: string): never {
+  throw new ORPCError('BAD_REQUEST', {
+    message: `Branch already exists: ${branchSlug}`,
+  });
+}

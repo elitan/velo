@@ -2,7 +2,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, ArchiveRestore, CheckCircle2, Database, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import { Activity, AlertTriangle, ArchiveRestore, Database, Loader2, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,11 +74,11 @@ function SettingsPage() {
 
   function getBusyKey(): string | null {
     if (saveServer.isPending) {
-      return `save-${saveServer.variables?.role || 'prod'}`;
+      return `save-${saveServer.variables?.role || 'production'}`;
     }
 
     if (checkServer.isPending) {
-      return `check-${checkServer.variables?.role || 'prod'}`;
+      return `check-${checkServer.variables?.role || 'production'}`;
     }
 
     if (saveBackupSettings.isPending) {
@@ -114,50 +115,75 @@ function SettingsPage() {
 
   async function handleSave(formData: FormData) {
     const role = formData.get('role') === 'prod' ? 'prod' : 'dev';
-    await saveServer.mutateAsync({
-      role,
-      host: String(formData.get('host') || ''),
-      sshUser: String(formData.get('sshUser') || ''),
-      sshKeyPath: String(formData.get('sshKeyPath') || ''),
-    });
+    try {
+      await saveServer.mutateAsync({
+        role,
+        host: String(formData.get('host') || ''),
+        sshUser: String(formData.get('sshUser') || ''),
+        sshKeyPath: String(formData.get('sshKeyPath') || ''),
+      });
+      toast.success(`${role === 'prod' ? 'Production' : 'Development'} server saved.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not save server.');
+    }
   }
 
   async function handleCheck(role: ServerRole) {
-    await checkServer.mutateAsync({ role });
+    try {
+      await checkServer.mutateAsync({ role });
+      toast.success(`${role === 'prod' ? 'Production' : 'Development'} server checked.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not check server.');
+    }
   }
 
   async function handleSaveBackup(formData: FormData) {
-    await saveBackupSettings.mutateAsync({
-      enabled: formData.get('enabled') === 'on',
-      endpoint: String(formData.get('endpoint') || ''),
-      bucket: String(formData.get('bucket') || ''),
-      region: String(formData.get('region') || 'auto'),
-      accessKeyId: String(formData.get('accessKeyId') || ''),
-      secretAccessKey: String(formData.get('secretAccessKey') || ''),
-      path: String(formData.get('path') || '/prod'),
-      pitrDays: Number(formData.get('pitrDays') || 7),
-      fullBackupRetentionDays: Number(formData.get('fullBackupRetentionDays') || 90),
-    });
+    try {
+      await saveBackupSettings.mutateAsync({
+        enabled: formData.get('enabled') === 'on',
+        endpoint: String(formData.get('endpoint') || ''),
+        bucket: String(formData.get('bucket') || ''),
+        region: String(formData.get('region') || 'auto'),
+        accessKeyId: String(formData.get('accessKeyId') || ''),
+        secretAccessKey: String(formData.get('secretAccessKey') || ''),
+        path: String(formData.get('path') || '/prod'),
+        pitrDays: Number(formData.get('pitrDays') || 7),
+        fullBackupRetentionDays: Number(formData.get('fullBackupRetentionDays') || 90),
+      });
+      toast.success('Backup settings saved.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not save backup settings.');
+    }
   }
 
   async function handleCreateBranch(formData: FormData) {
     const name = String(formData.get('name') || '');
     const ttlHours = formData.get('ttlHours');
     const parentBranchId = formData.get('parentBranchId');
-    await createBranch.mutateAsync({
-      name,
-      parentBranchId: parentBranchId && parentBranchId !== 'prod' ? Number(parentBranchId) : null,
-      ttlHours: ttlHours && ttlHours !== 'none' ? Number(ttlHours) : null,
-    });
+    try {
+      await createBranch.mutateAsync({
+        name,
+        parentBranchId: parentBranchId && parentBranchId !== 'production' ? Number(parentBranchId) : null,
+        ttlHours: ttlHours && ttlHours !== 'none' ? Number(ttlHours) : null,
+      });
+      toast.info(`Creating branch ${name}.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not create branch.');
+    }
   }
 
   async function handleDeleteBranch(id: number) {
-    await deleteBranch.mutateAsync({ id });
+    try {
+      await deleteBranch.mutateAsync({ id });
+      toast.success('Branch deleted.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not delete branch.');
+    }
   }
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
+      <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
         <AppSidebar branches={state.branches} activeProject="settings" />
 
         <section className="min-w-0">
@@ -214,7 +240,6 @@ function UpdatePanel() {
   const [state, setState] = useState<UpdateState>('idle');
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [showLog, setShowLog] = useState(false);
-  const [error, setError] = useState('');
 
   const status = useQuery(orpc.updates.get.queryOptions());
   const auto = useQuery(orpc.updates.auto.get.queryOptions());
@@ -226,7 +251,7 @@ function UpdatePanel() {
   const check = useMutation(orpc.updates.check.mutationOptions({
     onSuccess: refreshUpdates,
     onError: function handleCheckError() {
-      setError('Could not check for updates.');
+      toast.error('Could not check for updates.');
     },
   }));
 
@@ -235,7 +260,7 @@ function UpdatePanel() {
       setState('restarting');
     },
     onError: function handleApplyError(cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not apply update.');
+      toast.error(cause instanceof Error ? cause.message : 'Could not apply update.');
       setState('idle');
     },
   }));
@@ -254,12 +279,18 @@ function UpdatePanel() {
 
     if (result.data.success) {
       setState('success');
+      toast.success('Update complete.', {
+        description: result.data.newVersion ? `Now on v${result.data.newVersion}` : 'Done.',
+      });
       void refreshUpdates();
       return;
     }
 
     setState('failed');
     setShowLog(true);
+    toast.error('Update failed.', {
+      description: 'Rolled back to previous app files.',
+    });
   }, [result.data, state]);
 
   async function refreshUpdates() {
@@ -267,12 +298,10 @@ function UpdatePanel() {
   }
 
   function handleCheck() {
-    setError('');
     check.mutate(undefined);
   }
 
   function handleApply() {
-    setError('');
     setShowLog(false);
     setShowApplyDialog(false);
     apply.mutate(undefined);
@@ -323,14 +352,6 @@ function UpdatePanel() {
           <UpdateNotice icon={<Loader2 className="size-4 animate-spin" />} title="Restarting" detail="Update is running." />
         ) : null}
 
-        {state === 'success' ? (
-          <UpdateNotice icon={<CheckCircle2 className="size-4" />} title="Update complete" detail={result.data?.newVersion ? `Now on v${result.data.newVersion}` : 'Done.'} />
-        ) : null}
-
-        {state === 'failed' ? (
-          <UpdateNotice icon={<XCircle className="size-4" />} title="Update failed" detail={error || 'Rolled back to previous app files.'} tone="destructive" />
-        ) : null}
-
         {update?.updateAvailable ? (
           <div className="rounded-lg border border-border bg-muted/20 p-4">
             <div className="flex items-start justify-between gap-3">
@@ -358,8 +379,6 @@ function UpdatePanel() {
             {update ? `Latest version. Last checked ${formatLastCheck(update.lastCheck)}.` : 'Loading update status...'}
           </div>
         )}
-
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
         {result.data?.log ? (
           <div className="grid gap-2">

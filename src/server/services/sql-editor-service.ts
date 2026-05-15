@@ -51,7 +51,7 @@ export async function runBranchSql(input: RunBranchSqlInput): Promise<RunBranchS
 }
 
 async function getBranchConnectionUrl(branchId: string): Promise<string> {
-  if (branchId === 'prod') {
+  if (branchId === 'production') {
     const connectionUrl = await getSetting('prod.connectionUrl');
 
     if (!connectionUrl) {

@@ -16,6 +16,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Badge } from '#web/components/ui/badge';
 import { Button } from '#web/components/ui/button';
 import {
@@ -60,10 +61,7 @@ function BackupRestorePage() {
   });
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
-  const [previewError, setPreviewError] = useState<string | null>(null);
   const [restorePromptOpen, setRestorePromptOpen] = useState(false);
-  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
-  const [restoreError, setRestoreError] = useState<string | null>(null);
   const previewBusy = createPreviewBranch.isPending || deletePreviewBranch.isPending;
   const restoreBusy = restoreBranch.isPending;
 
@@ -92,23 +90,21 @@ function BackupRestorePage() {
   const state = dashboard.data;
 
   const branchId = params.branchId;
-  const isProd = branchId === 'prod';
+  const isProd = branchId === 'production';
   const branch = isProd ? null : state.branches.find(function findBranch(item) {
     return item.slug === branchId;
   });
-  const selectedBranch = isProd ? 'prod' : branch?.slug || branchId;
-  const selectedBranchLabel = isProd ? 'prod' : branch?.displayName || branchId;
+  const selectedBranch = isProd ? 'production' : branch?.slug || branchId;
+  const selectedBranchLabel = isProd ? 'production' : branch?.displayName || branchId;
   const status = isProd ? (state.prodConnectionUrl ? 'ready' : 'pending') : branch?.status || 'missing';
   const branchOptions = getBranchOptions(state);
   const backupOptions = getBackupOptions(state.backupAvailability.backups);
   const restoreWindow = getRestoreWindow(state.backupAvailability.pitr);
   const backupWindow = getBackupWindow(state.backupAvailability.backups);
   const pitrAvailable = state.backupAvailability.status === 'ok' && Boolean(restoreWindow.min && restoreWindow.max);
-  const sourceBranch = 'prod';
+  const sourceBranch = 'production';
 
   async function handleOpenPreview() {
-    setPreviewError(null);
-
     try {
       const created = await createPreviewBranch.mutateAsync({
         sourceBranch,
@@ -117,7 +113,7 @@ function BackupRestorePage() {
       setPreviewBranch(created);
       setPreviewOpen(true);
     } catch (error: any) {
-      setPreviewError(error?.message || 'Could not create preview branch');
+      toast.error(error?.message || 'Could not create preview branch');
     }
   }
 
@@ -133,14 +129,11 @@ function BackupRestorePage() {
     try {
       await deletePreviewBranch.mutateAsync({ id: branchToDelete.id });
     } catch (error: any) {
-      setPreviewError(error?.message || `Could not delete preview branch ${branchToDelete.displayName}`);
+      toast.error(error?.message || `Could not delete preview branch ${branchToDelete.displayName}`);
     }
   }
 
   async function handleRestore() {
-    setRestoreError(null);
-    setRestoreMessage(null);
-
     try {
       const job = await restoreBranch.mutateAsync({
         targetBranch: selectedBranch,
@@ -148,16 +141,18 @@ function BackupRestorePage() {
         restoreTime: toRestoreIso(restoreTime),
       });
       setRestorePromptOpen(false);
-      setRestoreMessage(`Restore job ${job.id} started. Progress is available in Settings.`);
+      toast.success(`Restore job ${job.id} started.`, {
+        description: 'Progress is available in Settings.',
+      });
       await refreshDashboard();
     } catch (error: any) {
-      setRestoreError(error?.message || 'Could not start restore');
+      toast.error(error?.message || 'Could not start restore');
     }
   }
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
+      <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
         <AppSidebar branches={state.branches} activeBranchPage="backup" selectedBranch={selectedBranch} />
 
         <section className="min-w-0">
@@ -201,7 +196,7 @@ function BackupRestorePage() {
                   <div className="grid gap-2">
                     <Label>Source branch</Label>
                     <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 text-sm font-medium">
-                      prod
+                      production
                     </div>
                     <div className="text-xs text-muted-foreground">PITR uses production WAL history for any target branch.</div>
                   </div>
@@ -232,7 +227,7 @@ function BackupRestorePage() {
                 </div>
 
                 <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+                  <p className="max-w-xl text-xs leading-5 text-muted-foreground">
                     Preview creates a temporary read-only restore branch for the selected time. Production and dev branches stay untouched.
                   </p>
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -259,17 +254,6 @@ function BackupRestorePage() {
                   </div>
                 </div>
 
-                {restoreMessage ? (
-                  <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-                    {restoreMessage}
-                  </div>
-                ) : null}
-
-                {previewError || restoreError ? (
-                  <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    {previewError || restoreError}
-                  </div>
-                ) : null}
               </CardContent>
             </Card>
 
@@ -296,15 +280,15 @@ function BackupRestorePage() {
                   <div className="grid gap-2">
                     <Label>Source branch</Label>
                     <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 text-sm font-medium">
-                      prod
+                      production
                     </div>
-                    <div className="text-xs text-muted-foreground">Daily backups are taken only from production.</div>
+                    <div className="min-h-8 text-xs text-muted-foreground">Daily backups are taken only from production.</div>
                   </div>
 
                   <div className="grid gap-2">
                     <Label htmlFor="backup-point">Backup</Label>
                     <Select value={backupPoint} onValueChange={setBackupPoint} disabled={!backupOptions.length}>
-                      <SelectTrigger id="backup-point" className="h-10 w-full bg-background font-medium">
+                      <SelectTrigger id="backup-point" className="h-10 w-full bg-background font-medium [&_[data-slot=select-value]]:truncate">
                         <SelectValue placeholder="Select backup" />
                       </SelectTrigger>
                       <SelectContent>
@@ -319,7 +303,7 @@ function BackupRestorePage() {
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="min-h-8 text-xs text-muted-foreground">
                       {backupOptions.length
                         ? `Available from ${backupWindow.from} to ${backupWindow.to}. Daily restore points are less precise than PITR.`
                         : 'No production full backups found yet.'}
@@ -328,7 +312,7 @@ function BackupRestorePage() {
                 </div>
 
                 <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+                  <p className="max-w-xl text-xs leading-5 text-muted-foreground">
                     Use this when the recovery point is older than the PITR window. The source is always production.
                   </p>
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -370,7 +354,6 @@ function BackupRestorePage() {
           restoreTime={restoreTime}
           previewBusy={previewBusy}
           restoreBusy={restoreBusy}
-          restoreError={restoreError}
           onClose={function closeRestorePrompt() {
             setRestorePromptOpen(false);
           }}
@@ -389,7 +372,6 @@ function RestorePromptModal(props: {
   restoreTime: string;
   previewBusy: boolean;
   restoreBusy: boolean;
-  restoreError: string | null;
   onClose: () => void;
   onRestore: () => void;
 }) {
@@ -408,12 +390,6 @@ function RestorePromptModal(props: {
             </p>
           </div>
         </div>
-
-        {props.restoreError ? (
-          <div className="mt-5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            {props.restoreError}
-          </div>
-        ) : null}
 
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={props.onClose}>
@@ -665,8 +641,8 @@ function BackupRestoreLoadingPage(props: Readonly<{ message: string }>) {
 function getBranchOptions(state: ControlPlaneState) {
   return [
     {
-      value: 'prod',
-      label: 'prod',
+      value: 'production',
+      label: 'production',
     },
     ...state.branches.map(function mapBranch(branch) {
       return {

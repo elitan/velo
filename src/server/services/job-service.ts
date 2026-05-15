@@ -440,7 +440,7 @@ function isProductionRestore(input: unknown): boolean {
   return typeof input === 'object'
     && input !== null
     && 'targetBranch' in input
-    && String(input.targetBranch).trim().toLowerCase() === 'prod';
+    && String(input.targetBranch).trim().toLowerCase() === 'production';
 }
 
 function getBackoffSeconds(attempt: number): number {

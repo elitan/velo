@@ -11,6 +11,8 @@ import type { JobContext, JobHandlers } from './job-service';
 const branchInput = z.object({
   name: z.string().min(1),
   parentBranchId: z.number().int().positive().nullable().optional(),
+  ttlHours: z.number().positive().nullable().optional(),
+  expiresAt: z.string().nullable().optional(),
 });
 
 const branchIdInput = z.object({
@@ -31,7 +33,7 @@ const restoreBranchInput = z.object({
 
 export const jobHandlers: JobHandlers = {
   'create-branch': async function createBranchJob(input, context) {
-    const parsed = branchInput.parse(input);
+    const parsed = parseCreateBranchJobInput(input);
     await context.log(`creating branch ${parsed.name}`);
     await createBranchFromBase(parsed);
   },
@@ -63,7 +65,7 @@ export const jobHandlers: JobHandlers = {
     const parsed = restoreBranchInput.parse(input);
     await context.log(`restoring ${parsed.targetBranch} from ${parsed.sourceBranch}`);
 
-    if (parsed.targetBranch.trim().toLowerCase() === 'prod') {
+    if (parsed.targetBranch.trim().toLowerCase() === 'production') {
       context.disableRetry();
       await restoreProductionFromPgBackRest(parsed);
       await context.log('production restore completed');
@@ -108,6 +110,10 @@ export const jobHandlers: JobHandlers = {
     assertOk(await createReplicaBase());
   },
 };
+
+export function parseCreateBranchJobInput(input: unknown) {
+  return branchInput.parse(input);
+}
 
 async function runSetupJob(context: JobContext): Promise<void> {
   if (!(await isStepDone('dev-check'))) {

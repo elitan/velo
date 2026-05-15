@@ -7,6 +7,7 @@ import {
   HeadContent,
   Scripts,
 } from '@tanstack/react-router';
+import { Toaster } from '#web/components/ui/sonner';
 import '../styles.css';
 
 export const Route = createRootRoute({
@@ -45,6 +46,7 @@ function RootDocument(props: Readonly<{ children: ReactNode }>) {
       </head>
       <body>
         {props.children}
+        <Toaster />
         <Scripts />
       </body>
     </html>

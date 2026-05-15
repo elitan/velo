@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
   Database,
@@ -9,7 +9,6 @@ import {
   Terminal,
 } from 'lucide-react';
 import { Button } from '#web/components/ui/button';
-import { Textarea } from '#web/components/ui/textarea';
 import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
@@ -24,15 +23,30 @@ function SqlEditorPage() {
   const runSql = useMutation(orpc.branches.sql.run.mutationOptions());
   const params = Route.useParams();
   const currentBranchIdRef = useRef(params.branchId);
-  const [sql, setSql] = useState('select * from velo_local_notes limit 20;');
+  const highlightRef = useRef<HTMLPreElement>(null);
+  const skipNextSaveRef = useRef(true);
+  const [sql, setSql] = useState(function getInitialSql() {
+    return readSavedSql(params.branchId);
+  });
   const [result, setResult] = useState<SqlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(function syncCurrentBranch() {
     currentBranchIdRef.current = params.branchId;
+    skipNextSaveRef.current = true;
+    setSql(readSavedSql(params.branchId));
     setResult(null);
     setError(null);
   }, [params.branchId]);
+
+  useEffect(function saveSqlDraft() {
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+
+    window.localStorage.setItem(getSqlStorageKey(params.branchId), sql);
+  }, [params.branchId, sql]);
 
   if (!dashboard.data) {
     return <SqlLoadingPage message={dashboard.error ? 'Could not load branch.' : 'Loading branch...'} />;
@@ -78,7 +92,7 @@ function SqlEditorPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
+      <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
         <AppSidebar branches={state.branches} activeBranchPage="sql" selectedBranch={branch.id} />
 
         <section className="min-w-0 bg-background">
@@ -102,21 +116,39 @@ function SqlEditorPage() {
                 </Button>
               </div>
 
-              <Textarea
-                className="h-[calc(100%-3rem)] min-h-0 resize-none rounded-none border-0 !bg-background px-4 py-3 font-mono text-sm leading-6 shadow-none focus-visible:ring-0"
-                value={sql}
-                onChange={function updateSql(event) {
-                  setSql(event.target.value);
-                }}
-                onKeyDown={function runSqlShortcut(event) {
-                  if (event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)) {
-                    return;
-                  }
+              <div className="relative h-[calc(100%-3rem)] min-h-0 bg-background">
+                <pre
+                  ref={highlightRef}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-sm leading-6 text-foreground"
+                >
+                  {highlightSql(sql)}
+                </pre>
+                <textarea
+                  className="absolute inset-0 h-full w-full resize-none rounded-none border-0 bg-transparent px-4 py-3 font-mono text-sm leading-6 text-transparent caret-foreground outline-none selection:bg-primary/30 focus-visible:ring-0"
+                  value={sql}
+                  spellCheck={false}
+                  onChange={function updateSql(event) {
+                    setSql(event.target.value);
+                  }}
+                  onScroll={function syncHighlightScroll(event) {
+                    if (!highlightRef.current) {
+                      return;
+                    }
 
-                  event.preventDefault();
-                  void runCurrentSql();
-                }}
-              />
+                    highlightRef.current.scrollTop = event.currentTarget.scrollTop;
+                    highlightRef.current.scrollLeft = event.currentTarget.scrollLeft;
+                  }}
+                  onKeyDown={function runSqlShortcut(event) {
+                    if (event.key !== 'Enter' || (!event.metaKey && !event.ctrlKey)) {
+                      return;
+                    }
+
+                    event.preventDefault();
+                    void runCurrentSql();
+                  }}
+                />
+              </div>
             </form>
 
             <section className="min-h-0">
@@ -152,6 +184,112 @@ function SqlEditorPage() {
       </div>
     </main>
   );
+}
+
+function readSavedSql(branchId: string): string {
+  if (typeof window === 'undefined') {
+    return getDefaultSql();
+  }
+
+  return window.localStorage.getItem(getSqlStorageKey(branchId)) || getDefaultSql();
+}
+
+function getSqlStorageKey(branchId: string): string {
+  return `velo.sql.${branchId}`;
+}
+
+function getDefaultSql(): string {
+  return 'select * from velo_local_notes limit 20;';
+}
+
+const SQL_KEYWORDS = new Set([
+  'all',
+  'alter',
+  'and',
+  'as',
+  'asc',
+  'begin',
+  'between',
+  'by',
+  'case',
+  'commit',
+  'create',
+  'delete',
+  'desc',
+  'distinct',
+  'drop',
+  'else',
+  'end',
+  'false',
+  'from',
+  'group',
+  'having',
+  'in',
+  'insert',
+  'into',
+  'is',
+  'join',
+  'left',
+  'like',
+  'limit',
+  'not',
+  'null',
+  'offset',
+  'on',
+  'or',
+  'order',
+  'returning',
+  'right',
+  'rollback',
+  'select',
+  'set',
+  'table',
+  'then',
+  'true',
+  'union',
+  'update',
+  'values',
+  'when',
+  'where',
+  'with',
+]);
+
+function highlightSql(value: string): ReactNode[] {
+  const parts = value.match(/(--[^\n]*|\/\*[\s\S]*?\*\/|'(?:''|[^'])*'|"(?:""|[^"])*"|\b\d+(?:\.\d+)?\b|\b[a-zA-Z_][a-zA-Z0-9_]*\b|\s+|.)/g) || [''];
+
+  return parts.map(function renderSqlPart(part, index) {
+    return (
+      <span key={index} className={getSqlTokenClass(part)}>
+        {part}
+      </span>
+    );
+  });
+}
+
+function getSqlTokenClass(part: string): string {
+  const lower = part.toLowerCase();
+
+  if (part.startsWith('--') || part.startsWith('/*')) {
+    return 'text-muted-foreground';
+  }
+
+  if (part.startsWith("'") || part.startsWith('"')) {
+    return 'text-emerald-300';
+  }
+
+  if (/^\d/.test(part)) {
+    return 'text-amber-300';
+  }
+
+  if (SQL_KEYWORDS.has(lower)) {
+    return 'font-semibold text-sky-300';
+  }
+
+  if (/^[*(),.;=<>+-]$/.test(part)) {
+    return 'text-foreground';
+  }
+
+  return 'text-foreground';
 }
 
 interface SqlResult {
@@ -235,10 +373,10 @@ function SqlLoadingPage(props: { message: string }) {
 }
 
 function getBranchView(state: ControlPlaneState, branchId: string) {
-  if (branchId === 'prod') {
+  if (branchId === 'production') {
     return {
-      id: 'prod',
-      name: 'prod',
+      id: 'production',
+      name: 'production',
       badge: 'Production',
       status: state.prodConnectionUrl ? 'ready' : 'pending',
     };

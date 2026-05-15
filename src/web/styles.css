@@ -97,6 +97,7 @@
   body {
     @apply bg-background text-foreground;
     margin: 0;
+    overflow-x: hidden;
   }
 
   ::selection {

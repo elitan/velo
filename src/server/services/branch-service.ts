@@ -107,7 +107,7 @@ export async function createPreviewBranch(input: CreatePreviewBranchInput): Prom
   const restoreTime = parseRestoreTime(input.restoreTime);
   const branchSlug = buildPreviewBranchName(sourceBranch);
 
-  if (sourceBranch !== 'prod') {
+  if (sourceBranch !== 'production') {
     throw new Error('PITR preview currently supports production as the source branch');
   }
 
@@ -151,7 +151,7 @@ async function createBranchClone(options: {
   const targetContainer = getContainerName(PROJECT_NAME, branchSlug);
 
   if (!(await zfs.datasetExists(options.sourceDataset))) {
-    if (options.sourceBranch === 'prod') {
+    if (options.sourceBranch === 'production') {
       await setStepStatus('replica', 'error', `missing ZFS base dataset ${options.sourceDataset}`);
     }
     throw new Error(`Missing ZFS source dataset ${options.sourceDataset}`);
@@ -335,14 +335,14 @@ async function resolveBranchSource(parentBranchId: number | null | undefined): P
     if (isLocalDockerMode()) {
       return {
         id: null,
-        slug: 'prod',
+        slug: 'production',
         dataset: 'postgres',
       };
     }
 
     return {
       id: null,
-      slug: 'prod',
+      slug: 'production',
       dataset: getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME),
     };
   }
@@ -365,7 +365,7 @@ async function resolveBranchSource(parentBranchId: number | null | undefined): P
 }
 
 async function ensureBranchSourceReady(sourceSlug: string): Promise<void> {
-  if (sourceSlug !== 'prod') {
+  if (sourceSlug !== 'production') {
     return;
   }
 
@@ -562,6 +562,10 @@ async function cleanupFailedClone(options: {
 export function normalizeBranchSlug(name: string): string {
   const normalized = name.trim().toLowerCase();
 
+  if (normalized === 'production' || normalized === 'prod') {
+    throw new Error('Production is already the root branch');
+  }
+
   if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(normalized)) {
     throw new Error('Branch name must use lowercase letters, numbers, hyphens, or underscores');
   }
@@ -582,7 +586,7 @@ function normalizeDisplayName(name: string): string {
 function normalizeSourceBranch(name: string): string {
   const normalized = name.trim().toLowerCase();
 
-  if (normalized === 'prod') {
+  if (normalized === 'production') {
     return normalized;
   }
 

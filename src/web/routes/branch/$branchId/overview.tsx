@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,12 +75,13 @@ function BranchOverviewPage() {
   const updateExpiry = useMutation(orpc.branches.expiry.update.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
   const busy = getBusyKey();
-  const [message, setMessage] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [childBranchName, setChildBranchName] = useState('');
-  const [childParentBranchId, setChildParentBranchId] = useState('prod');
+  const [childParentBranchId, setChildParentBranchId] = useState('production');
   const [childTtlHours, setChildTtlHours] = useState('none');
   const [confirmAction, setConfirmAction] = useState<'reset' | 'delete' | null>(null);
+  const [resetJobId, setResetJobId] = useState<number | null>(null);
+  const resetToastId = 'branch-reset';
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
   }).length ?? 0;
@@ -98,6 +100,29 @@ function BranchOverviewPage() {
     };
   }, [activeJobs, dashboard]);
 
+  useEffect(function watchResetJob() {
+    if (!dashboard.data || !resetJobId) {
+      return;
+    }
+
+    const job = dashboard.data.jobs.find(function findJob(item) {
+      return item.id === resetJobId;
+    });
+
+    if (!job || job.status === 'queued' || job.status === 'running') {
+      return;
+    }
+
+    if (job.status === 'done') {
+      toast.success('Reset complete.', { id: resetToastId });
+      setResetJobId(null);
+      return;
+    }
+
+    toast.error(job.error || 'Reset failed.', { id: resetToastId });
+    setResetJobId(null);
+  }, [dashboard.data, resetJobId]);
+
   async function refreshDashboard() {
     await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
   }
@@ -109,6 +134,10 @@ function BranchOverviewPage() {
   const state = dashboard.data;
 
   const branch = getBranchView(state, params.branchId);
+  const resetJob = resetJobId ? state.jobs.find(function findResetJob(job) {
+    return job.id === resetJobId;
+  }) : null;
+  const resetJobActive = Boolean(resetJob && (resetJob.status === 'queued' || resetJob.status === 'running'));
 
   function getBusyKey(): string | null {
     if (createBranch.isPending) {
@@ -127,8 +156,8 @@ function BranchOverviewPage() {
   }
 
   function openCreateChildModal() {
-    setChildBranchName(`${branch.id}-child`);
-    setChildParentBranchId(branch.rowId ? String(branch.rowId) : 'prod');
+    setChildBranchName('');
+    setChildParentBranchId(branch.rowId ? String(branch.rowId) : 'production');
     setChildTtlHours('none');
     setCreateModalOpen(true);
   }
@@ -142,14 +171,20 @@ function BranchOverviewPage() {
       return;
     }
 
-    setMessage(null);
-    const result = await createBranch.mutateAsync({
-      name,
-      parentBranchId: childParentBranchId !== 'prod' ? Number(childParentBranchId) : null,
-      ttlHours: childTtlHours !== 'none' ? Number(childTtlHours) : null,
-    });
-    setMessage(`Creating branch ${name}.`);
-    setCreateModalOpen(false);
+    let result;
+
+    try {
+      result = await createBranch.mutateAsync({
+        name,
+        parentBranchId: childParentBranchId !== 'production' ? Number(childParentBranchId) : null,
+        ttlHours: childTtlHours !== 'none' ? Number(childTtlHours) : null,
+      });
+      toast.info(`Creating branch ${name}.`);
+      setCreateModalOpen(false);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not create branch.');
+      return;
+    }
 
     if (result.branchSlug) {
       await navigate({ to: '/branch/$branchId/overview', params: { branchId: result.branchSlug } });
@@ -161,9 +196,20 @@ function BranchOverviewPage() {
       return;
     }
 
-    setMessage(null);
-    await resetBranch.mutateAsync({ id: branch.rowId! });
-    setMessage(`Resetting ${branch.name} from ${branch.parentName}.`);
+    let job;
+
+    try {
+      job = await resetBranch.mutateAsync({ id: branch.rowId! });
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not reset branch.');
+      return;
+    }
+
+    toast.loading(`Resetting ${branch.name}`, {
+      id: resetToastId,
+      description: `Restoring from ${branch.parentName || 'parent'}...`,
+    });
+    setResetJobId(job.id);
   }
 
   async function handleDelete() {
@@ -171,9 +217,15 @@ function BranchOverviewPage() {
       return;
     }
 
-    setMessage(null);
-    await deleteBranch.mutateAsync({ id: branch.rowId! });
-    await navigate({ to: '/branch/$branchId/overview', params: { branchId: branch.parentSlug || 'prod' } });
+    try {
+      await deleteBranch.mutateAsync({ id: branch.rowId! });
+      toast.success(`Deleted ${branch.name}.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not delete branch.');
+      return;
+    }
+
+    await navigate({ to: '/branch/$branchId/overview', params: { branchId: branch.parentSlug || 'production' } });
   }
 
   function handleConfirmAction() {
@@ -196,18 +248,21 @@ function BranchOverviewPage() {
     }
 
     const expiresAt = value === 'none' ? null : new Date(Date.now() + Number(value) * 60 * 60 * 1000).toISOString();
-    setMessage(null);
-    await updateExpiry.mutateAsync({ id: branch.rowId, expiresAt });
-    setMessage(expiresAt ? `Expiry set for ${branch.name}.` : `Expiry disabled for ${branch.name}.`);
+    try {
+      await updateExpiry.mutateAsync({ id: branch.rowId, expiresAt });
+      toast.success(expiresAt ? `Expiry set for ${branch.name}.` : `Expiry disabled for ${branch.name}.`);
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not update expiry.');
+    }
   }
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
+      <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
         <AppSidebar branches={state.branches} activeBranchPage="overview" selectedBranch={branch.id} />
 
         <section className="min-w-0">
-          <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto grid w-full max-w-[980px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
             <header className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-start md:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
@@ -243,7 +298,7 @@ function BranchOverviewPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52">
                     <DropdownMenuItem
-                      disabled={branch.id === 'prod' || !branch.parentName || busy === 'reset'}
+                      disabled={branch.id === 'production' || !branch.parentName || busy === 'reset' || resetJobActive}
                       onSelect={function selectReset() {
                         setConfirmAction('reset');
                       }}
@@ -256,7 +311,7 @@ function BranchOverviewPage() {
                       Edit name
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      disabled={branch.id === 'prod' || updateExpiry.isPending}
+                      disabled={branch.id === 'production' || updateExpiry.isPending}
                       onSelect={function extendOneDay() {
                         void handleExpiry('24');
                       }}
@@ -265,7 +320,7 @@ function BranchOverviewPage() {
                       Expire in 1 day
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      disabled={branch.id === 'prod' || updateExpiry.isPending}
+                      disabled={branch.id === 'production' || updateExpiry.isPending}
                       onSelect={function extendSevenDays() {
                         void handleExpiry('168');
                       }}
@@ -274,7 +329,7 @@ function BranchOverviewPage() {
                       Expire in 7 days
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      disabled={branch.id === 'prod' || updateExpiry.isPending}
+                      disabled={branch.id === 'production' || updateExpiry.isPending}
                       onSelect={function disableExpiry() {
                         void handleExpiry('none');
                       }}
@@ -284,7 +339,7 @@ function BranchOverviewPage() {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"
-                      disabled={branch.id === 'prod' || busy === 'delete'}
+                      disabled={branch.id === 'production' || busy === 'delete'}
                       onSelect={function selectDelete() {
                         setConfirmAction('delete');
                       }}
@@ -297,12 +352,6 @@ function BranchOverviewPage() {
               </div>
             </header>
 
-            {message ? (
-              <div className="border-t border-border pt-3 text-sm text-muted-foreground">
-                {message}
-              </div>
-            ) : null}
-
             <BranchOverviewPanel
               title={`${branch.name} database`}
               connectionLabel={`${branch.name} connection string`}
@@ -311,7 +360,7 @@ function BranchOverviewPage() {
 
             <div className="rounded-lg border border-border bg-muted/20 p-4">
               <p className="text-sm font-medium">Expiry</p>
-              <p className="mt-1 text-sm text-muted-foreground">{branch.id === 'prod' ? 'production never expires' : formatExpiry(branch.expiresAt)}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{branch.id === 'production' ? 'production never expires' : formatExpiry(branch.expiresAt)}</p>
             </div>
           </div>
         </section>
@@ -336,7 +385,7 @@ function BranchOverviewPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="prod">production</SelectItem>
+                  <SelectItem value="production">production</SelectItem>
                   {state.branches.map(function renderParentOption(item) {
                     return (
                       <SelectItem key={item.id} value={String(item.id)}>
@@ -353,6 +402,7 @@ function BranchOverviewPage() {
               <Input
                 id="child-branch-name"
                 value={childBranchName}
+                placeholder="new-branch-name"
                 autoFocus
                 onChange={function updateChildBranchName(event) {
                   setChildBranchName(event.target.value);
@@ -415,7 +465,7 @@ function BranchOverviewPage() {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy === 'reset' || busy === 'delete'}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className={confirmAction === 'delete' ? 'bg-destructive text-white hover:bg-destructive/90' : ''}
+              variant={confirmAction === 'delete' ? 'destructive' : 'default'}
               disabled={busy === 'reset' || busy === 'delete'}
               onClick={handleConfirmAction}
             >
@@ -468,12 +518,12 @@ function ProtectedBranchPopover() {
 }
 
 function getBranchView(state: ControlPlaneState, branchId: string) {
-  if (branchId === 'prod') {
+  if (branchId === 'production') {
     return {
-      id: 'prod',
-      name: 'Production',
+      id: 'production',
+      name: 'production',
       rowId: null,
-      slug: 'prod',
+      slug: 'production',
       parentBranchId: null,
       parentName: null,
       parentSlug: null,
@@ -487,6 +537,9 @@ function getBranchView(state: ControlPlaneState, branchId: string) {
   const branch = state.branches.find(function findBranch(item) {
     return item.slug === branchId;
   });
+  const hasActiveCreateJob = state.jobs.some(function findActiveCreateJob(job) {
+    return job.type === 'create-branch' && (job.status === 'queued' || job.status === 'running');
+  });
 
   return {
     id: branch?.slug || branchId,
@@ -494,10 +547,10 @@ function getBranchView(state: ControlPlaneState, branchId: string) {
     name: branch?.displayName || branchId,
     rowId: branch?.id || null,
     parentBranchId: branch?.parentBranchId || null,
-    parentName: branch?.parentName || 'prod',
-    parentSlug: branch?.parentSlug || 'prod',
+    parentName: branch?.parentName || 'production',
+    parentSlug: branch?.parentSlug || 'production',
     badge: 'Development',
-    status: branch?.status || 'missing',
+    status: branch?.status || (hasActiveCreateJob ? 'pending' : 'missing'),
     connectionUrl: branch?.connectionUrl || null,
     expiresAt: branch?.expiresAt || null,
   };

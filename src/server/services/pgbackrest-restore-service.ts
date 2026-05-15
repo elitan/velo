@@ -184,7 +184,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
 export async function restoreDevelopmentBranchFromPgBackRest(input: RestoreBranchInput): Promise<RestoreBranchResult> {
   const targetBranch = normalizeBranchName(input.targetBranch);
 
-  if (targetBranch === 'prod') {
+  if (targetBranch === 'production') {
     throw new Error('Use restoreProductionFromPgBackRest for production restores');
   }
 
@@ -201,7 +201,7 @@ export async function restoreProductionFromPgBackRest(input: RestoreBranchInput)
     const restoreTime = parseRestoreTime(input.restoreTime);
     await assertWithinPitrWindow(restoreTime);
     await restoreLocalDockerProduction({
-      targetBranch: 'prod',
+      targetBranch: 'production',
       restoreTime: restoreTime.toISOString(),
     });
     return;
@@ -423,7 +423,7 @@ async function ensureProject() {
 }
 
 function assertProdSource(sourceBranch: string): void {
-  if (sourceBranch !== 'prod') {
+  if (sourceBranch !== 'production') {
     throw new Error('PITR restore currently supports production as the source branch');
   }
 }

@@ -143,7 +143,7 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
   await dropDevDatabase(database);
   await createDevDatabase(database);
 
-  if (input.sourceSlug === 'prod') {
+  if (input.sourceSlug === 'production') {
     await copyProdToDevDatabase(database);
   } else {
     await copyDevDatabase(input.sourceDatabase, database);

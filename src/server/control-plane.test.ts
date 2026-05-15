@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
 import { sql } from 'kysely';
+import { createApiClient } from '../api/router';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
 import { createJob, getActiveJob, getJob, listJobs, startJobWorker, type JobHandlers } from './services/job-service';
+import { parseCreateBranchJobInput } from './services/job-handlers';
 import { createBranchFromBase, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
@@ -190,6 +192,51 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(firstBranchStep).toBeUndefined();
   });
 
+  test('rejects duplicate branch create requests before enqueue', async function testDuplicateBranchCreate() {
+    const api = createApiClient();
+
+    await api.branches.create({ name: 'dev' });
+    await expect(api.branches.create({ name: 'dev' })).rejects.toThrow('Branch already exists: dev');
+
+    const jobs = await listJobs(10);
+    expect(jobs.filter(function isCreateJob(job) {
+      return job.type === 'create-branch';
+    })).toHaveLength(1);
+  });
+
+  test('rejects branch create when slug already exists', async function testExistingBranchCreate() {
+    const db = getDb();
+    await db
+      .insertInto('projects')
+      .values({
+        name: 'prod',
+        postgresVersion: '17',
+        databaseName: 'postgres',
+        appUser: 'postgres',
+      })
+      .execute();
+    const project = await db
+      .selectFrom('projects')
+      .select('id')
+      .where('name', '=', 'prod')
+      .executeTakeFirstOrThrow();
+
+    await db
+      .insertInto('branches')
+      .values({
+        projectId: project.id,
+        slug: 'dev',
+        displayName: 'dev',
+        dataset: 'velo_dev',
+        status: 'running',
+      })
+      .execute();
+
+    const api = createApiClient();
+    await expect(api.branches.create({ name: 'dev' })).rejects.toThrow('Branch already exists: dev');
+    expect(await listJobs(10)).toHaveLength(0);
+  });
+
   test('tracks branch expiry and skips active cleanup targets', async function testBranchExpiry() {
     const db = getDb();
     await db
@@ -239,6 +286,20 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(activeJob.status).toBe('queued');
     expect(updated.expiresAt).toBe('2026-05-02T00:00:00.000Z');
     expect(cleanupJob).toBeUndefined();
+  });
+
+  test('preserves branch expiry fields in create job input', function testCreateBranchJobExpiry() {
+    const parsed = parseCreateBranchJobInput({
+      name: 'ttl-branch',
+      parentBranchId: null,
+      ttlHours: 1,
+    });
+
+    expect(parsed).toEqual({
+      name: 'ttl-branch',
+      parentBranchId: null,
+      ttlHours: 1,
+    });
   });
 });
 
