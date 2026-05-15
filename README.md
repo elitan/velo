@@ -29,7 +29,19 @@ Velo runs a small self-hosted control plane for production Postgres, backups, PI
 
 ## Install
 
-Give [`install.md`](install.md) to an AI agent.
+Use [`install.md`](install.md). Give that file to an AI coding agent with access to two fresh Ubuntu/Debian servers.
+
+The agent installs Velo end-to-end:
+
+- installs system packages
+- clones this repo
+- creates the Velo web service
+- configures production Postgres and pgBackRest
+- creates the dev replica base
+- creates the first dev branch
+- verifies readiness with `/healthz?ready=1`
+
+When the agent finishes, Velo is ready at:
 
 Open:
 
@@ -89,7 +101,7 @@ bun run web:build
 bash -n scripts/*.sh
 ```
 
-## Deploy
+## Test Deploy
 
 ```bash
 VELO_DEPLOY_DEV_HOST=157.180.22.136 \
