@@ -62,11 +62,16 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
     return null;
   }
 
+  const requireReady = url.searchParams.get('ready') === '1';
   const checks = {
     web: true,
     sqlite: false,
     migrations: false,
     dashboard: false,
+    setup: !requireReady,
+    servers: !requireReady,
+    prodConnection: !requireReady,
+    branches: !requireReady,
   };
   const errors: string[] = [];
 
@@ -87,16 +92,46 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
   }
 
   try {
-    await getControlPlaneState();
+    const state = await getControlPlaneState();
     checks.dashboard = true;
+
+    if (requireReady) {
+      checks.setup = state.setupSteps.length > 0 && state.setupSteps.every(function isDone(step) {
+        return step.status === 'done';
+      });
+      checks.servers = state.servers.length >= 2 && state.servers.every(function isHealthy(server) {
+        return server.status === 'ok';
+      });
+      checks.prodConnection = Boolean(state.prodConnectionUrl);
+      checks.branches = state.branches.some(function isRunningBranch(branch) {
+        return branch.status === 'running';
+      });
+
+      if (!checks.setup) {
+        errors.push('setup: not all setup steps are done');
+      }
+
+      if (!checks.servers) {
+        errors.push('servers: expected healthy dev and prod servers');
+      }
+
+      if (!checks.prodConnection) {
+        errors.push('prodConnection: missing production connection URL');
+      }
+
+      if (!checks.branches) {
+        errors.push('branches: no running dev branch found');
+      }
+    }
   } catch (error) {
     errors.push(`dashboard: ${errorMessage(error)}`);
   }
 
-  const ok = checks.sqlite && checks.migrations && checks.dashboard;
+  const ok = Object.values(checks).every(Boolean);
 
   return Response.json({
     ok,
+    mode: requireReady ? 'ready' : 'runtime',
     checks,
     errors,
   }, { status: ok ? 200 : 503 });

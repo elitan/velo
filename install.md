@@ -305,7 +305,7 @@ ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
   "systemctl is-active --quiet velo-web && curl -fsS -u '$APP_USERNAME:$APP_PASSWORD' -I 'http://127.0.0.1:$VELO_PORT' >/dev/null"
 
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
-  "curl -fsS 'http://127.0.0.1:$VELO_PORT/healthz' >/dev/null"
+  "curl -fsS 'http://127.0.0.1:$VELO_PORT/healthz?ready=1' >/dev/null"
 
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
   "curl -fsS -u '$APP_USERNAME:$APP_PASSWORD' -H 'content-type: application/json' -d '{}' 'http://127.0.0.1:$VELO_PORT/api/v1/dashboard/retrieve' >/dev/null"
@@ -333,7 +333,7 @@ Expected:
 - `velo-web` active
 - prod Postgres active
 - pgBackRest stanza `main` works
-- `/healthz` returns ok
+- `/healthz?ready=1` returns ok
 - dashboard API returns ok
 - setup steps are done
 - branch `dev` is running
