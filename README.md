@@ -29,13 +29,7 @@ Velo runs a small self-hosted control plane for production Postgres, backups, PI
 
 ## Install
 
-On the dev/control server:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/elitan/velo/main/scripts/install.sh | bash
-```
-
-The installer clones the repo, installs runtime dependencies, builds the web UI, runs SQLite migrations, and starts `velo-web` on port `3000`.
+Give [`install.md`](install.md) to an AI agent.
 
 Open:
 
@@ -122,7 +116,7 @@ src/server    tRPC routers, jobs, setup, branch, restore services
 src/web       TanStack Start UI
 src/managers  Docker, ZFS, WAL, cert adapters
 src/utils     small shared helpers
-scripts       install, deploy, remote dev, cleanup
+scripts       deploy, remote dev, cleanup
 ```
 
 ## Notes
