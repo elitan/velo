@@ -86,19 +86,69 @@ systemctl enable --now postgresql >/dev/null
 
 install_app_server() {
   ssh_run "$APP_REMOTE" "mkdir -p $(shell_quote "$(dirname "$VELO_REMOTE_KEY_PATH")")"
-  copy_file scripts/install.sh "$APP_REMOTE" /tmp/velo-install.sh
   copy_file "$VELO_DEPLOY_KEY" "$APP_REMOTE" "$VELO_REMOTE_KEY_PATH"
 
   ssh_run "$APP_REMOTE" "
 set -e
 chmod 600 $(shell_quote "$VELO_REMOTE_KEY_PATH")
-VELO_DIR=$(shell_quote "$VELO_DEPLOY_DIR") \\
-VELO_REPO=$(shell_quote "$VELO_REPO") \\
-VELO_REF=$(shell_quote "$VELO_REF") \\
-VELO_HOST=0.0.0.0 \\
-VELO_PORT=$(shell_quote "$VELO_PORT") \\
-VELO_PUBLIC_URL=$(shell_quote "http://$VELO_DEPLOY_DEV_HOST:$VELO_PORT") \\
-bash /tmp/velo-install.sh
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl git unzip openssl docker.io zfsutils-linux postgresql-client pgbackrest
+systemctl enable --now docker || true
+
+export BUN_INSTALL=/root/.bun
+export PATH=\"\$BUN_INSTALL/bin:\$PATH\"
+if ! command -v bun >/dev/null 2>&1; then
+  curl -fsSL https://bun.sh/install | bash
+fi
+ln -sf /root/.bun/bin/bun /usr/local/bin/bun
+
+mkdir -p $(shell_quote "$VELO_DEPLOY_DIR") $(shell_quote "$VELO_DEPLOY_DIR/.velo")
+if [ ! -d $(shell_quote "$VELO_DEPLOY_DIR/.git") ]; then
+  rm -rf $(shell_quote "$VELO_DEPLOY_DIR")
+  git clone $(shell_quote "$VELO_REPO") $(shell_quote "$VELO_DEPLOY_DIR")
+  mkdir -p $(shell_quote "$VELO_DEPLOY_DIR/.velo")
+fi
+
+cd $(shell_quote "$VELO_DEPLOY_DIR")
+git fetch --all --tags
+git checkout $(shell_quote "$VELO_REF")
+git reset --hard $(shell_quote "$VELO_REF")
+git clean -fd -e node_modules -e .velo
+bun install --frozen-lockfile
+VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") bun run db:migrate
+bun run web:build
+
+umask 077
+if [ ! -f /etc/velo.env ]; then
+  printf 'BETTER_AUTH_SECRET=%s\n' \"\$(openssl rand -base64 48)\" >/etc/velo.env
+fi
+grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' $(shell_quote "http://$VELO_DEPLOY_DEV_HOST:$VELO_PORT") >>/etc/velo.env
+sed -i '/^VELO_BASIC_AUTH_USERNAME=/d; /^VELO_BASIC_AUTH_PASSWORD=/d' /etc/velo.env
+
+cat >/etc/systemd/system/velo-web.service <<SERVICE
+[Unit]
+Description=Velo web UI
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$VELO_DEPLOY_DIR
+Environment=HOST=0.0.0.0
+Environment=PORT=$VELO_PORT
+Environment=VELO_DB=$VELO_DEPLOY_DIR/.velo/velo.sqlite
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/velo.env
+ExecStartPre=$VELO_DEPLOY_DIR/scripts/update.sh --pre-start
+ExecStart=/usr/local/bin/bun src/server/web-runtime.ts
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+systemctl daemon-reload
+systemctl enable --now velo-web
 "
 }
 

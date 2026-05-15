@@ -2,8 +2,6 @@
 
 Give this file to an AI coding agent. The agent should install Velo end-to-end.
 
-Do not use Velo install, deploy, or bootstrap shell scripts as the main path. They are maintainer helpers. Use explicit commands so each step is visible and fixable.
-
 ## Goal
 
 Install Velo on two Ubuntu/Debian servers:
@@ -51,24 +49,15 @@ This install may:
 - create a dev replica base
 - create first dev branch
 
-## Current Reality
+## Use Repo Code
 
-Useful repo code exists:
+Use explicit shell commands for server setup. Use Velo TypeScript services only when they keep app state correct:
 
 - web app runtime: `src/server/web-runtime.ts`
 - migrations: `src/db/migrate.ts`
 - prod/dev setup code: `src/server/services/bootstrap-service.ts`
 - replica setup code: `src/server/services/replica-service.ts`
 - branch creation code: `src/server/services/branch-service.ts`
-
-Scripts also exist, but do not use them as the user install path yet:
-
-- `scripts/install.sh`: app-only install helper
-- `scripts/deploy-hetzner.sh`: destructive maintainer test deploy
-- `scripts/local-dev.sh`: local Docker dev stack
-- `scripts/remote-dev.sh`: maintainer remote dev loop
-
-Use scripts only as reference or fallback.
 
 ## Local Variables
 
