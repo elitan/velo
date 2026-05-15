@@ -179,6 +179,8 @@ if [ ! -f /etc/velo.env ]; then
 fi
 grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' '$VELO_PUBLIC_URL' >>/etc/velo.env
 sed -i '/^VELO_BASIC_AUTH_USERNAME=/d; /^VELO_BASIC_AUTH_PASSWORD=/d' /etc/velo.env
+printf 'VELO_BASIC_AUTH_USERNAME=%s\n' '$APP_USERNAME' >>/etc/velo.env
+printf 'VELO_BASIC_AUTH_PASSWORD=%s\n' '$APP_PASSWORD' >>/etc/velo.env
 "
 ```
 
@@ -201,6 +203,7 @@ Environment=PORT=$VELO_PORT
 Environment=VELO_DB=$VELO_DIR/.velo/velo.sqlite
 Environment=NODE_ENV=production
 EnvironmentFile=/etc/velo.env
+ExecStartPre=$VELO_DIR/scripts/update.sh --pre-start
 ExecStart=/usr/local/bin/bun src/server/web-runtime.ts
 Restart=always
 RestartSec=3
@@ -220,8 +223,6 @@ ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
 set -euo pipefail
 cd '$VELO_DIR'
 VELO_DB='$VELO_DIR/.velo/velo.sqlite' \
-APP_USERNAME='$APP_USERNAME' \
-APP_PASSWORD='$APP_PASSWORD' \
 DEV_HOST='$DEV_HOST' \
 PROD_HOST='$PROD_HOST' \
 SSH_USER='$SSH_USER' \
@@ -234,22 +235,8 @@ BACKUP_ACCESS_KEY_ID='${BACKUP_ACCESS_KEY_ID:-}' \
 BACKUP_SECRET_ACCESS_KEY='${BACKUP_SECRET_ACCESS_KEY:-}' \
 BACKUP_PATH='${BACKUP_PATH:-/prod}' \
 bun - <<'BUN'
-import { saveAppPassword } from './src/server/services/app-auth-service.ts';
-import { saveProject } from './src/server/services/project-service.ts';
 import { saveServer, checkServer } from './src/server/services/setup-state-service.ts';
 import { saveBackupSettings } from './src/server/services/settings-service.ts';
-
-await saveAppPassword({
-  username: process.env.APP_USERNAME || 'admin',
-  password: process.env.APP_PASSWORD || '',
-});
-
-await saveProject({
-  name: 'prod',
-  postgresVersion: '17',
-  databaseName: 'postgres',
-  appUser: 'postgres',
-});
 
 await saveServer({
   role: 'dev',
@@ -317,6 +304,12 @@ systemctl restart velo-web
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
   "systemctl is-active --quiet velo-web && curl -fsS -u '$APP_USERNAME:$APP_PASSWORD' -I 'http://127.0.0.1:$VELO_PORT' >/dev/null"
 
+ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
+  "curl -fsS 'http://127.0.0.1:$VELO_PORT/healthz' >/dev/null"
+
+ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
+  "curl -fsS -u '$APP_USERNAME:$APP_PASSWORD' -H 'content-type: application/json' -d '{}' 'http://127.0.0.1:$VELO_PORT/api/v1/dashboard/retrieve' >/dev/null"
+
 ssh -i "$SSH_KEY" "$SSH_USER@$PROD_HOST" \
   "systemctl is-active --quiet postgresql && sudo -u postgres pg_isready -d postgres && sudo -u postgres pgbackrest --stanza=main info >/dev/null"
 
@@ -340,6 +333,8 @@ Expected:
 - `velo-web` active
 - prod Postgres active
 - pgBackRest stanza `main` works
+- `/healthz` returns ok
+- dashboard API returns ok
 - setup steps are done
 - branch `dev` is running
 - UI opens at `VELO_PUBLIC_URL`

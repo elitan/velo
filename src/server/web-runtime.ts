@@ -1,6 +1,9 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join, normalize, relative } from 'node:path';
-import { migrateDatabase } from '#db/migrate';
+import { Database } from 'bun:sqlite';
+import { getMigrationsDirectory, migrateDatabase } from '#db/migrate';
+import { getDatabasePath } from '#db/paths';
+import { getControlPlaneState } from '#server/services/setup-state-service';
 import { persistUpdateResult } from '#server/services/update-service';
 import { startUpdateScheduler } from '#server/services/update-scheduler';
 import { jobHandlers } from '#server/services/job-handlers';
@@ -28,6 +31,12 @@ Bun.serve({
   hostname: host,
   port,
   async fetch(request) {
+    const healthResponse = await handleHealthCheck(request);
+
+    if (healthResponse) {
+      return healthResponse;
+    }
+
     const authResponse = requireBasicAuth(request);
 
     if (authResponse) {
@@ -45,6 +54,53 @@ Bun.serve({
 });
 
 console.log(`Started server: http://${host}:${port}`);
+
+async function handleHealthCheck(request: Request): Promise<Response | null> {
+  const url = new URL(request.url);
+
+  if (url.pathname !== '/healthz') {
+    return null;
+  }
+
+  const checks = {
+    web: true,
+    sqlite: false,
+    migrations: false,
+    dashboard: false,
+  };
+  const errors: string[] = [];
+
+  try {
+    const db = new Database(getDatabasePath(), { readonly: true });
+    db.query('select 1').get();
+    db.close();
+    checks.sqlite = true;
+  } catch (error) {
+    errors.push(`sqlite: ${errorMessage(error)}`);
+  }
+
+  try {
+    getMigrationsDirectory();
+    checks.migrations = true;
+  } catch (error) {
+    errors.push(`migrations: ${errorMessage(error)}`);
+  }
+
+  try {
+    await getControlPlaneState();
+    checks.dashboard = true;
+  } catch (error) {
+    errors.push(`dashboard: ${errorMessage(error)}`);
+  }
+
+  const ok = checks.sqlite && checks.migrations && checks.dashboard;
+
+  return Response.json({
+    ok,
+    checks,
+    errors,
+  }, { status: ok ? 200 : 503 });
+}
 
 function requireBasicAuth(request: Request): Response | null {
   const username = process.env.VELO_BASIC_AUTH_USERNAME || '';
@@ -85,6 +141,14 @@ function unauthorizedResponse(): Response {
       'WWW-Authenticate': 'Basic realm="Velo"',
     },
   });
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }
 
 async function serveStaticAsset(request: Request): Promise<Response | null> {

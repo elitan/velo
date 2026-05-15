@@ -49,6 +49,13 @@ jobs:
     - name: Check shell scripts
       run: bash -n scripts/*.sh
 
+    - name: Check install guide smoke commands
+      run: |
+        grep -E "ExecStartPre=.*scripts/update.sh --pre-start" install.md
+        grep -F "/healthz" install.md
+        grep -F "/api/v1/dashboard/retrieve" install.md
+        ! grep -E "app-auth-service|project-service|saveAppPassword|saveProject" install.md
+
     - name: Test release artifact
       run: scripts/test-release-artifact.sh
 

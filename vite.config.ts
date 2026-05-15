@@ -3,6 +3,7 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import viteReact from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
+import { cpSync, mkdirSync } from 'node:fs';
 
 export default defineConfig({
   plugins: [
@@ -11,6 +12,7 @@ export default defineConfig({
     }),
     tailwindcss(),
     viteReact(),
+    copyMigrations(),
   ],
   resolve: {
     alias: {
@@ -32,3 +34,17 @@ export default defineConfig({
     exclude: ['bun', 'bun:sqlite', 'dockerode', 'ssh2', 'cpu-features'],
   },
 });
+
+function copyMigrations() {
+  return {
+    name: 'copy-migrations',
+    closeBundle() {
+      const target = path.resolve(__dirname, 'dist/server/assets/migrations');
+
+      mkdirSync(target, { recursive: true });
+      cpSync(path.resolve(__dirname, 'src/db/migrations'), target, {
+        recursive: true,
+      });
+    },
+  };
+}

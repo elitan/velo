@@ -9,7 +9,10 @@ interface Migration {
   sql: string;
 }
 
-const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+const migrationsDirs = [
+  join(dirname(fileURLToPath(import.meta.url)), 'migrations'),
+  join(process.cwd(), 'src/db/migrations'),
+];
 
 export function migrateDatabase(): void {
   const databasePath = getDatabasePath();
@@ -46,9 +49,7 @@ export function migrateDatabase(): void {
 }
 
 function readMigrations(): Migration[] {
-  if (!existsSync(migrationsDir)) {
-    throw new Error(`Missing migrations directory: ${migrationsDir}`);
-  }
+  const migrationsDir = getMigrationsDirectory();
 
   return readdirSync(migrationsDir)
     .filter(function isSqlFile(fileName) {
@@ -61,6 +62,18 @@ function readMigrations(): Migration[] {
         sql: readFileSync(join(migrationsDir, fileName), 'utf8'),
       };
     });
+}
+
+export function getMigrationsDirectory(): string {
+  const migrationsDir = migrationsDirs.find(function directoryExists(directory) {
+    return existsSync(directory);
+  });
+
+  if (!migrationsDir) {
+    throw new Error(`Missing migrations directory: ${migrationsDirs.join(', ')}`);
+  }
+
+  return migrationsDir;
 }
 
 if (import.meta.main) {

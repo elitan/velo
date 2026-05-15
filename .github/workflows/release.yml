@@ -124,6 +124,7 @@ jobs:
           VELO_DB=/tmp/velo-smoke/.velo/velo.sqlite bun run db:migrate
           test -f dist/server/server.js
           test -d dist/client
+          test -f dist/server/assets/migrations/001_initial.sql
 
       - name: Create GitHub release
         env:
