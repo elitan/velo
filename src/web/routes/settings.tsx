@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, ArchiveRestore, CheckCircle2, Database, Loader2, RefreshCw, SlidersHorizontal, XCircle } from 'lucide-react';
+import { Activity, AlertTriangle, ArchiveRestore, CheckCircle2, Database, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,12 +33,8 @@ import {
   JobsPanel,
   MetricCard,
   ServerPanel,
-  SetupPanel,
-  StatusBadge,
-  SystemPanel,
   type ServerRole,
 } from '#web/components/control-plane';
-import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
@@ -50,10 +46,8 @@ function SettingsPage() {
   const saveServer = useMutation(orpc.servers.update.mutationOptions({ onSuccess: refreshDashboard }));
   const checkServer = useMutation(orpc.servers.check.mutationOptions({ onSuccess: refreshDashboard }));
   const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions({ onSuccess: refreshDashboard }));
-  const startBootstrap = useMutation(orpc.bootstrap.start.mutationOptions({ onSuccess: refreshDashboard }));
   const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
   const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
-  const createReplicaBase = useMutation(orpc.replicaBase.create.mutationOptions({ onSuccess: refreshDashboard }));
   const busy = getBusyKey();
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
@@ -90,20 +84,12 @@ function SettingsPage() {
       return 'save-backup';
     }
 
-    if (startBootstrap.isPending) {
-      return `bootstrap-${startBootstrap.variables?.target || 'dev'}`;
-    }
-
     if (createBranch.isPending) {
       return 'create-branch';
     }
 
     if (deleteBranch.isPending) {
       return `delete-branch-${deleteBranch.variables?.id}`;
-    }
-
-    if (createReplicaBase.isPending) {
-      return 'create-replica';
     }
 
     return null;
@@ -115,19 +101,12 @@ function SettingsPage() {
 
   const state = dashboard.data;
 
-  if (!isSetupComplete(state)) {
-    return <OnboardingWizard />;
-  }
-
   const prodServer = state.servers.find(function findProd(server) {
     return server.role === 'prod';
   });
   const devServer = state.servers.find(function findDev(server) {
     return server.role === 'dev';
   });
-  const doneSteps = state.setupSteps.filter(function countDone(step) {
-    return step.status === 'done';
-  }).length;
   const okServers = state.servers.filter(function countOk(server) {
     return server.status === 'ok';
   }).length;
@@ -161,10 +140,6 @@ function SettingsPage() {
     });
   }
 
-  async function handleBootstrap(kind: ServerRole) {
-    await startBootstrap.mutateAsync({ target: kind });
-  }
-
   async function handleCreateBranch(formData: FormData) {
     const name = String(formData.get('name') || '');
     const ttlHours = formData.get('ttlHours');
@@ -180,10 +155,6 @@ function SettingsPage() {
     await deleteBranch.mutateAsync({ id });
   }
 
-  async function handleCreateReplica() {
-    await createReplicaBase.mutateAsync(undefined);
-  }
-
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="grid min-h-screen lg:grid-cols-[244px_1fr]">
@@ -193,11 +164,7 @@ function SettingsPage() {
           <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
             <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">Control plane</Badge>
-                  <StatusBadge status={doneSteps === state.setupSteps.length ? 'done' : 'pending'} />
-                </div>
-                <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">Settings</h1>
+                <h1 className="text-3xl font-semibold tracking-normal md:text-4xl">Settings</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
                   Manage server access, backup storage, and background activity.
                 </p>
@@ -208,8 +175,7 @@ function SettingsPage() {
               </Button>
             </header>
 
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricCard title="Setup" value={`${doneSteps}/${state.setupSteps.length}`} detail="steps complete" icon={SlidersHorizontal} tone="blue" />
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <MetricCard title="Servers" value={`${okServers}/${state.servers.length}`} detail="healthy" icon={Database} tone="emerald" />
               <MetricCard title="Backups" value={backupMode} detail={state.backup.bucket || 'not configured'} icon={ArchiveRestore} tone="violet" />
               <MetricCard title="Jobs" value={String(activeJobs)} detail="active now" icon={Activity} tone="amber" />
@@ -217,13 +183,6 @@ function SettingsPage() {
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
               <div className="grid min-w-0 gap-6">
-                <SetupPanel
-                  steps={state.setupSteps}
-                  busy={busy}
-                  prodServerReady={Boolean(prodServer)}
-                  onBootstrap={handleBootstrap}
-                  onCreateReplica={handleCreateReplica}
-                />
                 <BranchesPanel
                   branches={state.branches}
                   busy={busy}
@@ -237,14 +196,6 @@ function SettingsPage() {
                 <BackupPanel backup={state.backup} busy={busy === 'save-backup'} onSave={handleSaveBackup} />
               </div>
               <div className="grid content-start gap-6">
-                <SystemPanel
-                  setupDone={doneSteps}
-                  setupTotal={state.setupSteps.length}
-                  healthyServers={okServers}
-                  totalServers={state.servers.length}
-                  backupMode={backupMode}
-                  activeJobs={activeJobs}
-                />
                 <UpdatePanel />
                 <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
               </div>

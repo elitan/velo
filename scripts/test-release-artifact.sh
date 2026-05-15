@@ -30,6 +30,7 @@ test -f scripts/update.sh
 test -f src/db/migrations/001_initial.sql
 test -f dist/server/server.js
 test -d dist/client
+test -f dist/server/assets/migrations/001_initial.sql
 
 bun install --production --frozen-lockfile
 VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
@@ -45,7 +46,9 @@ bun src/server/web-runtime.ts >"$WORK_DIR/server.log" 2>&1 &
 SERVER_PID="$!"
 
 for _ in $(seq 1 30); do
-  if curl -fsS -I "http://127.0.0.1:$PORT" >/dev/null; then
+  if curl -fsS -I "http://127.0.0.1:$PORT" >/dev/null \
+    && curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null \
+    && curl -fsS -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve" >/dev/null; then
     echo "release artifact smoke passed"
     exit 0
   fi

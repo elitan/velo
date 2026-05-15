@@ -1,11 +1,9 @@
 import { createRouterClient } from '@orpc/server';
 import { backupRouter } from './backup';
-import { bootstrapRouter } from './bootstrap';
 import { branchesRouter } from './branches';
 import { createOrpcContext } from './context';
 import { dashboardRouter } from './dashboard';
 import { jobsRouter } from './jobs';
-import { replicaBaseRouter } from './replica-base';
 import { serversRouter } from './servers';
 import { tablesRouter } from './tables';
 import { updatesRouter } from './updates';
@@ -15,8 +13,6 @@ export const appRouter = {
   jobs: jobsRouter,
   servers: serversRouter,
   backup: backupRouter,
-  bootstrap: bootstrapRouter,
-  replicaBase: replicaBaseRouter,
   branches: branchesRouter,
   tables: tablesRouter,
   updates: updatesRouter,

@@ -15,7 +15,6 @@ import {
   Trash2,
 } from 'lucide-react';
 import { AppSidebar } from '#web/components/control-plane';
-import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,7 +63,6 @@ function BranchTablesPage() {
   const [editorError, setEditorError] = useState<string | null>(null);
   const [rowToDelete, setRowToDelete] = useState<DeleteRowState | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const setupDone = Boolean(dashboard.data && isSetupComplete(dashboard.data));
   const metadata = useQuery({
     ...orpc.tables.browse.queryOptions({
       input: {
@@ -73,7 +71,7 @@ function BranchTablesPage() {
         schema: selected?.schema,
       },
     }),
-    enabled: setupDone,
+    enabled: Boolean(dashboard.data),
   });
   const selectedDatabase = metadata.data?.selectedDatabase || selected?.database || 'postgres';
   const selectedSchema = metadata.data?.selectedSchema || selected?.schema || 'public';
@@ -88,7 +86,7 @@ function BranchTablesPage() {
         offset: selected?.offset,
       },
     }),
-    enabled: setupDone && Boolean(selectedTable),
+    enabled: Boolean(dashboard.data) && Boolean(selectedTable),
     placeholderData: function keepRowsVisible(previousData) {
       return previousData;
     },
@@ -136,10 +134,6 @@ function BranchTablesPage() {
       return `${table.schema}.${table.name}`.toLowerCase().includes(term);
     });
   }, [search, metadata.data?.tables]);
-
-  if (dashboard.data && !setupDone) {
-    return <OnboardingWizard />;
-  }
 
   function selectDatabase(database: string) {
     setSelected({ database, schema: 'public', offset: 0 });
