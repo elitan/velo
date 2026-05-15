@@ -11,7 +11,6 @@ import {
   Copy,
   Database,
   GitBranch,
-  HardDrive,
   LayoutDashboard,
   Loader2,
   RefreshCw,
@@ -90,32 +89,6 @@ export function ProductionSummaryPanel(props: ProductionSummaryPanelProps) {
           <Database />
           Open production
         </Link>
-      </CardContent>
-    </Card>
-  );
-}
-
-export interface SystemPanelProps {
-  setupDone: number;
-  setupTotal: number;
-  healthyServers: number;
-  totalServers: number;
-  backupMode: string;
-  activeJobs: number;
-}
-
-export function SystemPanel(props: SystemPanelProps) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>System</CardTitle>
-        <CardDescription>Control plane summary</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3">
-        <InfoCell label="Setup" value={`${props.setupDone}/${props.setupTotal} complete`} />
-        <InfoCell label="Servers" value={`${props.healthyServers}/${props.totalServers} healthy`} />
-        <InfoCell label="Backups" value={props.backupMode} />
-        <InfoCell label="Jobs" value={`${props.activeJobs} active`} />
       </CardContent>
     </Card>
   );
@@ -335,86 +308,6 @@ function InfoCell(props: InfoCellProps) {
       <p className="text-xs font-medium text-muted-foreground">{props.label}</p>
       <p className="mt-1 truncate text-sm">{props.value}</p>
     </div>
-  );
-}
-
-export interface SetupPanelProps {
-  steps: Array<{
-    key: string;
-    label: string;
-    status: string;
-    message: string | null;
-  }>;
-  busy: string | null;
-  prodServerReady: boolean;
-  onBootstrap: (kind: ServerRole) => Promise<void>;
-  onCreateReplica: () => Promise<void>;
-}
-
-export function SetupPanel(props: SetupPanelProps) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <CardTitle>Setup flow</CardTitle>
-          <CardDescription>Run this top to bottom. Actions are idempotent.</CardDescription>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={function clickDevBootstrap() {
-              void props.onBootstrap('dev');
-            }}
-            disabled={props.busy === 'bootstrap-dev'}
-          >
-            {props.busy === 'bootstrap-dev' ? <Loader2 className="animate-spin" /> : <HardDrive />}
-            Setup dev
-          </Button>
-          <Button
-            variant="outline"
-            onClick={function clickProdBootstrap() {
-              void props.onBootstrap('prod');
-            }}
-            disabled={props.busy === 'bootstrap-prod' || !props.prodServerReady}
-          >
-            {props.busy === 'bootstrap-prod' ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-            Setup prod
-          </Button>
-          <Button
-            variant="outline"
-            onClick={function clickCreateReplica() {
-              void props.onCreateReplica();
-            }}
-            disabled={props.busy === 'create-replica' || !props.prodServerReady}
-          >
-            {props.busy === 'create-replica' ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-            Replica
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-3 md:grid-cols-2">
-          {props.steps.map(function renderStep(step, index) {
-            return (
-              <div className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={step.key}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <StepIcon status={step.status} index={index + 1} />
-                    <div className="min-w-0">
-                      <p className="font-medium leading-5">{step.label}</p>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {step.message || 'Waiting'}
-                      </p>
-                    </div>
-                  </div>
-                  <StatusBadge status={step.status} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -929,13 +822,13 @@ export function JobsPanel(props: JobsPanelProps) {
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
           <CardTitle>Jobs</CardTitle>
-          <CardDescription>Background setup and branch activity</CardDescription>
+          <CardDescription>Background branch and maintenance activity</CardDescription>
         </div>
         <Badge variant={props.activeJobs > 0 ? 'info' : 'secondary'}>{props.activeJobs} active</Badge>
       </CardHeader>
       <CardContent>
         {props.jobs.length === 0 ? (
-          <EmptyState icon={Clock3} title="No jobs yet" detail="Setup and branch actions will appear here." compact />
+          <EmptyState icon={Clock3} title="No jobs yet" detail="Branch and maintenance actions will appear here." compact />
         ) : (
           <div className="grid gap-3">
             {props.jobs.map(function renderJob(job) {
@@ -1055,38 +948,6 @@ function EmptyState(props: EmptyStateProps) {
       </div>
       <p className="mt-3 text-sm font-medium">{props.title}</p>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">{props.detail}</p>
-    </div>
-  );
-}
-
-function StepIcon(props: { status: string; index: number }) {
-  if (props.status === 'done') {
-    return (
-      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/20">
-        <CheckCircle2 className="size-4" />
-      </div>
-    );
-  }
-
-  if (props.status === 'running') {
-    return (
-      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-sky-500/10 text-sky-300 ring-1 ring-sky-500/20">
-        <Loader2 className="size-4 animate-spin" />
-      </div>
-    );
-  }
-
-  if (props.status === 'error') {
-    return (
-      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-red-500/10 text-red-300 ring-1 ring-red-500/20">
-        <AlertTriangle className="size-4" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-xs font-medium text-muted-foreground">
-      {props.index}
     </div>
   );
 }

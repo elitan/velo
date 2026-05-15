@@ -14,7 +14,6 @@ import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
 } from '#web/components/control-plane';
-import { isSetupComplete, OnboardingWizard } from '#web/components/onboarding-wizard';
 
 export const Route = createFileRoute('/branch/$branchId/sql')({
   component: SqlEditorPage,
@@ -40,10 +39,6 @@ function SqlEditorPage() {
   }
 
   const state = dashboard.data;
-
-  if (!isSetupComplete(state)) {
-    return <OnboardingWizard />;
-  }
 
   const branch = getBranchView(state, params.branchId);
 

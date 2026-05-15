@@ -4,6 +4,7 @@ import type { Branch } from '#db/schema';
 import { createApiClient } from '#api/router';
 import { getSetting } from '#server/services/settings-service';
 import { runCommand, runSshCommand } from '#server/services/command-service';
+import { createReplicaBase } from '#server/services/replica-service';
 import { TABLE_ROW_ID_COLUMN } from '#server/services/table-browser-service';
 import { getContainerName, getDatasetName } from '#utils/naming';
 
@@ -67,8 +68,8 @@ async function testDashboardAndWebSmoke(): Promise<void> {
 }
 
 async function testReplicaBase(): Promise<void> {
-  const job = await api.replicaBase.create();
-  await waitForJob(job.id, JOB_TIMEOUT_MS);
+  const result = await createReplicaBase();
+  assert(result.ok, result.message);
 
   const state = await api.dashboard.retrieve();
   assert(hasDoneStep(state.setupSteps, 'replica'), 'replica step should be done');
