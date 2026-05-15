@@ -29,13 +29,15 @@ Velo runs a small self-hosted control plane for production Postgres, backups, PI
 
 ## Install
 
-On the dev/control server:
+Give [`install.md`](install.md) to an AI agent for a full two-server install.
+
+Manual app-only install on the dev/control server:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/elitan/velo/main/scripts/install.sh | bash
 ```
 
-The installer clones the repo, installs runtime dependencies, builds the web UI, runs SQLite migrations, and starts `velo-web` on port `3000`.
+The installer clones the repo, installs runtime dependencies, builds the web UI, runs SQLite migrations, and starts `velo-web` on port `3000`. Full prod/dev setup is then done by the web onboarding flow or the agent steps in `install.md`.
 
 Open:
 
