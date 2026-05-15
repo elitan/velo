@@ -38,7 +38,6 @@ The agent installs Velo end-to-end:
 - creates the Velo web service
 - configures production Postgres and pgBackRest
 - creates the dev replica base
-- creates the first dev branch
 - verifies readiness with `/healthz?ready=1`
 
 When the agent finishes, Velo is ready at:

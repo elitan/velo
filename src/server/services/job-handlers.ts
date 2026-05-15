@@ -122,11 +122,6 @@ async function runSetupJob(context: JobContext): Promise<void> {
     await context.log('creating dev replica base');
     assertOk(await createReplicaBase());
   }
-
-  if (!(await isStepDone('first-branch'))) {
-    await context.log('creating first dev branch');
-    await createBranchFromBase({ name: 'dev' });
-  }
 }
 
 async function isStepDone(key: string): Promise<boolean> {

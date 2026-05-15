@@ -47,7 +47,6 @@ This install may:
 - configure pgBackRest
 - create an initial full backup
 - create a dev replica base
-- create first dev branch
 
 ## Use Repo Code
 
@@ -281,7 +280,6 @@ cd '$VELO_DIR'
 VELO_DB='$VELO_DIR/.velo/velo.sqlite' bun - <<'BUN'
 import { runDevBootstrap, runProdBootstrap } from './src/server/services/bootstrap-service.ts';
 import { createReplicaBase } from './src/server/services/replica-service.ts';
-import { createBranchFromBase } from './src/server/services/branch-service.ts';
 
 function assertOk(result) {
   if (!result.ok) {
@@ -292,7 +290,6 @@ function assertOk(result) {
 assertOk(await runDevBootstrap());
 assertOk(await runProdBootstrap());
 assertOk(await createReplicaBase());
-await createBranchFromBase({ name: 'dev' });
 BUN
 systemctl restart velo-web
 "

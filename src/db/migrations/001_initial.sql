@@ -62,5 +62,4 @@ insert or ignore into setup_steps (key, label) values
   ('prod-check', 'Check prod server'),
   ('prod-setup', 'Configure prod Postgres'),
   ('backups', 'Configure backups and PITR'),
-  ('replica', 'Create dev replica'),
-  ('first-branch', 'Create first branch');
+  ('replica', 'Create dev replica');

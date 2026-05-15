@@ -193,7 +193,6 @@ VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") /root/.bun/bin/bun -
 import { checkServer } from \"./src/server/services/setup-state-service.ts\";
 import { runDevBootstrap, runProdBootstrap } from \"./src/server/services/bootstrap-service.ts\";
 import { createReplicaBase } from \"./src/server/services/replica-service.ts\";
-import { createBranchFromBase } from \"./src/server/services/branch-service.ts\";
 
 function assertOk(result) {
   if (!result.ok) {
@@ -206,7 +205,6 @@ await checkServer(\"prod\");
 assertOk(await runDevBootstrap());
 assertOk(await runProdBootstrap());
 assertOk(await createReplicaBase());
-await createBranchFromBase({ name: \"dev\" });
 '
 systemctl restart velo-web
 "
@@ -237,18 +235,13 @@ import { Database } from \"bun:sqlite\";
 const db = new Database(process.env.VELO_DB);
 const servers = db.query(\"select role, status from servers order by role\").all();
 const steps = db.query(\"select key, status from setup_steps order by key\").all();
-const branches = db.query(\"select slug, status from branches order by slug\").all();
 
 if (servers.length !== 2 || servers.some(function isBad(server) { return server.status !== \"ok\"; })) {
   throw new Error(\"bad servers: \" + JSON.stringify(servers));
 }
 
-if (steps.length !== 6 || steps.some(function isBad(step) { return step.status !== \"done\"; })) {
+if (steps.length !== 5 || steps.some(function isBad(step) { return step.status !== \"done\"; })) {
   throw new Error(\"bad setup steps: \" + JSON.stringify(steps));
-}
-
-if (branches.length !== 1 || branches[0].slug !== \"dev\" || branches[0].status !== \"running\") {
-  throw new Error(\"fresh deploy should create one dev branch: \" + JSON.stringify(branches));
 }
 
 db.close();

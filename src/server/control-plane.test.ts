@@ -73,7 +73,6 @@ describe('control plane database', function controlPlaneDatabase() {
       'prod-setup',
       'backups',
       'replica',
-      'first-branch',
     ]);
     expect(steps.every(function isPending(step) {
       return step.status === 'pending';
@@ -186,9 +185,9 @@ describe('control plane database', function controlPlaneDatabase() {
       .selectFrom('setupSteps')
       .select(['status'])
       .where('key', '=', 'first-branch')
-      .executeTakeFirstOrThrow();
+      .executeTakeFirst();
 
-    expect(firstBranchStep.status).toBe('pending');
+    expect(firstBranchStep).toBeUndefined();
   });
 
   test('tracks branch expiry and skips active cleanup targets', async function testBranchExpiry() {
