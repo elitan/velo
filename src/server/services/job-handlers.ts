@@ -5,6 +5,7 @@ import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest
 import { runDevBootstrap, runProdBootstrap, type BootstrapResult } from '#server/services/bootstrap-service';
 import { createReplicaBase, type ReplicaResult } from '#server/services/replica-service';
 import { checkServer } from '#server/services/setup-state-service';
+import { isLocalDockerMode } from '#server/services/local-docker-service';
 import type { JobContext, JobHandlers } from './job-service';
 
 const branchInput = z.object({
@@ -70,13 +71,19 @@ export const jobHandlers: JobHandlers = {
     }
 
     const existing = await findBranchBySlug(normalizeBranchLookup(parsed.targetBranch));
+    const branchPassword = getPasswordFromConnectionUrl(existing?.connectionUrl || null);
+    const preferredPort = getPreferredReplacementPort(existing);
 
     if (existing) {
       await context.log(`replacing existing branch ${parsed.targetBranch}`);
       await deleteBranch({ id: existing.id });
     }
 
-    const result = await restoreDevelopmentBranchFromPgBackRest(parsed);
+    const result = await restoreDevelopmentBranchFromPgBackRest({
+      ...parsed,
+      branchPassword,
+      preferredPort,
+    });
     await context.log(`branch restored: ${result.displayName}`);
   },
   'reset-branch': async function resetBranchJob(input, context) {
@@ -144,12 +151,29 @@ async function branchExists(id: number): Promise<boolean> {
   return Boolean(branch);
 }
 
-async function findBranchBySlug(slug: string): Promise<{ id: number } | undefined> {
+async function findBranchBySlug(slug: string): Promise<{
+  id: number;
+  connectionUrl: string | null;
+  dataset: string;
+  port: number | null;
+} | undefined> {
   return getDb()
     .selectFrom('branches')
-    .select(['id'])
+    .select(['id', 'connectionUrl', 'dataset', 'port'])
     .where('slug', '=', slug)
     .executeTakeFirst();
+}
+
+function getPreferredReplacementPort(branch: Awaited<ReturnType<typeof findBranchBySlug>>): number | null {
+  if (!branch?.port) {
+    return null;
+  }
+
+  if (isLocalDockerMode() && !branch.dataset.startsWith('container:')) {
+    return null;
+  }
+
+  return branch.port;
 }
 
 function normalizeBranchLookup(name: string): string {
@@ -159,5 +183,17 @@ function normalizeBranchLookup(name: string): string {
 function assertOk(result: BootstrapResult | ReplicaResult): void {
   if (!result.ok) {
     throw new Error(result.message);
+  }
+}
+
+function getPasswordFromConnectionUrl(connectionUrl: string | null): string | null {
+  if (!connectionUrl) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(new URL(connectionUrl).password);
+  } catch {
+    return null;
   }
 }

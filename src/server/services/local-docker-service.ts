@@ -1,5 +1,6 @@
 import { sql } from 'kysely';
 import { getDb } from '../../db/client';
+import { generatePassword } from '../../utils/helpers';
 import { runCommand } from './command-service';
 import { saveBackupSettings, setSetting } from './settings-service';
 
@@ -15,6 +16,8 @@ export interface LocalDockerBranchInput {
   sourceReplayAt: string;
   parentBranchId: number | null;
   expiresAt: string | null;
+  branchPassword?: string | null;
+  preferredPort?: number | null;
 }
 
 export interface LocalDockerBranchResult {
@@ -29,6 +32,8 @@ export interface LocalDockerRestoreInput {
   restoreTime: string;
   readOnly?: boolean;
   publicAccess?: boolean;
+  branchPassword?: string | null;
+  preferredPort?: number | null;
 }
 
 export function isLocalDockerMode(): boolean {
@@ -222,6 +227,7 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
   const containerName = getRestoreContainerName(branchSlug);
   const volumeName = getRestoreVolumeName(branchSlug);
   const dataset = `container:${containerName}`;
+  const password = input.branchPassword || generatePassword();
 
   await removeContainer(containerName);
   await removeVolume(volumeName);
@@ -230,12 +236,14 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
   await startRestoreContainer({
     containerName,
     volumeName,
+    password,
+    port: input.preferredPort,
     readOnly: input.readOnly === true,
     publicAccess: input.publicAccess === true,
   });
 
   const port = await getContainerPort(containerName);
-  const connectionUrl = `postgresql://postgres:postgres@localhost:${port}/postgres?sslmode=disable`;
+  const connectionUrl = `postgresql://postgres:${password}@localhost:${port}/postgres?sslmode=disable`;
 
   await db
     .insertInto('branches')
@@ -441,20 +449,23 @@ async function restorePgBackRestVolume(volumeName: string, restoreTime: Date): P
 async function startRestoreContainer(options: {
   containerName: string;
   volumeName: string;
+  password: string;
+  port?: number | null;
   readOnly: boolean;
   publicAccess: boolean;
 }): Promise<void> {
   const hostIp = options.publicAccess ? '0.0.0.0' : '127.0.0.1';
+  const hostPort = options.port ? String(options.port) : '';
   const readonlyArgs = options.readOnly ? '-c default_transaction_read_only=on' : '';
 
   await runLocalCommand([
     'docker run -d',
     `--name ${shellQuote(options.containerName)}`,
     `--network ${shellQuote(getComposeNetworkName())}`,
-    `-p ${hostIp}::5432`,
+    `-p ${hostIp}:${hostPort}:5432`,
     `-v ${shellQuote(options.volumeName)}:/var/lib/postgresql/data`,
     `-v ${shellQuote(`${process.cwd()}/docker/local-pgbackrest/pgbackrest.conf`)}:/etc/pgbackrest.conf:ro`,
-    `-e POSTGRES_PASSWORD=postgres`,
+    `-e POSTGRES_PASSWORD=${shellQuote(options.password)}`,
     shellQuote(LOCAL_PGBACKREST_IMAGE),
     'postgres',
     '-c listen_addresses=*',
@@ -462,6 +473,14 @@ async function startRestoreContainer(options: {
   ].filter(Boolean).join(' '), 60_000);
 
   await waitForContainer(options.containerName);
+  await setContainerPassword(options.containerName, options.password);
+}
+
+async function setContainerPassword(containerName: string, password: string): Promise<void> {
+  await runLocalCommand(
+    `docker exec --user postgres ${shellQuote(containerName)} psql -d postgres -v ON_ERROR_STOP=1 -c ${shellQuote(`alter role postgres with password ${sqlStringLiteral(password)}`)}`,
+    60_000
+  );
 }
 
 async function waitForContainer(containerName: string): Promise<void> {
@@ -587,4 +606,8 @@ function formatPgBackRestTime(date: Date): string {
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function sqlStringLiteral(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
