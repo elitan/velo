@@ -79,7 +79,7 @@ This starts:
 - local SQLite at `.velo/local-docker.sqlite`
 - real pgBackRest backups and WAL archive to MinIO
 
-Local Docker is prod-like for backup and PITR work. It creates a pgBackRest stanza, checks WAL archiving, runs a full backup, and runs each local branch as its own Postgres container with source data copied by `pg_dump`. Branch connection strings point at the Go TCP proxy, which wakes stopped branches and stops idle ones. It still does not prove SSH, systemd, Hetzner networking, R2, or ZFS COW. Use remote dev before merging infra-sensitive work.
+Local Docker is prod-like for backup and PITR work. It creates a pgBackRest stanza, checks WAL archiving, runs a full backup, and runs each local branch as its own Postgres container with source data copied by `pg_dump`. Branch connection strings point at the Go TCP proxy, which wakes stopped branches and stops idle ones. In local timing runs, an idle-stopped branch woke and answered queries in about 256-268 ms. It still does not prove SSH, systemd, Hetzner networking, R2, or ZFS COW. Use remote dev before merging infra-sensitive work.
 
 Each git branch gets one local environment by default. Ports are assigned once and stored in `.velo/local/<branch>/env`, so multiple branches can run on the same computer without port collisions.
 
