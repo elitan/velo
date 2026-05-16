@@ -159,7 +159,7 @@ function SettingsPage() {
         <AppSidebar branches={state.branches} activeProject="settings" />
 
         <section className="min-w-0">
-          <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto grid w-full max-w-[980px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
             <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <h1 className="text-3xl font-semibold tracking-normal md:text-4xl">Settings</h1>
@@ -175,23 +175,23 @@ function SettingsPage() {
 
             <Tabs defaultValue="overview" orientation="vertical" className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
               <TabsList variant="line" className="w-full items-stretch justify-start">
-                <TabsTrigger value="overview">
+                <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="overview">
                   <Activity />
                   Overview
                 </TabsTrigger>
-                <TabsTrigger value="servers">
+                <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="servers">
                   <Database />
                   Servers
                 </TabsTrigger>
-                <TabsTrigger value="backups">
+                <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="backups">
                   <ArchiveRestore />
                   Backups
                 </TabsTrigger>
-                <TabsTrigger value="updates">
+                <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="updates">
                   <RefreshCw />
                   Updates
                 </TabsTrigger>
-                <TabsTrigger value="jobs">
+                <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="jobs">
                   <Activity />
                   Jobs
                 </TabsTrigger>

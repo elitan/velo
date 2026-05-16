@@ -111,7 +111,7 @@ function HomePage() {
         <AppSidebar branches={state.branches} activeProject="dashboard" />
 
         <section className="min-w-0">
-          <div className="mx-auto grid w-full max-w-4xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto grid w-full max-w-[980px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
             <header className="flex flex-col gap-4 pt-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h1 className="text-3xl font-semibold tracking-normal md:text-4xl">Branches</h1>
