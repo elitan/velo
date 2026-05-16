@@ -138,7 +138,68 @@ sudo -u postgres pg_isready -d postgres
 "
 ```
 
-## 4. Install Velo App
+## 4. Put Prod SSH Key On Dev
+
+```bash
+ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "mkdir -p '$(dirname "$REMOTE_KEY_PATH")'"
+scp -i "$SSH_KEY" "$SSH_KEY" "$SSH_USER@$DEV_HOST:$REMOTE_KEY_PATH"
+ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "chmod 600 '$REMOTE_KEY_PATH'"
+```
+
+## 5. Preflight Installed Tools
+
+Run these before long setup work. Fix failures, then rerun this section.
+
+Check dev/control:
+
+```bash
+ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
+set -euo pipefail
+command -v docker
+command -v zfs
+command -v psql
+command -v pgbackrest
+docker info >/dev/null
+df -h /
+test \"\$(df --output=avail -BG / | tail -1 | tr -dc '0-9')\" -ge 20
+zfs version
+"
+```
+
+Check prod:
+
+```bash
+ssh -i "$SSH_KEY" "$SSH_USER@$PROD_HOST" "
+set -euo pipefail
+command -v psql
+command -v pgbackrest
+df -h /
+test \"\$(df --output=avail -BG / | tail -1 | tr -dc '0-9')\" -ge 20
+sudo -u postgres pg_isready -d postgres
+"
+```
+
+Check dev/control can reach prod over SSH:
+
+```bash
+ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
+set -euo pipefail
+ssh -i '$REMOTE_KEY_PATH' -o BatchMode=yes -o StrictHostKeyChecking=accept-new '$SSH_USER@$PROD_HOST' 'uname -a && id'
+"
+```
+
+For S3 backups, check required values are present:
+
+```bash
+if [ "$BACKUP_MODE" = "s3" ]; then
+  test -n "${BACKUP_ENDPOINT:-}"
+  test -n "${BACKUP_BUCKET:-}"
+  test -n "${BACKUP_ACCESS_KEY_ID:-}"
+  test -n "${BACKUP_SECRET_ACCESS_KEY:-}"
+fi
+```
+
+## 6. Install Velo App
 
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
@@ -165,15 +226,7 @@ bun run web:build
 
 `.velo` contains SQLite state with operational secrets. Keep it private and do not copy or share it.
 
-## 5. Put Prod SSH Key On Dev
-
-```bash
-ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "mkdir -p '$(dirname "$REMOTE_KEY_PATH")'"
-scp -i "$SSH_KEY" "$SSH_KEY" "$SSH_USER@$DEV_HOST:$REMOTE_KEY_PATH"
-ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "chmod 600 '$REMOTE_KEY_PATH'"
-```
-
-## 6. Create App Env
+## 7. Create App Env
 
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
@@ -189,7 +242,7 @@ printf 'VELO_BASIC_AUTH_PASSWORD=%s\n' '$APP_PASSWORD' >>/etc/velo.env
 "
 ```
 
-## 7. Create Systemd Service
+## 8. Create Systemd Service
 
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
@@ -221,7 +274,7 @@ systemctl enable --now velo-web
 "
 ```
 
-## 8. Save Velo State
+## 9. Save Velo State
 
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
@@ -275,7 +328,7 @@ BUN
 "
 ```
 
-## 9. Run Velo Setup Code
+## 10. Run Velo Setup Code
 
 Use Velo service code instead of shell scripts. This keeps product behavior and UI state aligned.
 
@@ -301,7 +354,7 @@ systemctl restart velo-web
 "
 ```
 
-## 10. Verify
+## 11. Verify
 
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
