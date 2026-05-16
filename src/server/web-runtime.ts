@@ -3,6 +3,7 @@ import { join, normalize, relative } from 'node:path';
 import { Database } from 'bun:sqlite';
 import { getMigrationsDirectory, migrateDatabase } from '#db/migrate';
 import { getDatabasePath } from '#db/paths';
+import { getAuthState } from '#server/auth';
 import { getControlPlaneState } from '#server/services/setup-state-service';
 import { persistUpdateResult } from '#server/services/update-service';
 import { startUpdateScheduler } from '#server/services/update-scheduler';
@@ -37,16 +38,16 @@ Bun.serve({
       return healthResponse;
     }
 
-    const authResponse = requireBasicAuth(request);
-
-    if (authResponse) {
-      return authResponse;
-    }
-
     const staticResponse = await serveStaticAsset(request);
 
     if (staticResponse) {
       return staticResponse;
+    }
+
+    const authResponse = await requireAppAuth(request);
+
+    if (authResponse) {
+      return authResponse;
     }
 
     return serverEntry.default.fetch(request);
@@ -129,53 +130,61 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
   }, { status: ok ? 200 : 503 });
 }
 
-function requireBasicAuth(request: Request): Response | null {
-  const username = process.env.VELO_BASIC_AUTH_USERNAME || '';
-  const password = process.env.VELO_BASIC_AUTH_PASSWORD || '';
-
-  if (!username || !password) {
-    return null;
-  }
-
-  const header = request.headers.get('authorization') || '';
-  const prefix = 'Basic ';
-
-  if (!header.startsWith(prefix)) {
-    return unauthorizedResponse();
-  }
-
-  const decoded = Buffer.from(header.slice(prefix.length), 'base64').toString('utf8');
-  const separator = decoded.indexOf(':');
-
-  if (separator === -1) {
-    return unauthorizedResponse();
-  }
-
-  const providedUsername = decoded.slice(0, separator);
-  const providedPassword = decoded.slice(separator + 1);
-
-  if (providedUsername !== username || providedPassword !== password) {
-    return unauthorizedResponse();
-  }
-
-  return null;
-}
-
-function unauthorizedResponse(): Response {
-  return new Response('Unauthorized', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Velo"',
-    },
-  });
-}
-
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
 
   return String(error);
+}
+
+async function requireAppAuth(request: Request): Promise<Response | null> {
+  const url = new URL(request.url);
+
+  if (isPublicPath(url.pathname)) {
+    return null;
+  }
+
+  const auth = await getAuthState(request);
+
+  if (!auth.configured) {
+    if (url.pathname.startsWith('/api/')) {
+      return Response.json({ error: 'Auth setup required.' }, { status: 401 });
+    }
+
+    return redirect('/setup');
+  }
+
+  if (auth.authenticated) {
+    if (url.pathname === '/login' || url.pathname === '/setup') {
+      return redirect('/');
+    }
+
+    return null;
+  }
+
+  if (url.pathname.startsWith('/api/')) {
+    return Response.json({ error: 'Unauthorized.' }, { status: 401 });
+  }
+
+  return redirect(`/login?next=${encodeURIComponent(url.pathname + url.search)}`);
+}
+
+function isPublicPath(pathname: string): boolean {
+  return pathname === '/healthz'
+    || pathname.startsWith('/api/auth/')
+    || pathname === '/api/auth'
+    || pathname === '/login'
+    || pathname === '/setup';
+}
+
+function redirect(pathname: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: pathname,
+    },
+  });
 }
 
 async function serveStaticAsset(request: Request): Promise<Response | null> {

@@ -40,8 +40,7 @@ VELO_LOCAL_DEV_PORT=$VELO_LOCAL_DEV_PORT
 VELO_LOCAL_MINIO_PORT=$VELO_LOCAL_MINIO_PORT
 VELO_LOCAL_MINIO_CONSOLE_PORT=$VELO_LOCAL_MINIO_CONSOLE_PORT
 VELO_LOCAL_WEB_PORT=$VELO_LOCAL_WEB_PORT
-BETTER_AUTH_URL=$BETTER_AUTH_URL
-BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
+VELO_LOCAL_APP_PASSWORD=$VELO_LOCAL_APP_PASSWORD
 EOF
   chmod 600 "$LOCAL_ENV_FILE"
 }
@@ -83,8 +82,7 @@ ensure_ports() {
       export VELO_LOCAL_WEB_PORT="$(get_free_port)"
     fi
   fi
-  export BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://localhost:$VELO_LOCAL_WEB_PORT}"
-  export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -base64 48)}"
+  export VELO_LOCAL_APP_PASSWORD="${VELO_LOCAL_APP_PASSWORD:-velo-local-password}"
   save_env_file
 }
 
@@ -435,6 +433,7 @@ up() {
   seed_prod
   seed_pgbackrest
   bun run db:migrate
+  APP_PASSWORD="$VELO_LOCAL_APP_PASSWORD" bun run auth:set-password
   bun run src/server/local-docker-seed.ts
 }
 
@@ -469,6 +468,7 @@ case "${1:-up}" in
     ensure_ports
     compose ps
     printf '\napp: http://localhost:%s\n' "$VELO_LOCAL_WEB_PORT"
+    printf 'password: %s\n' "$VELO_LOCAL_APP_PASSWORD"
     printf 'prod: postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_PROD_PORT"
     printf 'dev:  postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_DEV_PORT"
     printf 's3:   https://localhost:%s\n' "$VELO_LOCAL_MINIO_PORT"

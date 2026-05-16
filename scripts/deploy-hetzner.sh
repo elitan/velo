@@ -11,6 +11,7 @@ VELO_PORT="${VELO_PORT:-3000}"
 VELO_DEPLOY_DIR="${VELO_DEPLOY_DIR:-${VELO_DEV_DIR:-/opt/velo}}"
 VELO_REMOTE_KEY_PATH="${VELO_REMOTE_KEY_PATH:-/root/.ssh/frost-e2e-ci}"
 VELO_SSH_KNOWN_HOSTS_FILE="${VELO_SSH_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}"
+VELO_APP_PASSWORD="${VELO_APP_PASSWORD:-$(openssl rand -base64 24)}"
 
 SSH_ARGS=(
   -i "$VELO_DEPLOY_KEY"
@@ -119,14 +120,12 @@ git reset --hard $(shell_quote "$VELO_REF")
 git clean -fd -e node_modules -e .velo
 bun install --frozen-lockfile
 VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") bun run db:migrate
+APP_PASSWORD=$(shell_quote "$VELO_APP_PASSWORD") VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") bun run auth:set-password
 bun run web:build
 
 umask 077
-if [ ! -f /etc/velo.env ]; then
-  printf 'BETTER_AUTH_SECRET=%s\n' \"\$(openssl rand -base64 48)\" >/etc/velo.env
-fi
-grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' $(shell_quote "http://$VELO_DEPLOY_DEV_HOST:$VELO_PORT") >>/etc/velo.env
-sed -i '/^VELO_BASIC_AUTH_USERNAME=/d; /^VELO_BASIC_AUTH_PASSWORD=/d' /etc/velo.env
+touch /etc/velo.env
+chmod 600 /etc/velo.env
 
 cat >/etc/systemd/system/velo-web.service <<SERVICE
 [Unit]
@@ -288,6 +287,7 @@ main() {
   check_servers
 
   echo "Deployed Velo: http://$VELO_DEPLOY_DEV_HOST:$VELO_PORT"
+  echo "App password: $VELO_APP_PASSWORD"
 }
 
 main "$@"
