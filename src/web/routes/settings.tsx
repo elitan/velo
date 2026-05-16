@@ -26,13 +26,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#web/components/ui/select';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '#web/components/ui/tabs';
 import { orpc } from '#web/lib/api-client';
 import {
   AppSidebar,
   BackupPanel,
   JobsPanel,
-  MetricCard,
   ServerPanel,
+  StatusBadge,
   type ServerRole,
 } from '#web/components/control-plane';
 
@@ -101,6 +107,7 @@ function SettingsPage() {
     return server.status === 'ok';
   }).length;
   const backupMode = state.backup.enabled ? 'S3/R2' : 'local';
+  const lastJob = state.jobs[0] || null;
 
   async function handleSave(formData: FormData) {
     const role = formData.get('role') === 'prod' ? 'prod' : 'dev';
@@ -165,29 +172,135 @@ function SettingsPage() {
               </Button>
             </header>
 
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <MetricCard title="Servers" value={`${okServers}/${state.servers.length}`} detail="healthy" icon={Database} tone="emerald" />
-              <MetricCard title="Backups" value={backupMode} detail={state.backup.bucket || 'not configured'} icon={ArchiveRestore} tone="violet" />
-              <MetricCard title="Jobs" value={String(activeJobs)} detail="active now" icon={Activity} tone="amber" />
-            </section>
+            <Tabs defaultValue="overview" orientation="vertical" className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
+              <TabsList variant="line" className="w-full items-stretch justify-start">
+                <TabsTrigger value="overview">
+                  <Activity />
+                  Overview
+                </TabsTrigger>
+                <TabsTrigger value="servers">
+                  <Database />
+                  Servers
+                </TabsTrigger>
+                <TabsTrigger value="backups">
+                  <ArchiveRestore />
+                  Backups
+                </TabsTrigger>
+                <TabsTrigger value="updates">
+                  <RefreshCw />
+                  Updates
+                </TabsTrigger>
+                <TabsTrigger value="jobs">
+                  <Activity />
+                  Jobs
+                </TabsTrigger>
+              </TabsList>
 
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
-              <div className="grid min-w-0 gap-6">
+              <TabsContent value="overview" className="min-w-0">
+                <SettingsOverview
+                  okServers={okServers}
+                  serverCount={state.servers.length}
+                  backupMode={backupMode}
+                  backupDetail={state.backup.bucket || 'not configured'}
+                  activeJobs={activeJobs}
+                  lastJob={lastJob}
+                />
+              </TabsContent>
+
+              <TabsContent value="servers" className="min-w-0">
                 <div className="grid gap-6 lg:grid-cols-2">
                   <ServerPanel title="Production" role="prod" server={prodServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
                   <ServerPanel title="Development" role="dev" server={devServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
                 </div>
+              </TabsContent>
+
+              <TabsContent value="backups" className="min-w-0">
                 <BackupPanel backup={state.backup} busy={busy === 'save-backup'} onSave={handleSaveBackup} />
-              </div>
-              <div className="grid content-start gap-6">
+              </TabsContent>
+
+              <TabsContent value="updates" className="min-w-0">
                 <UpdatePanel />
+              </TabsContent>
+
+              <TabsContent value="jobs" className="min-w-0">
                 <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
-              </div>
-            </div>
+              </TabsContent>
+            </Tabs>
           </div>
         </section>
       </div>
     </main>
+  );
+}
+
+interface SettingsOverviewProps {
+  okServers: number;
+  serverCount: number;
+  backupMode: string;
+  backupDetail: string;
+  activeJobs: number;
+  lastJob: {
+    type: string;
+    status: string;
+    createdAt: string;
+    error: string | null;
+  } | null;
+}
+
+function SettingsOverview(props: SettingsOverviewProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Overview</CardTitle>
+        <CardDescription>Current system state</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <OverviewRow
+          icon={<Database className="size-4" />}
+          label="Servers"
+          value={`${props.okServers}/${props.serverCount} healthy`}
+          status={props.okServers === props.serverCount ? 'ok' : 'pending'}
+        />
+        <OverviewRow
+          icon={<ArchiveRestore className="size-4" />}
+          label="Backups"
+          value={`${props.backupMode} · ${props.backupDetail}`}
+          status={props.backupMode === 'S3/R2' ? 'ok' : 'pending'}
+        />
+        <OverviewRow
+          icon={<RefreshCw className="size-4" />}
+          label="Jobs"
+          value={props.activeJobs > 0 ? `${props.activeJobs} active` : 'none active'}
+          status={props.activeJobs > 0 ? 'running' : 'done'}
+        />
+        <OverviewRow
+          icon={<Activity className="size-4" />}
+          label="Latest job"
+          value={props.lastJob ? `${props.lastJob.type} · ${formatLastCheck(props.lastJob.createdAt)}` : 'none'}
+          status={props.lastJob?.status || 'done'}
+        />
+        {props.lastJob?.error ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {props.lastJob.error}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OverviewRow(props: Readonly<{ icon: ReactNode; label: string; value: string; status: string }>) {
+  return (
+    <div className="flex min-h-14 items-center gap-3 border-b border-border pb-4 last:border-b-0 last:pb-0">
+      <div className="grid size-8 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+        {props.icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{props.label}</p>
+        <p className="mt-1 truncate text-xs text-muted-foreground">{props.value}</p>
+      </div>
+      <StatusBadge status={props.status} />
+    </div>
   );
 }
 

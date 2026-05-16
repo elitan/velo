@@ -42,6 +42,9 @@ import {
   StatusBadge,
 } from '#web/components/control-plane';
 
+const LOCAL_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
+const TIME_FORMAT_LABEL = `Times are local to ${LOCAL_TIME_ZONE}.`;
+
 export const Route = createFileRoute('/branch/$branchId/backup-restore')({
   component: BackupRestorePage,
 });
@@ -59,9 +62,12 @@ function BackupRestorePage() {
   const [restoreTime, setRestoreTime] = useState(function initialRestoreTime() {
     return getDefaultRestoreTime(initialRestoreWindow);
   });
+  const [restorePoint, setRestorePoint] = useState('latest');
+  const [customRestoreTime, setCustomRestoreTime] = useState('');
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
   const [restorePromptOpen, setRestorePromptOpen] = useState(false);
+  const [restoreJobId, setRestoreJobId] = useState<number | null>(null);
   const previewBusy = createPreviewBranch.isPending || deletePreviewBranch.isPending;
   const restoreBusy = restoreBranch.isPending;
 
@@ -74,14 +80,53 @@ function BackupRestorePage() {
       setBackupPoint(getBackupOptions(dashboard.data.backupAvailability.backups)[0]?.value || '');
     }
 
-    if (!restoreTime) {
-      setRestoreTime(getDefaultRestoreTime(getRestoreWindow(dashboard.data.backupAvailability.pitr)));
+    const restoreWindow = getRestoreWindow(dashboard.data.backupAvailability.pitr);
+    const nextRestoreTime = restorePoint === 'latest' && restoreWindow.max
+      ? restoreWindow.max
+      : clampRestoreTime(restoreTime, restoreWindow);
+
+    if (nextRestoreTime !== restoreTime) {
+      setRestoreTime(nextRestoreTime);
     }
-  }, [backupPoint, dashboard.data, restoreTime]);
+  }, [backupPoint, dashboard.data, restorePoint, restoreTime]);
 
   async function refreshDashboard() {
     await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
   }
+
+  const branchId = params.branchId;
+  const selectedBranchForJobs = getSelectedBranchForJobs(dashboard.data, branchId);
+  const restoreJob = dashboard.data ? getRestoreJob(dashboard.data.jobs, selectedBranchForJobs, restoreJobId) : null;
+  const restoreJobActive = Boolean(restoreJob && (restoreJob.status === 'queued' || restoreJob.status === 'running'));
+  const restoreLocked = restoreBusy || restoreJobActive;
+
+  useEffect(function pollRestoreJob() {
+    if (!restoreLocked) {
+      return;
+    }
+
+    const interval = window.setInterval(function refreshRestoreJob() {
+      void dashboard.refetch();
+    }, 2000);
+
+    return function clearPoll() {
+      window.clearInterval(interval);
+    };
+  }, [dashboard, restoreLocked]);
+
+  useEffect(function watchRestoreJob() {
+    if (!restoreJob || restoreJob.status === 'queued' || restoreJob.status === 'running') {
+      return;
+    }
+
+    if (restoreJob.status === 'done') {
+      toast.success('Restore complete.', { id: `restore-${restoreJob.id}` });
+      setRestoreJobId(null);
+      return;
+    }
+
+    toast.error(restoreJob.error || getLastErrorLog(restoreJob) || 'Restore failed.', { id: `restore-${restoreJob.id}` });
+  }, [restoreJob]);
 
   if (!dashboard.data) {
     return <BackupRestoreLoadingPage message={dashboard.error ? 'Could not load backup data.' : 'Loading backup data...'} />;
@@ -89,7 +134,6 @@ function BackupRestorePage() {
 
   const state = dashboard.data;
 
-  const branchId = params.branchId;
   const isProd = branchId === 'production';
   const branch = isProd ? null : state.branches.find(function findBranch(item) {
     return item.slug === branchId;
@@ -102,7 +146,42 @@ function BackupRestorePage() {
   const restoreWindow = getRestoreWindow(state.backupAvailability.pitr);
   const backupWindow = getBackupWindow(state.backupAvailability.backups);
   const pitrAvailable = state.backupAvailability.status === 'ok' && Boolean(restoreWindow.min && restoreWindow.max);
+  const restorePointOptions = getRestorePointOptions(restoreWindow);
+  const restoreTimeValid = pitrAvailable && isRestoreTimeInWindow(restoreTime, restoreWindow);
   const sourceBranch = 'production';
+
+  function selectRestorePoint(value: string) {
+    setRestorePoint(value);
+
+    if (value === 'custom') {
+      setCustomRestoreTime(restoreTime);
+      return;
+    }
+
+    const option = restorePointOptions.find(function findOption(item) {
+      return item.value === value;
+    });
+
+    if (option) {
+      setRestoreTime(option.restoreTime);
+    }
+  }
+
+  function updateCustomRestoreTime(value: string) {
+    setCustomRestoreTime(value);
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return;
+    }
+
+    const normalized = toDateTimeLocalValue(date);
+
+    if (isRestoreTimeInWindow(normalized, restoreWindow)) {
+      setRestoreTime(normalized);
+    }
+  }
 
   async function handleOpenPreview() {
     try {
@@ -140,10 +219,10 @@ function BackupRestorePage() {
         sourceBranch,
         restoreTime: toRestoreIso(restoreTime),
       });
+      setRestoreJobId(job.id);
       setRestorePromptOpen(false);
-      toast.success(`Restore job ${job.id} started.`, {
-        description: 'Progress is available in Settings.',
-      });
+      setPreviewOpen(false);
+      toast.loading(`Restoring ${selectedBranchLabel}.`, { id: `restore-${job.id}` });
       await refreshDashboard();
     } catch (error: any) {
       toast.error(error?.message || 'Could not start restore');
@@ -171,6 +250,15 @@ function BackupRestorePage() {
                 Use point-in-time restore for exact recent recovery, or daily backups for older recovery.
               </p>
             </header>
+
+            {restoreJob ? (
+              <RestoreProgressPanel
+                job={restoreJob}
+                targetBranch={selectedBranchLabel}
+                sourceBranch={sourceBranch}
+                restoreTime={getRestoreInput(restoreJob)?.restoreTime || toRestoreIso(restoreTime)}
+              />
+            ) : null}
 
             <Card className="max-w-5xl">
               <CardHeader>
@@ -202,27 +290,38 @@ function BackupRestorePage() {
                   </div>
 
                   <div className="grid gap-2">
-                    <Label htmlFor="restore-time">Point in time</Label>
-                    <div className="relative">
-                      <Calendar className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        id="restore-time"
-                        type="datetime-local"
-                        className="h-10 pl-9"
-                        min={restoreWindow.min || undefined}
-                        max={restoreWindow.max || undefined}
-                        value={restoreTime}
-                        disabled={!pitrAvailable}
-                        onChange={function changeRestoreTime(event) {
-                          setRestoreTime(event.target.value);
-                        }}
-                      />
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {pitrAvailable && restoreWindow.min && restoreWindow.max
-                        ? `Europe/Stockholm. Available from ${formatShortDateTime(restoreWindow.min)} to ${formatShortDateTime(restoreWindow.max)}.`
-                        : state.backupAvailability.message || 'PITR is not available yet.'}
-                    </div>
+                    <Label htmlFor="restore-point">Restore point</Label>
+                    <Select value={restorePoint} onValueChange={selectRestorePoint} disabled={!pitrAvailable}>
+                      <SelectTrigger id="restore-point" className="h-10 w-full bg-background [&_[data-slot=select-value]]:truncate">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {restorePointOptions.map(function renderRestorePoint(option) {
+                          return (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          );
+                        })}
+                        <SelectItem value="custom">Custom ISO time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {restorePoint === 'custom' ? (
+                      <div className="relative">
+                        <Calendar className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          aria-label="Custom restore time"
+                          className="h-10 pl-9 font-mono"
+                          placeholder={formatIsoInputPlaceholder(restoreTime)}
+                          value={customRestoreTime}
+                          disabled={!pitrAvailable}
+                          onChange={function changeCustomRestoreTime(event) {
+                            updateCustomRestoreTime(event.target.value);
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                    <div className="text-xs text-muted-foreground">{pitrAvailable ? TIME_FORMAT_LABEL : state.backupAvailability.message || 'PITR is not available yet.'}</div>
                   </div>
                 </div>
 
@@ -234,7 +333,7 @@ function BackupRestorePage() {
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={!pitrAvailable || previewBusy || restoreBusy}
+                      disabled={!restoreTimeValid || previewBusy || restoreLocked}
                       onClick={function previewDataClick() {
                         void handleOpenPreview();
                       }}
@@ -244,12 +343,12 @@ function BackupRestorePage() {
                     </Button>
                     <Button
                       type="button"
-                      disabled={!pitrAvailable || previewBusy || restoreBusy}
+                      disabled={!restoreTimeValid || previewBusy || restoreLocked}
                       onClick={function restoreClick() {
                         setRestorePromptOpen(true);
                       }}
                     >
-                      Restore to point in time
+                      {restoreLocked ? 'Restore running' : 'Restore to point in time'}
                     </Button>
                   </div>
                 </div>
@@ -366,6 +465,68 @@ function BackupRestorePage() {
   );
 }
 
+function RestoreProgressPanel(props: {
+  job: RestoreJob;
+  targetBranch: string;
+  sourceBranch: string;
+  restoreTime: string;
+}) {
+  const isActive = props.job.status === 'queued' || props.job.status === 'running';
+  const error = props.job.error || getLastErrorLog(props.job);
+
+  return (
+    <Card className={isActive ? 'max-w-5xl border-blue-500/40 bg-blue-500/10' : 'max-w-5xl'}>
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle>{isActive ? 'Restore in progress' : 'Restore result'}</CardTitle>
+            <CardDescription>
+              {props.targetBranch} from {props.sourceBranch} at {formatDisplayDateTime(props.restoreTime)}
+            </CardDescription>
+          </div>
+          <StatusBadge status={props.job.status} />
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        {isActive ? (
+          <div className="flex items-start gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm">
+            <Loader2 className="mt-0.5 size-4 animate-spin text-blue-300" />
+            <div>
+              <p className="font-medium">Branch is locked while restore runs.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Avoid writes until this completes.</p>
+            </div>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            <p className="font-medium">Restore failed</p>
+            <p className="mt-2 whitespace-pre-wrap font-mono text-xs leading-5">{error}</p>
+          </div>
+        ) : null}
+
+        {props.job.logs.length > 0 ? (
+          <div className="grid gap-2 rounded-lg border border-border bg-muted/20 p-3">
+            <p className="text-xs font-medium text-muted-foreground">Progress log</p>
+            <div className="grid gap-1">
+              {props.job.logs.slice(0, 5).map(function renderLog(log) {
+                return (
+                  <code
+                    className={log.level === 'error' ? 'whitespace-pre-wrap text-xs leading-5 text-destructive' : 'whitespace-pre-wrap text-xs leading-5 text-muted-foreground'}
+                    key={log.id}
+                  >
+                    {log.message}
+                  </code>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 function RestorePromptModal(props: {
   branch: string;
   sourceBranch: string;
@@ -385,7 +546,7 @@ function RestorePromptModal(props: {
           <div className="min-w-0">
             <h2 className="text-lg font-semibold tracking-normal">Restore branch</h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              You are about to restore {props.branch} from {props.sourceBranch} at {formatHistoricTime(props.restoreTime)}.
+              You are about to restore {props.branch} from {props.sourceBranch} at {formatDisplayDateTime(props.restoreTime)}.
               This replaces the current branch data with the selected point in time.
             </p>
           </div>
@@ -421,7 +582,7 @@ function HistoricPreviewModal(props: {
   restoreBusy: boolean;
 }) {
   const [tab, setTab] = useState<'browse' | 'query' | 'compare'>('browse');
-  const historicTime = formatHistoricTime(props.restoreTime);
+  const historicTime = formatDisplayDateTime(props.restoreTime);
 
   return (
     <div className="fixed inset-0 z-50 bg-background/80 p-3 backdrop-blur-sm">
@@ -451,7 +612,7 @@ function HistoricPreviewModal(props: {
                   <Calendar className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input className="pl-9" type="datetime-local" value={props.restoreTime} readOnly />
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">Europe/Stockholm, GMT+02:00</div>
+                <div className="mt-1 text-xs text-muted-foreground">{TIME_FORMAT_LABEL}</div>
               </div>
               <div className="flex rounded-md border border-border p-0.5">
                 <PreviewTab active={tab === 'browse'} label="Browse data" onClick={function selectBrowse() { setTab('browse'); }} />
@@ -627,6 +788,8 @@ type PreviewBranch = {
   connectionUrl: string;
 };
 
+type RestoreJob = ControlPlaneState['jobs'][number];
+
 function BackupRestoreLoadingPage(props: Readonly<{ message: string }>) {
   return (
     <main className="grid min-h-screen place-items-center bg-background px-4 text-foreground">
@@ -653,20 +816,67 @@ function getBranchOptions(state: ControlPlaneState) {
   ];
 }
 
-function getBackupOptions(backups: Array<{ label: string; type: string; completedAt: string }>) {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+function getSelectedBranchForJobs(state: ControlPlaneState | undefined, branchId: string): string {
+  if (branchId === 'production') {
+    return 'production';
+  }
+
+  const branch = state?.branches.find(function findBranch(item) {
+    return item.slug === branchId;
   });
 
+  return branch?.slug || branchId;
+}
+
+function getRestoreJob(jobs: RestoreJob[], selectedBranch: string, restoreJobId: number | null): RestoreJob | null {
+  const tracked = restoreJobId ? jobs.find(function findTrackedJob(job) {
+    return job.id === restoreJobId;
+  }) : null;
+
+  if (tracked) {
+    return tracked;
+  }
+
+  return jobs.find(function findRestoreJob(job) {
+    const input = getRestoreInput(job);
+
+    return job.type === 'restore-branch'
+      && input?.targetBranch === selectedBranch
+      && (job.status === 'queued' || job.status === 'running');
+  }) || null;
+}
+
+function getRestoreInput(job: RestoreJob): { targetBranch: string; sourceBranch: string; restoreTime: string } | null {
+  if (!job.input || typeof job.input !== 'object') {
+    return null;
+  }
+
+  const input = job.input as Record<string, unknown>;
+
+  if (typeof input.targetBranch !== 'string' || typeof input.sourceBranch !== 'string' || typeof input.restoreTime !== 'string') {
+    return null;
+  }
+
+  return {
+    targetBranch: input.targetBranch,
+    sourceBranch: input.sourceBranch,
+    restoreTime: input.restoreTime,
+  };
+}
+
+function getLastErrorLog(job: RestoreJob): string | null {
+  const log = job.logs.find(function findErrorLog(item) {
+    return item.level === 'error';
+  });
+
+  return log?.message || null;
+}
+
+function getBackupOptions(backups: Array<{ label: string; type: string; completedAt: string }>) {
   return backups.map(function mapBackupOption(backup) {
-    const date = new Date(backup.completedAt);
     return {
       value: backup.label,
-      label: `${formatter.format(date)} ${backup.type} backup`,
+      label: `${formatDisplayDateTime(backup.completedAt)} ${backup.type} backup`,
     };
   });
 }
@@ -681,25 +891,99 @@ function getBackupWindow(backups: Array<{ startedAt: string; completedAt: string
   };
 }
 
+function getRestorePointOptions(window: { min: string | null; max: string | null }) {
+  if (!window.min || !window.max) {
+    return [];
+  }
+
+  const candidates = [
+    {
+      value: 'latest',
+      restoreTime: window.max,
+      labelPrefix: 'Latest available',
+    },
+    {
+      value: 'minus-1m',
+      restoreTime: toDateTimeLocalValue(new Date(Date.now() - 60 * 1000)),
+      labelPrefix: '1 minute ago',
+    },
+    {
+      value: 'minus-5m',
+      restoreTime: toDateTimeLocalValue(new Date(Date.now() - 5 * 60 * 1000)),
+      labelPrefix: '5 minutes ago',
+    },
+    {
+      value: 'minus-15m',
+      restoreTime: toDateTimeLocalValue(new Date(Date.now() - 15 * 60 * 1000)),
+      labelPrefix: '15 minutes ago',
+    },
+    {
+      value: 'minus-30m',
+      restoreTime: toDateTimeLocalValue(new Date(Date.now() - 30 * 60 * 1000)),
+      labelPrefix: '30 minutes ago',
+    },
+    {
+      value: 'earliest',
+      restoreTime: window.min,
+      labelPrefix: 'Earliest available',
+    },
+  ];
+  const options: RestorePointOption[] = [];
+
+  candidates.forEach(function addCandidate(candidate) {
+    if (!isRestoreTimeInWindow(candidate.restoreTime, window)) {
+      return;
+    }
+
+    if (options.some(function hasSameTime(option) {
+      return option.restoreTime === candidate.restoreTime;
+    })) {
+      return;
+    }
+
+    options.push({
+      value: candidate.value,
+      restoreTime: candidate.restoreTime,
+      label: formatRestorePointOptionLabel(candidate.labelPrefix, candidate.restoreTime),
+    });
+  });
+
+  return options;
+}
+
+function formatRestorePointOptionLabel(prefix: string, value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return `${prefix} · ${value}`;
+  }
+
+  return `${prefix} (${formatRelativeTime(date)}) · ${formatDisplayDateTime(value)}`;
+}
+
 function formatBackupDateTime(value: string) {
   if (!value) {
     return 'not available';
   }
 
-  const date = new Date(value);
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date);
+  return formatDisplayDateTime(value);
 }
 
 function getDefaultRestoreTime(window: { min: string | null; max: string | null }) {
   const date = new Date(Date.now() - 5 * 60 * 1000);
   const value = toDateTimeLocalValue(date);
+
+  return clampRestoreTime(value, window);
+}
+
+function clampRestoreTime(value: string, window: { min: string | null; max: string | null }) {
+  if (!window.min || !window.max) {
+    return value || toDateTimeLocalValue(new Date(Date.now() - 5 * 60 * 1000));
+  }
+
+  if (!value) {
+    return window.max;
+  }
 
   if (window.max && value > window.max) {
     return window.max;
@@ -710,6 +994,14 @@ function getDefaultRestoreTime(window: { min: string | null; max: string | null 
   }
 
   return value;
+}
+
+function isRestoreTimeInWindow(value: string, window: { min: string | null; max: string | null }) {
+  if (!value || !window.min || !window.max) {
+    return false;
+  }
+
+  return value >= window.min && value <= window.max;
 }
 
 function getRestoreWindow(pitr: { from: string | null; to: string | null }) {
@@ -729,37 +1021,86 @@ function getRestoreWindow(pitr: { from: string | null; to: string | null }) {
 function toDateTimeLocalValue(date: Date) {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000);
 
-  return offsetDate.toISOString().slice(0, 16);
+  return offsetDate.toISOString().slice(0, 19);
 }
 
 function toRestoreIso(value: string) {
   return new Date(value).toISOString();
 }
 
-function formatShortDateTime(value: string) {
-  const date = new Date(value);
-
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(date);
-}
-
-function formatHistoricTime(value: string) {
+function formatDisplayDateTime(value: string) {
   if (!value) {
     return 'the selected time';
   }
 
   const date = new Date(value);
 
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  }).format(date);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return toReadableLocalDateTime(date);
+}
+
+function formatRestorePointDetail(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return `${formatRelativeTime(date)} · ${formatDisplayDateTime(value)}`;
+}
+
+function formatIsoInputPlaceholder(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '2026-05-16T14:25:15+02:00';
+  }
+
+  return toLocalIsoString(date);
+}
+
+function toReadableLocalDateTime(date: Date) {
+  return toDateTimeLocalValue(date).replace('T', ' ');
+}
+
+function toLocalIsoString(date: Date) {
+  return `${toDateTimeLocalValue(date)}${getLocalOffset(date)}`;
+}
+
+function getLocalOffset(date: Date) {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absOffset = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absOffset / 60)).padStart(2, '0');
+  const minutes = String(absOffset % 60).padStart(2, '0');
+
+  return `${sign}${hours}:${minutes}`;
+}
+
+function formatRelativeTime(date: Date) {
+  const diffMs = Date.now() - date.getTime();
+  const absSeconds = Math.max(0, Math.round(Math.abs(diffMs) / 1000));
+
+  if (absSeconds < 60) {
+    return diffMs >= 0 ? `${absSeconds}s ago` : `in ${absSeconds}s`;
+  }
+
+  const minutes = Math.round(absSeconds / 60);
+
+  if (minutes < 60) {
+    return diffMs >= 0 ? `${minutes}m ago` : `in ${minutes}m`;
+  }
+
+  const hours = Math.round(minutes / 60);
+
+  return diffMs >= 0 ? `${hours}h ago` : `in ${hours}h`;
+}
+
+interface RestorePointOption {
+  value: string;
+  restoreTime: string;
+  label: string;
 }

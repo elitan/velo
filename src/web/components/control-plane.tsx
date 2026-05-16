@@ -822,6 +822,7 @@ export interface JobsPanelProps {
     id: number;
     type: string;
     status: string;
+    input: unknown;
     error: string | null;
     updatedAt: string;
     logs: Array<{

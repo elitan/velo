@@ -13,6 +13,7 @@ export interface JobRecord {
   id: number;
   type: string;
   status: JobStatus;
+  input: unknown;
   error: string | null;
   attempts: number;
   maxAttempts: number;
@@ -385,6 +386,7 @@ function mapJob(job: Job, logs: JobLog[]): JobRecord {
     id: job.id,
     type: job.type,
     status: job.status,
+    input: parseJobInput(job),
     error: job.error,
     attempts: job.attempts,
     maxAttempts: job.maxAttempts,

@@ -1,6 +1,7 @@
 import { SQL } from 'bun';
 import { getDb } from '#db/client';
 import { getSetting } from './settings-service';
+import { getActiveJobs } from './job-service';
 
 const STATEMENT_TIMEOUT_MS = 30_000;
 
@@ -24,6 +25,8 @@ export async function runBranchSql(input: RunBranchSqlInput): Promise<RunBranchS
   if (!query) {
     throw new Error('SQL is required');
   }
+
+  await assertBranchNotRestoring(input.branchId);
 
   const connectionUrl = await getBranchConnectionUrl(input.branchId);
   const client = new SQL({ url: connectionUrl, max: 1 });
@@ -77,6 +80,27 @@ async function getBranchConnectionUrl(branchId: string): Promise<string> {
 function isProductionBranch(branchId: string): boolean {
   const normalized = branchId.trim().toLowerCase();
   return normalized === 'production' || normalized === 'prod';
+}
+
+async function assertBranchNotRestoring(branchId: string): Promise<void> {
+  const activeJobs = await getActiveJobs();
+  const normalizedBranchId = isProductionBranch(branchId) ? 'production' : branchId;
+  const activeRestore = activeJobs.some(function findActiveRestore(job) {
+    if (job.type !== 'restore-branch' || !job.inputJson) {
+      return false;
+    }
+
+    try {
+      const input = JSON.parse(job.inputJson) as Record<string, unknown>;
+      return input.targetBranch === normalizedBranchId;
+    } catch {
+      return false;
+    }
+  });
+
+  if (activeRestore) {
+    throw new Error(`Branch ${normalizedBranchId} is being restored. Try again after restore completes.`);
+  }
 }
 
 function getColumns(rows: Array<Record<string, string | number | boolean | null>>): string[] {
