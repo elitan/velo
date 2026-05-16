@@ -468,7 +468,7 @@ case "${1:-up}" in
     ensure_ports
     compose ps
     printf '\napp: http://localhost:%s\n' "$VELO_LOCAL_WEB_PORT"
-    printf 'password: %s\n' "$VELO_LOCAL_APP_PASSWORD"
+    printf 'auth: skipped on localhost\n'
     printf 'prod: postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_PROD_PORT"
     printf 'dev:  postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_DEV_PORT"
     printf 's3:   https://localhost:%s\n' "$VELO_LOCAL_MINIO_PORT"

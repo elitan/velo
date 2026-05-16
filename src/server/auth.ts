@@ -17,6 +17,10 @@ interface SessionPayload {
 }
 
 export async function getAuthState(request: Request): Promise<AuthState> {
+  if (isLocalAuthBypass(request)) {
+    return { configured: true, authenticated: true };
+  }
+
   const configured = await isAuthConfigured();
 
   if (!configured) {
@@ -34,6 +38,10 @@ export async function isAuthConfigured(): Promise<boolean> {
 }
 
 export async function isAuthenticated(request: Request): Promise<boolean> {
+  if (isLocalAuthBypass(request)) {
+    return true;
+  }
+
   const token = getCookie(request, SESSION_COOKIE);
 
   if (!token) {
@@ -80,7 +88,11 @@ export async function verifyPassword(password: string): Promise<boolean> {
   return Bun.password.verify(password, hash);
 }
 
-export async function createSession(password: string): Promise<string | null> {
+export async function createSession(password: string, request?: Request): Promise<string | null> {
+  if (request && isLocalAuthBypass(request)) {
+    return createSessionToken(await ensureSessionSecret());
+  }
+
   if (!(await verifyPassword(password))) {
     return null;
   }
@@ -88,6 +100,23 @@ export async function createSession(password: string): Promise<string | null> {
   const secret = await ensureSessionSecret();
 
   return createSessionToken(secret);
+}
+
+export function isLocalAuthBypass(request: Request): boolean {
+  if (process.env.VELO_AUTH_ALLOW_ANY_PASSWORD === '1') {
+    return true;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return false;
+  }
+
+  const hostname = new URL(request.url).hostname;
+
+  return hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '::1'
+    || hostname === '[::1]';
 }
 
 export function sessionCookie(token: string): string {

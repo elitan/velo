@@ -72,7 +72,7 @@ async function handleSetup(request: Request): Promise<Response> {
 
 async function handleLogin(request: Request): Promise<Response> {
   const { password } = await readPasswordBody(request);
-  const token = await createSession(password);
+  const token = await createSession(password, request);
 
   if (!token) {
     return Response.json({ error: 'Wrong password.' }, { status: 401 });
