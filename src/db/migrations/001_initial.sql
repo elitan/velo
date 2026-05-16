@@ -28,7 +28,7 @@ create table if not exists setup_steps (
   id integer primary key autoincrement,
   key text not null unique,
   label text not null,
-  status text not null default 'pending' check (status in ('pending', 'running', 'done', 'error')),
+  status text not null default 'pending' check (status in ('pending', 'running', 'done', 'error', 'stale')),
   message text,
   updated_at text not null default (datetime('now'))
 );

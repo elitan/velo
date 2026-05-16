@@ -3,6 +3,7 @@ import { getDb } from '../../db/client';
 import { generatePassword } from '../../utils/helpers';
 import { runCommand } from './command-service';
 import { saveBackupSettings, setSetting } from './settings-service';
+import type { SetupStepStatus } from './setup-state-service';
 
 const COMPOSE_FILE = process.env.VELO_LOCAL_COMPOSE_FILE || 'docker-compose.local.yml';
 const LOCAL_PGBACKREST_IMAGE = 'velo-local-postgres-pgbackrest:17';
@@ -343,7 +344,7 @@ async function saveLocalServer(input: {
 
 async function setLocalStepStatus(
   key: string,
-  status: 'pending' | 'running' | 'done' | 'error',
+  status: SetupStepStatus,
   message: string | null
 ): Promise<void> {
   await getDb()

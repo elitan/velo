@@ -47,6 +47,8 @@ export interface ControlPlaneState {
   prodAllowedCidr: string | null;
 }
 
+export type SetupStepStatus = 'pending' | 'running' | 'done' | 'error' | 'stale';
+
 export async function getControlPlaneState(): Promise<ControlPlaneState> {
   const db = getDb();
   const [servers, setupSteps, branches, jobs, backup, backupAvailability, replicaFreshness, prodConnectionUrl, prodAllowedCidr] = await Promise.all([
@@ -177,7 +179,7 @@ export async function checkServer(role: 'prod' | 'dev'): Promise<Server> {
 
 export async function setStepStatus(
   key: string,
-  status: 'pending' | 'running' | 'done' | 'error',
+  status: SetupStepStatus,
   message: string | null
 ): Promise<void> {
   await getDb()
@@ -189,4 +191,8 @@ export async function setStepStatus(
     })
     .where('key', '=', key)
     .execute();
+}
+
+export async function invalidateDevReplicaBase(message: string): Promise<void> {
+  await setStepStatus('replica', 'stale', message);
 }

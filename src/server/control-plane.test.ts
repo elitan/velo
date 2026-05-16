@@ -12,7 +12,7 @@ import { parseCreateBranchJobInput } from './services/job-handlers';
 import { createBranchFromBase, replaceBranchWithReadyBranch, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
-import { getControlPlaneState, saveServer } from './services/setup-state-service';
+import { getControlPlaneState, invalidateDevReplicaBase, saveServer } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
 import { buildReplicaFreshness } from './services/replica-service';
 
@@ -250,6 +250,24 @@ describe('control plane database', function controlPlaneDatabase() {
       .executeTakeFirst();
 
     expect(firstBranchStep).toBeUndefined();
+  });
+
+  test('blocks prod branch create when replica base is stale', async function testStaleReplicaBlocksBranch() {
+    const message = 'Production was restored. Rebuild the dev replica before creating a branch';
+    await invalidateDevReplicaBase(message);
+
+    await expect(createBranchFromBase({ name: 'dev' })).rejects.toThrow(message);
+
+    const replicaStep = await getDb()
+      .selectFrom('setupSteps')
+      .select(['status', 'message'])
+      .where('key', '=', 'replica')
+      .executeTakeFirstOrThrow();
+
+    expect(replicaStep).toEqual({
+      status: 'stale',
+      message,
+    });
   });
 
   test('rejects duplicate branch create requests before enqueue', async function testDuplicateBranchCreate() {
