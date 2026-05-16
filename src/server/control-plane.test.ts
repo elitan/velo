@@ -9,7 +9,7 @@ import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
 import { createJob, getActiveJob, getJob, listJobs, startJobWorker, type JobHandlers } from './services/job-service';
 import { parseCreateBranchJobInput } from './services/job-handlers';
-import { createBranchFromBase, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
+import { createBranchFromBase, replaceBranchWithReadyBranch, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, saveServer } from './services/setup-state-service';
@@ -343,7 +343,198 @@ describe('control plane database', function controlPlaneDatabase() {
       ttlHours: 1,
     });
   });
+
+  test('promotes ready replacement without changing branch identity', async function testPromoteReadyReplacement() {
+    const projectId = await createProject();
+    const originalId = await createBranchRecord({
+      projectId,
+      slug: 'dev',
+      displayName: 'dev',
+      dataset: 'prod.dev',
+      port: 41001,
+      connectionUrl: 'postgresql://postgres:old@example.com:41001/postgres',
+    });
+    const replacementId = await createBranchRecord({
+      projectId,
+      slug: 'dev-tmp',
+      displayName: 'dev',
+      dataset: 'prod.dev_tmp',
+      port: 41002,
+      connectionUrl: 'postgresql://postgres:new@example.com:41002/postgres',
+    });
+
+    const result = await replaceBranchWithReadyBranch({
+      targetBranchId: originalId,
+      replacementBranchId: replacementId,
+      cleanupReplacedBranch: async function cleanup(branch) {
+        return [`cleaned ${branch.dataset}`];
+      },
+    });
+    const branches = await getDb()
+      .selectFrom('branches')
+      .select(['id', 'slug', 'dataset', 'port', 'connectionUrl'])
+      .orderBy('id')
+      .execute();
+
+    expect(result).toMatchObject({
+      id: originalId,
+      slug: 'dev',
+      displayName: 'dev',
+      connectionUrl: 'postgresql://postgres:new@example.com:41002/postgres',
+      cleanupLogs: ['cleaned prod.dev'],
+    });
+    expect(branches).toEqual([{
+      id: originalId,
+      slug: 'dev',
+      dataset: 'prod.dev_tmp',
+      port: 41002,
+      connectionUrl: 'postgresql://postgres:new@example.com:41002/postgres',
+    }]);
+  });
+
+  test('keeps original branch when replacement promotion fails', async function testReplacementPromotionFailureKeepsOriginal() {
+    const projectId = await createProject();
+    const originalId = await createBranchRecord({
+      projectId,
+      slug: 'dev',
+      displayName: 'dev',
+      dataset: 'prod.dev',
+      port: 41001,
+      connectionUrl: 'postgresql://postgres:old@example.com:41001/postgres',
+    });
+    const replacementId = await createBranchRecord({
+      projectId,
+      slug: 'dev-tmp',
+      displayName: 'dev',
+      dataset: 'prod.dev_tmp',
+      port: 41002,
+      connectionUrl: 'postgresql://postgres:new@example.com:41002/postgres',
+    });
+    await createBranchRecord({
+      projectId,
+      slug: 'child',
+      displayName: 'child',
+      dataset: 'prod.child',
+      parentBranchId: originalId,
+    });
+    const cleanedReplacementIds: number[] = [];
+
+    await expect(replaceBranchWithReadyBranch({
+      targetBranchId: originalId,
+      replacementBranchId: replacementId,
+      cleanupFailedReplacement: async function cleanupReplacement(branchId) {
+        cleanedReplacementIds.push(branchId);
+      },
+    })).rejects.toThrow('Branch has child branches');
+
+    const original = await getDb()
+      .selectFrom('branches')
+      .select(['id', 'slug', 'dataset', 'port', 'connectionUrl'])
+      .where('id', '=', originalId)
+      .executeTakeFirstOrThrow();
+
+    expect(original).toEqual({
+      id: originalId,
+      slug: 'dev',
+      dataset: 'prod.dev',
+      port: 41001,
+      connectionUrl: 'postgresql://postgres:old@example.com:41001/postgres',
+    });
+    expect(cleanedReplacementIds).toEqual([replacementId]);
+  });
+
+  test('keeps promoted branch when old resource cleanup fails', async function testReplacementCleanupFailure() {
+    const projectId = await createProject();
+    const originalId = await createBranchRecord({
+      projectId,
+      slug: 'dev',
+      displayName: 'dev',
+      dataset: 'prod.dev',
+      port: 41001,
+      connectionUrl: 'postgresql://postgres:old@example.com:41001/postgres',
+    });
+    const replacementId = await createBranchRecord({
+      projectId,
+      slug: 'dev-tmp',
+      displayName: 'dev',
+      dataset: 'prod.dev_tmp',
+      port: 41002,
+      connectionUrl: 'postgresql://postgres:new@example.com:41002/postgres',
+    });
+
+    const result = await replaceBranchWithReadyBranch({
+      targetBranchId: originalId,
+      replacementBranchId: replacementId,
+      cleanupReplacedBranch: async function cleanup() {
+        return ['replacement succeeded, but old resource cleanup failed: cleanup broke'];
+      },
+    });
+    const promoted = await getDb()
+      .selectFrom('branches')
+      .select(['id', 'slug', 'dataset'])
+      .where('id', '=', originalId)
+      .executeTakeFirstOrThrow();
+
+    expect(promoted).toEqual({
+      id: originalId,
+      slug: 'dev',
+      dataset: 'prod.dev_tmp',
+    });
+    expect(result.cleanupLogs).toEqual(['replacement succeeded, but old resource cleanup failed: cleanup broke']);
+  });
 });
+
+async function createProject(): Promise<number> {
+  await getDb()
+    .insertInto('projects')
+    .values({
+      name: 'prod',
+      postgresVersion: '17',
+      databaseName: 'postgres',
+      appUser: 'postgres',
+    })
+    .execute();
+
+  const project = await getDb()
+    .selectFrom('projects')
+    .select('id')
+    .where('name', '=', 'prod')
+    .executeTakeFirstOrThrow();
+
+  return project.id;
+}
+
+async function createBranchRecord(input: {
+  projectId: number;
+  slug: string;
+  displayName: string;
+  dataset: string;
+  parentBranchId?: number | null;
+  port?: number | null;
+  connectionUrl?: string | null;
+}): Promise<number> {
+  await getDb()
+    .insertInto('branches')
+    .values({
+      projectId: input.projectId,
+      slug: input.slug,
+      displayName: input.displayName,
+      dataset: input.dataset,
+      status: 'running',
+      parentBranchId: input.parentBranchId ?? null,
+      port: input.port ?? null,
+      connectionUrl: input.connectionUrl ?? null,
+    })
+    .execute();
+
+  const branch = await getDb()
+    .selectFrom('branches')
+    .select('id')
+    .where('slug', '=', input.slug)
+    .executeTakeFirstOrThrow();
+
+  return branch.id;
+}
 
 function createPreQueueDatabase(databasePath: string): void {
   const db = new Database(databasePath);

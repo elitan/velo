@@ -1,11 +1,10 @@
 import { z } from 'zod';
 import { getDb } from '#db/client';
-import { createBranchFromBase, deleteBranch, normalizeBranchSlug, resetBranchFromParent } from '#server/services/branch-service';
+import { createBranchFromBase, deleteBranch, normalizeBranchSlug, replaceBranchWithReadyBranch, resetBranchFromParent } from '#server/services/branch-service';
 import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest } from '#server/services/pgbackrest-restore-service';
 import { runDevBootstrap, runProdBootstrap, type BootstrapResult } from '#server/services/bootstrap-service';
 import { createReplicaBase, type ReplicaResult } from '#server/services/replica-service';
 import { checkServer } from '#server/services/setup-state-service';
-import { isLocalDockerMode } from '#server/services/local-docker-service';
 import type { JobContext, JobHandlers } from './job-service';
 
 const branchInput = z.object({
@@ -74,24 +73,55 @@ export const jobHandlers: JobHandlers = {
 
     const existing = await findBranchBySlug(normalizeBranchLookup(parsed.targetBranch));
     const branchPassword = getPasswordFromConnectionUrl(existing?.connectionUrl || null);
-    const preferredPort = getPreferredReplacementPort(existing);
 
     if (existing) {
       await context.log(`replacing existing branch ${parsed.targetBranch}`);
-      await deleteBranch({ id: existing.id });
+      let result: Awaited<ReturnType<typeof replaceBranchWithReadyBranch>>;
+
+      try {
+        const replacement = await restoreDevelopmentBranchFromPgBackRest({
+          ...parsed,
+          targetBranch: buildReplacementBranchSlug(parsed.targetBranch),
+          branchPassword,
+        });
+        result = await replaceBranchWithReadyBranch({
+          targetBranchId: existing.id,
+          replacementBranchId: replacement.id,
+        });
+      } catch (error) {
+        await context.log(`restore failed; kept existing branch ${parsed.targetBranch}`);
+        throw error;
+      }
+
+      for (const message of result.cleanupLogs) {
+        await context.log(message);
+      }
+
+      await context.log(`branch restored: ${result.displayName}`);
+      return;
     }
 
     const result = await restoreDevelopmentBranchFromPgBackRest({
       ...parsed,
       branchPassword,
-      preferredPort,
     });
     await context.log(`branch restored: ${result.displayName}`);
   },
   'reset-branch': async function resetBranchJob(input, context) {
     const parsed = branchIdInput.parse(input);
     await context.log(`resetting branch ${parsed.id} from parent`);
-    const result = await resetBranchFromParent(parsed);
+    let result: Awaited<ReturnType<typeof resetBranchFromParent>>;
+
+    try {
+      result = await resetBranchFromParent(parsed);
+    } catch (error) {
+      await context.log(`reset failed; kept existing branch ${parsed.id}`);
+      throw error;
+    }
+
+    for (const message of result.cleanupLogs) {
+      await context.log(message);
+    }
     await context.log(`reset branch ${result.displayName}`);
   },
   'dev-bootstrap': async function devBootstrapJob(_input, context) {
@@ -165,30 +195,23 @@ async function branchExists(id: number): Promise<boolean> {
 async function findBranchBySlug(slug: string): Promise<{
   id: number;
   connectionUrl: string | null;
-  dataset: string;
-  port: number | null;
 } | undefined> {
   return getDb()
     .selectFrom('branches')
-    .select(['id', 'connectionUrl', 'dataset', 'port'])
+    .select(['id', 'connectionUrl'])
     .where('slug', '=', slug)
     .executeTakeFirst();
 }
 
-function getPreferredReplacementPort(branch: Awaited<ReturnType<typeof findBranchBySlug>>): number | null {
-  if (!branch?.port) {
-    return null;
-  }
-
-  if (isLocalDockerMode() && !branch.dataset.startsWith('container:')) {
-    return null;
-  }
-
-  return branch.port;
-}
-
 function normalizeBranchLookup(name: string): string {
   return normalizeBranchSlug(name.trim().toLowerCase());
+}
+
+function buildReplacementBranchSlug(slug: string): string {
+  const normalized = normalizeBranchLookup(slug);
+  const suffix = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23).toLowerCase();
+  const prefix = normalized.slice(0, Math.max(1, 63 - suffix.length - 5));
+  return normalizeBranchSlug(`${prefix}-tmp-${suffix}`);
 }
 
 function assertOk(result: BootstrapResult | ReplicaResult): void {
