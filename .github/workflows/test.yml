@@ -5,6 +5,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   typecheck:
@@ -68,7 +69,7 @@ jobs:
       run: scripts/test-release-upgrade-flow.sh
 
   hetzner-e2e:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     needs: [ typecheck, test ]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -93,4 +94,5 @@ jobs:
         VELO_REPO: https://github.com/${{ github.repository }}.git
         VELO_REF: ${{ github.sha }}
         VELO_CI_RUN_ID: ${{ github.run_id }}
+        VELO_PROXY_E2E_IDLE_SECONDS: 3
       run: scripts/ci-hetzner.sh

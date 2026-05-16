@@ -1,3 +1,3 @@
 module github.com/elitan/velo
 
-go 1.23
+go 1.22

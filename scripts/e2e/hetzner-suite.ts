@@ -33,6 +33,7 @@ async function main() {
     { name: 'dashboard and web smoke', run: testDashboardAndWebSmoke },
     { name: 'replica base', run: testReplicaBase },
     { name: 'branch lifecycle', run: testBranchLifecycle },
+    { name: 'branch proxy scale to zero', run: testBranchProxyScaleToZero },
     { name: 'branch data, sql, table browser, reset', run: testBranchDataSqlTablesAndReset },
     { name: 'branch delete guard and ttl cleanup', run: testBranchDeleteGuardAndTtlCleanup },
     { name: 'production write guard', run: testProductionWriteGuard },
@@ -95,6 +96,32 @@ async function testBranchLifecycle(): Promise<void> {
   await assertBranchMissing(branch.slug);
   await assertDockerContainerMissing(getContainerName(PROJECT_NAME, branch.slug));
   await assertZfsDatasetMissing(branch.dataset);
+}
+
+async function testBranchProxyScaleToZero(): Promise<void> {
+  const idleSeconds = getProxyE2EIdleSeconds();
+  assert(idleSeconds > 0 && idleSeconds <= 30, `Hetzner proxy e2e needs a short VELO_PROXY_IDLE_SECONDS, got ${idleSeconds}`);
+
+  await withProxyIdleSeconds(idleSeconds, async function runScaleToZero() {
+    await assertProxyServiceActive();
+
+    const branch = await createBranch(`e2e_proxy_${RUN_ID}`);
+    await assertBranchConnectionUsesProxy(branch);
+    await waitForDirectSqlValue(branch, 'select 1 as ok', 'ok', 1, 20_000);
+
+    await waitForBranchStatus(branch.id, 'stopped', Math.max(30_000, idleSeconds * 1000 + 30_000));
+    await assertDockerContainerNotRunning(getContainerName(PROJECT_NAME, branch.slug));
+
+    const startedAt = performance.now();
+    await assertDirectSqlValue(branch, 'select 2 as ok', 'ok', 2);
+    const wakeMs = Math.round(performance.now() - startedAt);
+    console.log(`e2e proxy wake: ${wakeMs}ms after idle stop`);
+
+    const woke = await getBranch(branch.slug);
+    assert(woke.status === 'running', `${branch.slug} should be running after proxy wake`);
+    assert(woke.connectionUrl === branch.connectionUrl, `${branch.slug} connection URL should stay stable after proxy wake`);
+    await assertDockerContainerHealthy(getContainerName(PROJECT_NAME, branch.slug));
+  });
 }
 
 async function testBranchDataSqlTablesAndReset(): Promise<void> {
@@ -260,6 +287,7 @@ async function testBranchPitrFlows(): Promise<void> {
 
   const branch = await getBranch(branchName);
   await assertBranchPostgresPrivate(branch);
+  await assertBranchConnects(branchName);
 
   const rows = await runBranchSql(branchName, `select label from ${table} order by id`);
   assert(rows.rows.map(function getLabel(row) {
@@ -271,6 +299,7 @@ async function testBranchPitrFlows(): Promise<void> {
     restoreTime: targetTime,
   });
   trackedBranches.add(preview.slug);
+  await assertBranchConnects(preview.slug);
   const previewRows = await runBranchSql(preview.slug, `select label from ${table} order by id`);
   assert(previewRows.rows.map(function getLabel(row) {
     return row.label;
@@ -373,7 +402,9 @@ async function createBranch(name: string, parentBranchId?: number | null, expire
   const result = await api.branches.create({ name, parentBranchId, expiresAt });
   trackedBranches.add(result.branchSlug);
   await waitForJob(result.id, JOB_TIMEOUT_MS);
-  return getBranch(result.branchSlug);
+  const branch = await getBranch(result.branchSlug);
+  await waitForBranchSqlValue(branch.slug, 'select 1 as ok', 'ok', 1, 20_000);
+  return branch;
 }
 
 async function deleteBranchBySlug(slug: string): Promise<void> {
@@ -513,8 +544,93 @@ async function assertSqlError(branchId: string, sql: string): Promise<void> {
 }
 
 async function assertBranchConnects(slug: string): Promise<void> {
-  const result = await runBranchSql(slug, 'select 1 as ok');
-  assertSingleValue(result, 'ok', 1);
+  await waitForBranchSqlValue(slug, 'select 1 as ok', 'ok', 1, 20_000);
+}
+
+async function assertBranchConnectionUsesProxy(branch: Branch): Promise<void> {
+  const connectionUrl = branch.connectionUrl;
+  const proxyPort = branch.proxyPort;
+  const backendPort = branch.backendPort;
+
+  assert(connectionUrl, `${branch.slug} connection URL should be set`);
+  assert(proxyPort, `${branch.slug} proxy port should be set`);
+  assert(backendPort, `${branch.slug} backend port should be set`);
+
+  const urlPort = Number(new URL(connectionUrl).port);
+  assert(urlPort === proxyPort, `${branch.slug} connection URL should use proxy port ${proxyPort}, got ${urlPort}`);
+  assert(proxyPort !== backendPort, `${branch.slug} proxy port should differ from backend port`);
+}
+
+async function assertDirectSqlValue(
+  branch: Branch,
+  sql: string,
+  column: string,
+  expected: string | number | boolean | null
+): Promise<void> {
+  const connectionUrl = branch.connectionUrl;
+  assert(connectionUrl, `${branch.slug} connection URL should be set`);
+
+  const rows = await runDirectSql(connectionUrl, sql);
+  assert(rows.length === 1, `expected one direct SQL row: ${JSON.stringify(rows)}`);
+  assert(rows[0]?.[column] === expected, `expected ${String(expected)} for direct SQL ${column}: ${JSON.stringify(rows)}`);
+}
+
+async function waitForDirectSqlValue(
+  branch: Branch,
+  sql: string,
+  column: string,
+  expected: string | number | boolean | null,
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let latest: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      await assertDirectSqlValue(branch, sql, column, expected);
+      return;
+    } catch (error) {
+      latest = error;
+      await sleep(1000);
+    }
+  }
+
+  throw latest instanceof Error ? latest : new Error(String(latest));
+}
+
+async function waitForBranchSqlValue(
+  branchId: string,
+  sql: string,
+  column: string,
+  expected: string | number | boolean | null,
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let latest: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const result = await runBranchSql(branchId, sql);
+      assertSingleValue(result, column, expected);
+      return;
+    } catch (error) {
+      latest = error;
+      await sleep(1000);
+    }
+  }
+
+  throw latest instanceof Error ? latest : new Error(String(latest));
+}
+
+async function runDirectSql(connectionUrl: string, sql: string): Promise<Array<Record<string, unknown>>> {
+  const client = new SQL({ url: connectionUrl, max: 1 });
+
+  try {
+    const rows = await client.unsafe<Array<Record<string, unknown>>>(sql);
+    return Array.from(rows);
+  } finally {
+    await client.close();
+  }
 }
 
 async function prodScalar(sql: string, column: string): Promise<unknown> {
@@ -573,6 +689,55 @@ async function appHead(path: string): Promise<void> {
   await assertCommandOk(await runCommand(['sh', '-lc', command], 30000), `HEAD ${path}`);
 }
 
+async function assertProxyServiceActive(): Promise<void> {
+  await assertCommandOk(await runCommand([
+    'systemctl',
+    'is-active',
+    '--quiet',
+    'velo-proxy',
+  ], 30000), 'velo-proxy service');
+}
+
+async function withProxyIdleSeconds(seconds: number, run: () => Promise<void>): Promise<void> {
+  await setProxyIdleSeconds(seconds);
+
+  try {
+    await run();
+  } finally {
+    await resetProxyIdleSeconds();
+  }
+}
+
+async function setProxyIdleSeconds(seconds: number): Promise<void> {
+  assert(Number.isInteger(seconds) && seconds > 0, `proxy idle seconds should be positive integer, got ${seconds}`);
+  const command = [
+    'set -e',
+    'mkdir -p /etc/systemd/system/velo-proxy.service.d',
+    'cat >/etc/systemd/system/velo-proxy.service.d/e2e-idle.conf <<SERVICE',
+    '[Service]',
+    `Environment=VELO_PROXY_IDLE_SECONDS=${seconds}`,
+    'SERVICE',
+    'systemctl daemon-reload',
+    'systemctl restart velo-proxy',
+  ].join('\n');
+
+  await assertCommandOk(await runCommand(['sh', '-lc', command], 60_000), `set proxy idle timeout to ${seconds}s`);
+  await assertProxyServiceActive();
+}
+
+async function resetProxyIdleSeconds(): Promise<void> {
+  const command = [
+    'set -e',
+    'rm -f /etc/systemd/system/velo-proxy.service.d/e2e-idle.conf',
+    'rmdir /etc/systemd/system/velo-proxy.service.d 2>/dev/null || true',
+    'systemctl daemon-reload',
+    'systemctl restart velo-proxy',
+  ].join('\n');
+
+  await assertCommandOk(await runCommand(['sh', '-lc', command], 60_000), 'reset proxy idle timeout');
+  await assertProxyServiceActive();
+}
+
 async function assertDockerContainerHealthy(containerName: string): Promise<void> {
   const result = await runCommand([
     'docker',
@@ -584,6 +749,19 @@ async function assertDockerContainerHealthy(containerName: string): Promise<void
 
   await assertCommandOk(result, `docker inspect ${containerName}`);
   assert(result.stdout === 'running', `${containerName} should be running, got ${result.stdout}`);
+}
+
+async function assertDockerContainerNotRunning(containerName: string): Promise<void> {
+  const result = await runCommand([
+    'docker',
+    'inspect',
+    '--format',
+    '{{.State.Status}}',
+    containerName,
+  ]);
+
+  await assertCommandOk(result, `docker inspect ${containerName}`);
+  assert(result.stdout !== 'running', `${containerName} should not be running, got ${result.stdout}`);
 }
 
 async function assertDockerContainerMissing(containerName: string): Promise<void> {
@@ -654,6 +832,28 @@ async function assertBranchMissing(slug: string): Promise<void> {
   assert(!branch, `branch should be deleted: ${slug}`);
 }
 
+async function waitForBranchStatus(branchId: number, status: Branch['status'], timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let latest: Branch['status'] | null = null;
+
+  while (Date.now() < deadline) {
+    const branch = await getDb()
+      .selectFrom('branches')
+      .select(['status'])
+      .where('id', '=', branchId)
+      .executeTakeFirst();
+
+    latest = branch?.status || null;
+    if (latest === status) {
+      return;
+    }
+
+    await sleep(1000);
+  }
+
+  throw new Error(`branch ${branchId} did not become ${status}; last status ${latest || 'missing'}`);
+}
+
 async function assertCommandOk(result: { exitCode: number; stdout: string; stderr: string }, label: string): Promise<void> {
   if (result.exitCode !== 0) {
     throw new Error(`${label} failed: ${result.stderr || result.stdout || `exit ${result.exitCode}`}`);
@@ -712,6 +912,12 @@ function sleep(ms: number): Promise<void> {
 function normalizeRunId(value: string): string {
   const normalized = value.toLowerCase().replace(/[^a-z0-9]/g, '').slice(-10);
   return normalized || String(Date.now()).slice(-10);
+}
+
+function getProxyE2EIdleSeconds(): number {
+  const value = Number(process.env.VELO_PROXY_E2E_IDLE_SECONDS || '3');
+  assert(Number.isFinite(value), `VELO_PROXY_E2E_IDLE_SECONDS must be a number, got ${process.env.VELO_PROXY_E2E_IDLE_SECONDS}`);
+  return value;
 }
 
 function shellQuote(value: string): string {
