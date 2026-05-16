@@ -2,9 +2,10 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
-import { GitBranch, Loader2 } from 'lucide-react';
+import { AlertTriangle, GitBranch, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '#web/components/ui/button';
+import { Checkbox } from '#web/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ import {
   BranchTreePanel,
 } from '#web/components/control-plane';
 import { orpc } from '#web/lib/api-client';
+import { getReplicaBranchCreatePolicy, type ReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -41,6 +43,7 @@ function HomePage() {
   const [branchName, setBranchName] = useState('');
   const [parentBranchId, setParentBranchId] = useState('production');
   const [ttlHours, setTtlHours] = useState('none');
+  const [forceReplicaStale, setForceReplicaStale] = useState(false);
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
   }).length ?? 0;
@@ -73,6 +76,7 @@ function HomePage() {
     setBranchName('');
     setParentBranchId('production');
     setTtlHours('none');
+    setForceReplicaStale(false);
     void dashboard.refetch();
     setCreateModalOpen(true);
   }
@@ -93,8 +97,13 @@ function HomePage() {
         name,
         parentBranchId: parentBranchId !== 'production' ? Number(parentBranchId) : null,
         ttlHours: ttlHours !== 'none' ? Number(ttlHours) : null,
+        forceReplicaStale,
       });
-      toast.info(`Creating branch ${name}.`);
+      if (result.replicaWarning) {
+        toast.warning(result.replicaWarning);
+      } else {
+        toast.info(`Creating branch ${name}.`);
+      }
       setCreateModalOpen(false);
     } catch (error: any) {
       toast.error(error?.message || 'Could not create branch.');
@@ -145,7 +154,13 @@ function HomePage() {
 
             <div className="mt-5 grid gap-2">
               <Label>Parent branch</Label>
-              <Select value={parentBranchId} onValueChange={setParentBranchId}>
+              <Select
+                value={parentBranchId}
+                onValueChange={function changeParentBranch(value) {
+                  setParentBranchId(value);
+                  setForceReplicaStale(false);
+                }}
+              >
                 <SelectTrigger className="h-9 w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -161,9 +176,11 @@ function HomePage() {
                 </SelectContent>
               </Select>
               {parentBranchId === 'production' && shouldShowReplicaFreshnessInfo(state.replicaFreshness) ? (
-                <p className="text-xs text-muted-foreground">
-                  {formatReplicaFreshnessInfo(state.replicaFreshness)}
-                </p>
+                <ReplicaFreshnessNotice
+                  policy={getReplicaBranchCreatePolicy(state.replicaFreshness)}
+                  forceReplicaStale={forceReplicaStale}
+                  onForceReplicaStaleChange={setForceReplicaStale}
+                />
               ) : null}
             </div>
 
@@ -206,7 +223,7 @@ function HomePage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createBranch.isPending || !branchName.trim()}>
+              <Button type="submit" disabled={createBranch.isPending || !branchName.trim() || isBlockedReplicaCreate(state.replicaFreshness, parentBranchId, forceReplicaStale)}>
                 {createBranch.isPending ? <Loader2 className="animate-spin" /> : <GitBranch />}
                 Create
               </Button>
@@ -229,12 +246,70 @@ function LoadingPage(props: Readonly<{ message: string }>) {
   );
 }
 
+function ReplicaFreshnessNotice(props: Readonly<{
+  policy: ReplicaBranchCreatePolicy;
+  forceReplicaStale: boolean;
+  onForceReplicaStaleChange: (value: boolean) => void;
+}>) {
+  if (props.policy.status === 'allow') {
+    if (props.policy.lagMs === null) {
+      return null;
+    }
+
+    return (
+      <p className="text-xs text-muted-foreground">
+        {formatReplicaFreshnessInfo({ lagMs: props.policy.lagMs })}
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+      <div className="flex gap-2">
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+        <p>{formatReplicaPolicyMessage(props.policy)}</p>
+      </div>
+      {props.policy.status === 'block' ? (
+        <label className="mt-3 flex items-center gap-2">
+          <Checkbox
+            checked={props.forceReplicaStale}
+            onCheckedChange={function changeForceReplicaStale(checked) {
+              props.onForceReplicaStaleChange(checked === true);
+            }}
+          />
+          Create from stale replica
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
 function shouldShowReplicaFreshnessInfo(freshness: Readonly<{ lagMs: number | null }> | null | undefined): freshness is Readonly<{ lagMs: number }> {
   return freshness?.lagMs !== null && freshness?.lagMs !== undefined;
 }
 
 function formatReplicaFreshnessInfo(freshness: Readonly<{ lagMs: number }>): string {
   return `New branch will use production state from about ${formatDuration(freshness.lagMs)} ago.`;
+}
+
+function formatReplicaPolicyMessage(policy: ReplicaBranchCreatePolicy): string {
+  if (policy.status === 'warn') {
+    return `Dev replica is ${formatDuration(policy.lagMs ?? 0)} behind production. Branch may start stale.`;
+  }
+
+  return `Dev replica is ${formatDuration(policy.lagMs ?? 0)} behind production. Create from stale replica to continue.`;
+}
+
+function isBlockedReplicaCreate(
+  freshness: Readonly<{ lagMs: number | null }> | null | undefined,
+  parentBranchId: string,
+  forceReplicaStale: boolean
+): boolean {
+  if (parentBranchId !== 'production') {
+    return false;
+  }
+
+  return getReplicaBranchCreatePolicy(freshness).status === 'block' && !forceReplicaStale;
 }
 
 function formatDuration(ms: number): string {

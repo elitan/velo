@@ -12,6 +12,7 @@ const branchInput = z.object({
   parentBranchId: z.number().int().positive().nullable().optional(),
   ttlHours: z.number().positive().nullable().optional(),
   expiresAt: z.string().nullable().optional(),
+  forceReplicaStale: z.boolean().optional(),
 });
 
 const branchIdInput = z.object({
