@@ -1279,7 +1279,11 @@ function getStatusVariant(status: string): BadgeProps['variant'] {
     return 'info';
   }
 
-  if (status === 'error' || status === 'stopped') {
+  if (status === 'stopped') {
+    return 'warning';
+  }
+
+  if (status === 'error') {
     return 'destructive';
   }
 
@@ -1299,7 +1303,11 @@ function getStatusIcon(status: string) {
     return Loader2;
   }
 
-  if (status === 'error' || status === 'stopped') {
+  if (status === 'stopped') {
+    return Clock3;
+  }
+
+  if (status === 'error') {
     return AlertTriangle;
   }
 

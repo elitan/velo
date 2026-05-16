@@ -10,18 +10,22 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   : ColumnType<T, T | undefined, T>;
 
 export interface Branches {
+  backendPort: number | null;
   connectionUrl: string | null;
   createdAt: Generated<string>;
   dataset: string;
   displayName: string;
+  expiresAt: string | null;
   id: Generated<number | null>;
+  lastActiveAt: string | null;
   parentBranchId: number | null;
   port: number | null;
   projectId: number;
+  proxyPort: number | null;
   slug: string;
   sourceReplayAt: string | null;
-  expiresAt: string | null;
   status: Generated<string>;
+  stoppedAt: string | null;
   updatedAt: Generated<string>;
 }
 
@@ -87,6 +91,7 @@ export interface Settings {
 }
 
 export interface SetupSteps {
+  failedJobId: number | null;
   id: Generated<number | null>;
   key: string;
   label: string;

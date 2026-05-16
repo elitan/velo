@@ -18,6 +18,7 @@ import { getBackupSettings, setSetting } from './settings-service';
 import { invalidateDevReplicaBase } from './setup-state-service';
 import { createLocalDockerPitrBranch, isLocalDockerMode, restoreLocalDockerProduction } from './local-docker-service';
 import { getBranchConnectionHost } from './branch-network-service';
+import { getAvailableTcpPort } from './tcp-port-service';
 
 const PROJECT_NAME = 'prod';
 
@@ -113,7 +114,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     containerId = await docker.createContainer({
       name: containerName,
       image,
-      port: input.preferredPort || 0,
+      port: 0,
       dataPath: mountpoint,
       walArchivePath: wal.getArchivePath(dataset),
       sslCertDir: certPaths.certDir,
@@ -134,12 +135,13 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
       await enableDefaultReadOnly(docker, containerId);
     }
 
-    const port = await docker.getContainerPort(containerId);
+    const backendPort = await docker.getContainerPort(containerId);
+    const proxyPort = await getAvailableTcpPort(input.preferredPort);
     const connectionUrl = formatPostgresConnectionUrl(
       'postgres',
       branchPassword,
       getBranchConnectionHost(devServer?.host, input.publicAccess),
-      port,
+      proxyPort,
       'postgres'
     );
 
@@ -150,11 +152,14 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
         slug: branchName,
         displayName: branchName,
         dataset,
-        port,
+        port: proxyPort,
+        proxyPort,
+        backendPort,
         status: 'running',
         parentBranchId: null,
         sourceReplayAt: restoreTime.toISOString(),
         connectionUrl: connectionUrl,
+        lastActiveAt: new Date().toISOString(),
       })
       .execute();
 

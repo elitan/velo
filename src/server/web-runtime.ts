@@ -38,6 +38,10 @@ Bun.serve({
       return healthResponse;
     }
 
+    if (isInternalRequest(request)) {
+      return serverEntry.default.fetch(request);
+    }
+
     const staticResponse = await serveStaticAsset(request);
 
     if (staticResponse) {
@@ -128,6 +132,10 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
     checks,
     errors,
   }, { status: ok ? 200 : 503 });
+}
+
+function isInternalRequest(request: Request): boolean {
+  return new URL(request.url).pathname.startsWith('/internal/');
 }
 
 function errorMessage(error: unknown): string {

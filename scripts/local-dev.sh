@@ -41,6 +41,7 @@ VELO_LOCAL_MINIO_PORT=$VELO_LOCAL_MINIO_PORT
 VELO_LOCAL_MINIO_CONSOLE_PORT=$VELO_LOCAL_MINIO_CONSOLE_PORT
 VELO_LOCAL_WEB_PORT=$VELO_LOCAL_WEB_PORT
 VELO_LOCAL_APP_PASSWORD=$VELO_LOCAL_APP_PASSWORD
+VELO_INTERNAL_TOKEN=$VELO_INTERNAL_TOKEN
 EOF
   chmod 600 "$LOCAL_ENV_FILE"
 }
@@ -83,6 +84,7 @@ ensure_ports() {
     fi
   fi
   export VELO_LOCAL_APP_PASSWORD="${VELO_LOCAL_APP_PASSWORD:-velo-local-password}"
+  export VELO_INTERNAL_TOKEN="${VELO_INTERNAL_TOKEN:-$(openssl rand -base64 48)}"
   save_env_file
 }
 
@@ -90,7 +92,37 @@ compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
 }
 
+remove_containers_by_name() {
+  local name="$1"
+  local ids
+  ids="$(docker ps -aq --filter "name=$name" 2>/dev/null || true)"
+
+  if [ -n "$ids" ]; then
+    # shellcheck disable=SC2086
+    docker rm -f $ids >/dev/null 2>&1 || true
+  fi
+}
+
+remove_volumes_by_prefix() {
+  local prefix="$1"
+  local names
+  names="$(docker volume ls -q 2>/dev/null | grep "^$prefix" || true)"
+
+  if [ -n "$names" ]; then
+    # shellcheck disable=SC2086
+    docker volume rm $names >/dev/null 2>&1 || true
+  fi
+}
+
+cleanup_local_branch_containers() {
+  remove_containers_by_name "$COMPOSE_PROJECT_NAME-branch-"
+  remove_containers_by_name "$COMPOSE_PROJECT_NAME-restore-"
+  remove_volumes_by_prefix "$COMPOSE_PROJECT_NAME-branch-"
+  remove_volumes_by_prefix "$COMPOSE_PROJECT_NAME-restore-"
+}
+
 DEV_SERVER_PID=""
+PROXY_PID=""
 CLEANUP_WATCHER_PID=""
 
 start_cleanup_watcher() {
@@ -110,6 +142,10 @@ start_cleanup_watcher() {
         sleep 2
       done
 
+      docker ps -aq --filter "name=$compose_project_name-branch-" 2>/dev/null | xargs docker rm -f >/dev/null 2>&1 || true
+      docker ps -aq --filter "name=$compose_project_name-restore-" 2>/dev/null | xargs docker rm -f >/dev/null 2>&1 || true
+      docker volume ls -q 2>/dev/null | grep "^$compose_project_name-branch-" | xargs docker volume rm >/dev/null 2>&1 || true
+      docker volume ls -q 2>/dev/null | grep "^$compose_project_name-restore-" | xargs docker volume rm >/dev/null 2>&1 || true
       COMPOSE_PROJECT_NAME="$compose_project_name" docker compose -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
     ' bash "$parent_pid" "$COMPOSE_FILE" "$COMPOSE_PROJECT_NAME" >/dev/null 2>&1 &
   CLEANUP_WATCHER_PID=$!
@@ -125,6 +161,12 @@ cleanup_dev() {
     wait "$DEV_SERVER_PID" 2>/dev/null || true
   fi
 
+  if [ -n "$PROXY_PID" ] && kill -0 "$PROXY_PID" 2>/dev/null; then
+    kill "$PROXY_PID" 2>/dev/null || true
+    wait "$PROXY_PID" 2>/dev/null || true
+  fi
+
+  cleanup_local_branch_containers
   compose down -v --remove-orphans || true
 
   if [ -n "$CLEANUP_WATCHER_PID" ] && kill -0 "$CLEANUP_WATCHER_PID" 2>/dev/null; then
@@ -444,6 +486,10 @@ dev() {
   up
   bun --bun vite dev --host 0.0.0.0 --port "$VELO_LOCAL_WEB_PORT" &
   DEV_SERVER_PID=$!
+  VELO_INTERNAL_API_URL="http://127.0.0.1:$VELO_LOCAL_WEB_PORT/internal" \
+  VELO_PROXY_IDLE_SECONDS="${VELO_PROXY_IDLE_SECONDS:-300}" \
+  go run ./cmd/velo-proxy &
+  PROXY_PID=$!
   wait "$DEV_SERVER_PID"
 }
 
@@ -456,10 +502,12 @@ case "${1:-up}" in
     ;;
   down)
     ensure_ports
+    cleanup_local_branch_containers
     compose down
     ;;
   reset)
     ensure_ports
+    cleanup_local_branch_containers
     compose down -v
     rm -f "$LOCAL_DB" "$LOCAL_DB-shm" "$LOCAL_DB-wal"
     up
@@ -472,6 +520,7 @@ case "${1:-up}" in
     printf 'prod: postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_PROD_PORT"
     printf 'dev:  postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_DEV_PORT"
     printf 's3:   https://localhost:%s\n' "$VELO_LOCAL_MINIO_PORT"
+    printf 'proxy: go run ./cmd/velo-proxy --api http://127.0.0.1:%s/internal\n' "$VELO_LOCAL_WEB_PORT"
     ;;
   *)
     echo "usage: bun run local:up|local:dev|local:down|local:reset|local:status" >&2

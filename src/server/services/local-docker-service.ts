@@ -4,9 +4,11 @@ import { generatePassword } from '../../utils/helpers';
 import { runCommand } from './command-service';
 import { saveBackupSettings, setSetting } from './settings-service';
 import type { SetupStepStatus } from './setup-state-service';
+import { getAvailableTcpPort } from './tcp-port-service';
 
 const COMPOSE_FILE = process.env.VELO_LOCAL_COMPOSE_FILE || 'docker-compose.local.yml';
 const LOCAL_PGBACKREST_IMAGE = 'velo-local-postgres-pgbackrest:17';
+const LOCAL_BRANCH_IMAGE = 'postgres:17-alpine';
 const PROJECT_NAME = 'prod';
 
 export interface LocalDockerBranchInput {
@@ -127,9 +129,14 @@ export async function createLocalDockerReplicaBase() {
 }
 
 export async function createLocalDockerBranch(input: LocalDockerBranchInput): Promise<LocalDockerBranchResult> {
-  const database = getLocalDatabaseName(input.slug);
+  const containerName = getBranchContainerName(input.slug);
+  const volumeName = getBranchVolumeName(input.slug);
+  const dataset = formatContainerDataset(containerName);
+  const password = input.branchPassword || generatePassword();
   const db = getDb();
   const project = await ensureProject();
+  let backendPort = 0;
+  let proxyPort = 0;
   const existing = await db
     .selectFrom('branches')
     .select('id')
@@ -141,16 +148,34 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
     throw new Error(`Branch already exists: ${input.slug}`);
   }
 
-  await dropDevDatabase(database);
-  await createDevDatabase(database);
+  await removeContainer(containerName);
+  await removeVolume(volumeName);
+  await createVolume(volumeName);
 
-  if (input.sourceSlug === 'production') {
-    await copyProdToDevDatabase(database);
-  } else {
-    await copyDevDatabase(input.sourceDatabase, database);
+  try {
+    await startBranchContainer({
+      containerName,
+      volumeName,
+      password,
+    });
+
+    if (input.sourceSlug === 'production') {
+      await copyProdToContainer(containerName);
+    } else if (input.sourceDatabase.startsWith('container:')) {
+      await copyContainerToContainer(getContainerNameFromDataset(input.sourceDatabase), containerName);
+    } else {
+      await copyDevDatabaseToContainer(input.sourceDatabase, containerName);
+    }
+
+    backendPort = await getContainerPort(containerName);
+    proxyPort = await getAvailableTcpPort(input.preferredPort);
+  } catch (error) {
+    await removeContainer(containerName).catch(function ignoreContainerCleanupError() {});
+    await removeVolume(volumeName).catch(function ignoreVolumeCleanupError() {});
+    throw error;
   }
 
-  const connectionUrl = await formatDevConnectionUrl(database);
+  const connectionUrl = formatLocalConnectionUrl(password, proxyPort);
 
   await db
     .insertInto('branches')
@@ -158,13 +183,16 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
       projectId: project.id,
       slug: input.slug,
       displayName: input.displayName,
-      dataset: database,
-      port: await getServicePort('dev-postgres'),
+      dataset,
+      port: proxyPort,
+      proxyPort,
+      backendPort,
       status: 'running',
       parentBranchId: input.parentBranchId,
       connectionUrl: connectionUrl,
       sourceReplayAt: input.sourceReplayAt,
       expiresAt: input.expiresAt,
+      lastActiveAt: new Date().toISOString(),
     })
     .execute();
 
@@ -192,7 +220,7 @@ export async function deleteLocalDockerBranch(id: number) {
     .executeTakeFirstOrThrow();
 
   if (branch.dataset.startsWith('container:')) {
-    await deleteRestoreContainer(branch.dataset);
+    await deleteContainerDataset(branch.dataset);
   } else {
     await dropDevDatabase(branch.dataset);
   }
@@ -211,7 +239,7 @@ export async function deleteLocalDockerBranch(id: number) {
 
 export async function deleteLocalDockerBranchResources(dataset: string): Promise<void> {
   if (dataset.startsWith('container:')) {
-    await deleteRestoreContainer(dataset);
+    await deleteContainerDataset(dataset);
     return;
   }
 
@@ -238,22 +266,32 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
   const volumeName = getRestoreVolumeName(branchSlug);
   const dataset = `container:${containerName}`;
   const password = input.branchPassword || generatePassword();
+  let backendPort = 0;
+  let proxyPort = 0;
 
   await removeContainer(containerName);
   await removeVolume(volumeName);
-  await createVolume(volumeName);
-  await restorePgBackRestVolume(volumeName, restoreTime);
-  await startRestoreContainer({
-    containerName,
-    volumeName,
-    password,
-    port: input.preferredPort,
-    readOnly: input.readOnly === true,
-    publicAccess: input.publicAccess === true,
-  });
 
-  const port = await getContainerPort(containerName);
-  const connectionUrl = `postgresql://postgres:${password}@localhost:${port}/postgres?sslmode=disable`;
+  try {
+    await createVolume(volumeName);
+    await restorePgBackRestVolume(volumeName, restoreTime);
+    await startRestoreContainer({
+      containerName,
+      volumeName,
+      password,
+      readOnly: input.readOnly === true,
+      publicAccess: input.publicAccess === true,
+    });
+
+    backendPort = await getContainerPort(containerName);
+    proxyPort = await getAvailableTcpPort(input.preferredPort);
+  } catch (error) {
+    await removeContainer(containerName).catch(function ignoreContainerCleanupError() {});
+    await removeVolume(volumeName).catch(function ignoreVolumeCleanupError() {});
+    throw error;
+  }
+
+  const connectionUrl = formatLocalConnectionUrl(password, proxyPort);
 
   await db
     .insertInto('branches')
@@ -262,11 +300,14 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
       slug: branchSlug,
       displayName: branchSlug,
       dataset,
-      port,
+      port: proxyPort,
+      proxyPort,
+      backendPort,
       status: 'running',
       parentBranchId: null,
       connectionUrl: connectionUrl,
       sourceReplayAt: restoreTime.toISOString(),
+      lastActiveAt: new Date().toISOString(),
     })
     .execute();
 
@@ -309,6 +350,18 @@ export async function getLocalPgBackRestInfo(): Promise<string> {
   }
 
   return result.stdout;
+}
+
+export async function startLocalDockerBranchContainer(dataset: string): Promise<number> {
+  const containerName = getContainerNameFromDataset(dataset);
+  await runLocalCommand(`docker start ${shellQuote(containerName)} >/dev/null`);
+  await waitForContainer(containerName);
+  return getContainerPort(containerName);
+}
+
+export async function stopLocalDockerBranchContainer(dataset: string): Promise<void> {
+  const containerName = getContainerNameFromDataset(dataset);
+  await runLocalCommand(`docker stop ${shellQuote(containerName)} >/dev/null 2>&1 || true`, 60_000);
 }
 
 async function saveLocalServer(input: {
@@ -358,10 +411,6 @@ async function setLocalStepStatus(
     .execute();
 }
 
-function getLocalDatabaseName(slug: string): string {
-  return `velo_${slug.replace(/[^a-z0-9_]/g, '_')}`.slice(0, 63);
-}
-
 async function ensureProject() {
   const db = getDb();
   const existing = await db
@@ -391,25 +440,28 @@ async function ensureProject() {
     .executeTakeFirstOrThrow();
 }
 
-async function createDevDatabase(database: string): Promise<void> {
-  await runLocalCommand(`docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T dev-postgres createdb -U postgres ${shellQuote(database)}`);
-}
-
 async function dropDevDatabase(database: string): Promise<void> {
   await runLocalCommand(`docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T dev-postgres dropdb -U postgres --if-exists --force ${shellQuote(database)}`);
 }
 
-async function copyProdToDevDatabase(targetDatabase: string): Promise<void> {
+async function copyProdToContainer(targetContainer: string): Promise<void> {
   await runLocalCommand([
-    `docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T prod-postgres pg_dump -U postgres -d postgres`,
-    `docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T dev-postgres psql -v ON_ERROR_STOP=1 -U postgres -d ${shellQuote(targetDatabase)}`,
+    `docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T --user postgres prod-postgres pg_dump -U postgres -d postgres`,
+    `docker exec -i --user postgres ${shellQuote(targetContainer)} psql -v ON_ERROR_STOP=1 -U postgres -d postgres`,
   ].join(' | '), 10 * 60 * 1000);
 }
 
-async function copyDevDatabase(sourceDatabase: string, targetDatabase: string): Promise<void> {
+async function copyDevDatabaseToContainer(sourceDatabase: string, targetContainer: string): Promise<void> {
   await runLocalCommand([
-    `docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T dev-postgres pg_dump -U postgres -d ${shellQuote(sourceDatabase)}`,
-    `docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T dev-postgres psql -v ON_ERROR_STOP=1 -U postgres -d ${shellQuote(targetDatabase)}`,
+    `docker compose -f ${shellQuote(COMPOSE_FILE)} exec -T --user postgres dev-postgres pg_dump -U postgres -d ${shellQuote(sourceDatabase)}`,
+    `docker exec -i --user postgres ${shellQuote(targetContainer)} psql -v ON_ERROR_STOP=1 -U postgres -d postgres`,
+  ].join(' | '), 10 * 60 * 1000);
+}
+
+async function copyContainerToContainer(sourceContainer: string, targetContainer: string): Promise<void> {
+  await runLocalCommand([
+    `docker exec --user postgres ${shellQuote(sourceContainer)} pg_dump -U postgres -d postgres`,
+    `docker exec -i --user postgres ${shellQuote(targetContainer)} psql -v ON_ERROR_STOP=1 -U postgres -d postgres`,
   ].join(' | '), 10 * 60 * 1000);
 }
 
@@ -433,8 +485,8 @@ async function formatProdConnectionUrl(): Promise<string> {
   return `postgresql://postgres:postgres@localhost:${await getServicePort('prod-postgres')}/postgres?sslmode=disable`;
 }
 
-async function formatDevConnectionUrl(database: string): Promise<string> {
-  return `postgresql://postgres:postgres@localhost:${await getServicePort('dev-postgres')}/${encodeURIComponent(database)}?sslmode=disable`;
+function formatLocalConnectionUrl(password: string, port: number): string {
+  return `postgresql://postgres:${encodeURIComponent(password)}@localhost:${port}/postgres?sslmode=disable`;
 }
 
 async function restorePgBackRestVolume(volumeName: string, restoreTime: Date): Promise<void> {
@@ -486,6 +538,32 @@ async function startRestoreContainer(options: {
   await setContainerPassword(options.containerName, options.password);
 }
 
+async function startBranchContainer(options: {
+  containerName: string;
+  volumeName: string;
+  password: string;
+  port?: number | null;
+}): Promise<void> {
+  const hostPort = options.port ? String(options.port) : '';
+
+  await runLocalCommand([
+    'docker run -d',
+    `--name ${shellQuote(options.containerName)}`,
+    `--network ${shellQuote(getComposeNetworkName())}`,
+    `-p 127.0.0.1:${hostPort}:5432`,
+    `-v ${shellQuote(options.volumeName)}:/var/lib/postgresql/data`,
+    `-e POSTGRES_USER=postgres`,
+    `-e POSTGRES_PASSWORD=${shellQuote(options.password)}`,
+    `-e POSTGRES_DB=postgres`,
+    shellQuote(LOCAL_BRANCH_IMAGE),
+    'postgres',
+    '-c listen_addresses=*',
+  ].join(' '), 60_000);
+
+  await waitForNewPostgresContainer(options.containerName);
+  await setContainerPassword(options.containerName, options.password);
+}
+
 async function setContainerPassword(containerName: string, password: string): Promise<void> {
   await runLocalCommand(
     `docker exec --user postgres ${shellQuote(containerName)} psql -d postgres -v ON_ERROR_STOP=1 -c ${shellQuote(`alter role postgres with password ${sqlStringLiteral(password)}`)}`,
@@ -497,35 +575,70 @@ async function waitForContainer(containerName: string): Promise<void> {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < 60_000) {
-    const result = await runCommand([
-      'sh',
-      '-lc',
-      `docker exec ${shellQuote(containerName)} pg_isready -U postgres -d postgres`,
-    ]);
-
-    if (result.exitCode === 0) {
+    if (await isContainerReady(containerName)) {
       return;
     }
 
-    const state = await runCommand([
-      'sh',
-      '-lc',
-      `docker inspect -f '{{.State.Status}}' ${shellQuote(containerName)} 2>/dev/null || true`,
-    ]);
-
-    if (state.stdout === 'exited' || state.stdout === 'dead') {
-      const logs = await runCommand([
-        'sh',
-        '-lc',
-        `docker logs --tail 40 ${shellQuote(containerName)} 2>&1`,
-      ]);
-      throw new Error(logs.stdout || `${containerName} exited before it was ready`);
-    }
+    await assertContainerStillStarting(containerName);
 
     await Bun.sleep(250);
   }
 
   throw new Error(`Container ${containerName} did not become ready`);
+}
+
+async function waitForNewPostgresContainer(containerName: string): Promise<void> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < 60_000) {
+    if ((await hasPostgresInitCompleted(containerName)) && await isContainerReady(containerName)) {
+      return;
+    }
+
+    await assertContainerStillStarting(containerName);
+    await Bun.sleep(250);
+  }
+
+  throw new Error(`Container ${containerName} did not finish initialization`);
+}
+
+async function isContainerReady(containerName: string): Promise<boolean> {
+  const result = await runCommand([
+    'sh',
+    '-lc',
+    `docker exec ${shellQuote(containerName)} pg_isready -U postgres -d postgres`,
+  ]);
+
+  return result.exitCode === 0;
+}
+
+async function hasPostgresInitCompleted(containerName: string): Promise<boolean> {
+  const logs = await runCommand([
+    'sh',
+    '-lc',
+    `docker logs --tail 80 ${shellQuote(containerName)} 2>&1`,
+  ]);
+
+  return logs.stdout.includes('PostgreSQL init process complete; ready for start up.');
+}
+
+async function assertContainerStillStarting(containerName: string): Promise<void> {
+  const state = await runCommand([
+    'sh',
+    '-lc',
+    `docker inspect -f '{{.State.Status}}' ${shellQuote(containerName)} 2>/dev/null || true`,
+  ]);
+
+  if (state.stdout !== 'exited' && state.stdout !== 'dead') {
+    return;
+  }
+
+  const logs = await runCommand([
+    'sh',
+    '-lc',
+    `docker logs --tail 40 ${shellQuote(containerName)} 2>&1`,
+  ]);
+  throw new Error(logs.stdout || `${containerName} exited before it was ready`);
 }
 
 async function createVolume(volumeName: string): Promise<void> {
@@ -540,8 +653,8 @@ async function removeContainer(containerName: string): Promise<void> {
   await runLocalCommand(`docker rm -f ${shellQuote(containerName)} >/dev/null 2>&1 || true`);
 }
 
-async function deleteRestoreContainer(dataset: string): Promise<void> {
-  const containerName = dataset.replace(/^container:/, '');
+async function deleteContainerDataset(dataset: string): Promise<void> {
+  const containerName = getContainerNameFromDataset(dataset);
   await removeContainer(containerName);
   await removeVolume(containerName);
 }
@@ -566,6 +679,22 @@ function getRestoreContainerName(slug: string): string {
 
 function getRestoreVolumeName(slug: string): string {
   return `${getComposeProjectName()}-restore-${slug}`;
+}
+
+function getBranchContainerName(slug: string): string {
+  return `${getComposeProjectName()}-branch-${slug}`;
+}
+
+function getBranchVolumeName(slug: string): string {
+  return getBranchContainerName(slug);
+}
+
+function formatContainerDataset(containerName: string): string {
+  return `container:${containerName}`;
+}
+
+function getContainerNameFromDataset(dataset: string): string {
+  return dataset.replace(/^container:/, '');
 }
 
 function getComposeNetworkName(): string {
