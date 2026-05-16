@@ -5,6 +5,7 @@ import { createApiClient } from '#api/router';
 import { getSetting } from '#server/services/settings-service';
 import { runCommand, runSshCommand } from '#server/services/command-service';
 import { createReplicaBase } from '#server/services/replica-service';
+import { runExpiredBranchCleanup } from '#server/services/branch-service';
 import { TABLE_ROW_ID_COLUMN } from '#server/services/table-browser-service';
 import { getContainerName, getDatasetName } from '#utils/naming';
 import { isProductionBranchId, isReadOnlySql, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
@@ -33,8 +34,11 @@ async function main() {
     { name: 'replica base', run: testReplicaBase },
     { name: 'branch lifecycle', run: testBranchLifecycle },
     { name: 'branch data, sql, table browser, reset', run: testBranchDataSqlTablesAndReset },
-    { name: 'pgBackRest branch PITR', run: testBranchPitr },
+    { name: 'branch delete guard and ttl cleanup', run: testBranchDeleteGuardAndTtlCleanup },
+    { name: 'production write guard', run: testProductionWriteGuard },
+    { name: 'pgBackRest branch, preview, replacement PITR', run: testBranchPitrFlows },
     { name: 'production PITR restore', run: testProductionPitrRestore },
+    { name: 'ready health check', run: testReadyHealthCheck },
   ];
 
   try {
@@ -200,13 +204,52 @@ async function testBranchDataSqlTablesAndReset(): Promise<void> {
   await assertSqlError(child.slug, `select * from ${browserTable}`);
 }
 
-async function testBranchPitr(): Promise<void> {
+async function testBranchDeleteGuardAndTtlCleanup(): Promise<void> {
+  const parent = await createBranch(`e2e_guard_parent_${RUN_ID}`);
+  const child = await createBranch(`e2e_guard_child_${RUN_ID}`, parent.id);
+
+  const deleteJob = await api.branches.delete({ id: parent.id });
+  await assertJobFails(deleteJob.id, 'Branch has child branches');
+  await assertBranchConnects(parent.slug);
+  await assertBranchConnects(child.slug);
+
+  await deleteBranchBySlug(child.slug);
+  await deleteBranchBySlug(parent.slug);
+
+  const expired = await createBranch(`e2e_ttl_${RUN_ID}`, null, new Date(Date.now() - 60_000).toISOString());
+  await runExpiredBranchCleanup();
+  await waitForBranchCleanup(expired.id, JOB_TIMEOUT_MS);
+  trackedBranches.delete(expired.slug);
+  await assertDockerContainerMissing(getContainerName(PROJECT_NAME, expired.slug));
+  await assertZfsDatasetMissing(expired.dataset);
+}
+
+async function testProductionWriteGuard(): Promise<void> {
+  const table = `e2e_prod_guard_${RUN_ID}`;
+
+  const read = await runBranchSqlRaw('production', 'select 1 as ok');
+  assertSingleValue(read, 'ok', 1);
+  await assertSqlErrorRaw('production', `create table ${table} (id integer primary key)`);
+  await assertProdWriteAudit(false, `create table ${table}`);
+
+  await runBranchSqlRaw(
+    'production',
+    `create table ${table} (id integer primary key); drop table ${table}`,
+    PRODUCTION_WRITE_CONFIRMATION
+  );
+  await assertProdWriteAudit(true, `create table ${table}`);
+}
+
+async function testBranchPitrFlows(): Promise<void> {
   const table = `e2e_pitr_${RUN_ID}`;
   const branchName = `e2e_pitr_${RUN_ID}`;
+  const previewWriteTable = `e2e_preview_write_${RUN_ID}`;
+  const replaceName = `e2e_replace_${RUN_ID}`;
   const targetTime = await preparePitrFixture(table);
 
   await syncProdBackupRepoToApp();
   trackedBranches.add(branchName);
+  trackedBranches.add(replaceName);
 
   const job = await api.branches.restore({
     targetBranch: branchName,
@@ -222,6 +265,44 @@ async function testBranchPitr(): Promise<void> {
   assert(rows.rows.map(function getLabel(row) {
     return row.label;
   }).join(',') === 'before', `PITR branch should restore before row only: ${JSON.stringify(rows.rows)}`);
+
+  const preview = await api.branches.preview.create({
+    sourceBranch: 'production',
+    restoreTime: targetTime,
+  });
+  trackedBranches.add(preview.slug);
+  const previewRows = await runBranchSql(preview.slug, `select label from ${table} order by id`);
+  assert(previewRows.rows.map(function getLabel(row) {
+    return row.label;
+  }).join(',') === 'before', `PITR preview should restore before row only: ${JSON.stringify(previewRows.rows)}`);
+  await assertSqlError(preview.slug, `create table ${previewWriteTable} (id integer primary key)`);
+  await waitForJob((await api.branches.preview.delete({ id: preview.id })).id, JOB_TIMEOUT_MS);
+  trackedBranches.delete(preview.slug);
+  await assertBranchMissing(preview.slug);
+  await assertZfsDatasetMissing(getDatasetName(PROJECT_NAME, preview.slug));
+
+  const replacement = await createBranch(replaceName);
+  const oldId = replacement.id;
+  const oldDataset = replacement.dataset;
+  await runBranchSql(replaceName, `create table e2e_local_marker_${RUN_ID} (id integer primary key)`);
+
+  const replaceJob = await api.branches.restore({
+    targetBranch: replaceName,
+    sourceBranch: 'production',
+    restoreTime: targetTime,
+  });
+  await waitForJob(replaceJob.id, JOB_TIMEOUT_MS);
+
+  const replaced = await getBranch(replaceName);
+  assert(replaced.id === oldId, 'replacement restore should preserve branch id');
+  assert(replaced.dataset !== oldDataset, 'replacement restore should swap branch dataset');
+  await assertBranchConnects(replaceName);
+  await assertZfsDatasetMissing(oldDataset);
+  await assertSqlError(replaceName, `select * from e2e_local_marker_${RUN_ID}`);
+  const replacedRows = await runBranchSql(replaceName, `select label from ${table} order by id`);
+  assert(replacedRows.rows.map(function getLabel(row) {
+    return row.label;
+  }).join(',') === 'before', `replacement PITR branch should restore before row only: ${JSON.stringify(replacedRows.rows)}`);
 }
 
 async function testProductionPitrRestore(): Promise<void> {
@@ -258,6 +339,17 @@ async function testProductionPitrRestore(): Promise<void> {
   await createBranch(rebuiltBranchName);
 }
 
+async function testReadyHealthCheck(): Promise<void> {
+  const command = [
+    'set -e',
+    `curl -fsS ${shellQuote(`http://127.0.0.1:${PORT}/healthz?ready=1`)}`,
+  ].join('\n');
+  const result = await runCommand(['sh', '-lc', command], 30000);
+  await assertCommandOk(result, 'ready health check');
+  const health = JSON.parse(result.stdout) as { ok?: boolean };
+  assert(health.ok === true, `ready health should be ok: ${result.stdout}`);
+}
+
 async function preparePitrFixture(table: string): Promise<string> {
   await runBranchSql('production', [
     `drop table if exists ${table}`,
@@ -277,8 +369,8 @@ async function preparePitrFixture(table: string): Promise<string> {
   return new Date(String(target)).toISOString();
 }
 
-async function createBranch(name: string, parentBranchId?: number | null): Promise<Branch> {
-  const result = await api.branches.create({ name, parentBranchId });
+async function createBranch(name: string, parentBranchId?: number | null, expiresAt?: string | null): Promise<Branch> {
+  const result = await api.branches.create({ name, parentBranchId, expiresAt });
   trackedBranches.add(result.branchSlug);
   await waitForJob(result.id, JOB_TIMEOUT_MS);
   return getBranch(result.branchSlug);
@@ -330,14 +422,84 @@ async function waitForJob(jobId: number, timeoutMs: number): Promise<void> {
   throw new Error(`job ${jobId} timed out: ${JSON.stringify(latest)}`);
 }
 
+async function assertJobFails(jobId: number, expectedMessage: string): Promise<void> {
+  try {
+    await waitForJob(jobId, JOB_TIMEOUT_MS);
+  } catch (error: any) {
+    assert(String(error?.message || error).includes(expectedMessage), `expected job ${jobId} to fail with ${expectedMessage}`);
+    return;
+  }
+
+  throw new Error(`expected job ${jobId} to fail`);
+}
+
+async function waitForBranchCleanup(branchId: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const branch = await getDb()
+      .selectFrom('branches')
+      .select(['id'])
+      .where('id', '=', branchId)
+      .executeTakeFirst();
+
+    if (!branch) {
+      return;
+    }
+
+    const jobs = await api.jobs.list({ limit: 20, type: 'branch-cleanup' });
+    const failed = jobs.find(function isFailedCleanup(job) {
+      return job.status === 'error' && getJobInputBranchId(job.input) === branchId;
+    });
+
+    if (failed) {
+      throw new Error(`branch cleanup ${failed.id} failed: ${failed.error}`);
+    }
+
+    await sleep(1500);
+  }
+
+  throw new Error(`branch cleanup timed out for ${branchId}`);
+}
+
 async function runBranchSql(branchId: string, sql: string): Promise<QueryResult> {
+  return runBranchSqlRaw(
+    branchId,
+    sql,
+    isProductionBranchId(branchId) && !isReadOnlySql(sql)
+      ? PRODUCTION_WRITE_CONFIRMATION
+      : undefined
+  );
+}
+
+async function runBranchSqlRaw(branchId: string, sql: string, productionWriteConfirmation?: string): Promise<QueryResult> {
   return api.branches.sql.run({
     branchId,
     sql,
-    productionWriteConfirmation: isProductionBranchId(branchId) && !isReadOnlySql(sql)
-      ? PRODUCTION_WRITE_CONFIRMATION
-      : undefined,
+    productionWriteConfirmation,
   });
+}
+
+async function assertSqlErrorRaw(branchId: string, sql: string): Promise<void> {
+  try {
+    await runBranchSqlRaw(branchId, sql);
+  } catch {
+    return;
+  }
+
+  throw new Error(`expected SQL to fail: ${sql}`);
+}
+
+async function assertProdWriteAudit(allowed: boolean, targetPrefix: string): Promise<void> {
+  const jobs = await api.jobs.list({ limit: 20, type: 'prod-write-attempt' });
+  const audit = jobs.find(function isMatchingAudit(job) {
+    const input = job.input as Record<string, unknown> | null;
+    return input?.allowed === allowed
+      && typeof input.target === 'string'
+      && input.target.startsWith(targetPrefix);
+  });
+
+  assert(audit, `expected production write audit allowed=${String(allowed)} target=${targetPrefix}`);
 }
 
 async function assertSqlError(branchId: string, sql: string): Promise<void> {
@@ -492,6 +654,15 @@ function hasStepStatus(steps: Array<{ key: string; status: string }>, key: strin
   return steps.some(function hasMatchingStep(step) {
     return step.key === key && step.status === status;
   });
+}
+
+function getJobInputBranchId(input: unknown): number | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  const value = (input as Record<string, unknown>).branchId;
+  return typeof value === 'number' ? value : null;
 }
 
 async function assertBranchCreateFails(name: string, expectedMessage: string): Promise<void> {
