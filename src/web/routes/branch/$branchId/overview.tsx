@@ -268,7 +268,7 @@ function BranchOverviewPage() {
                 <div className="flex items-center gap-2">
                   <Badge variant="outline">{branch.badge}</Badge>
                   <StatusBadge status={branch.status} />
-                  {branch.id === 'prod' ? <ProtectedBranchPopover /> : null}
+                  {branch.id === 'production' ? <ProtectedBranchPopover /> : null}
                 </div>
                 <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">Branch overview</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">

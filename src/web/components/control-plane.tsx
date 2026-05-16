@@ -702,7 +702,7 @@ function formatBranchLine(parent: string, expiresAt: string | null): string {
 }
 
 function formatBranchName(name: string): string {
-  return name === 'prod' ? 'production' : name;
+  return name;
 }
 
 export function formatExpiry(expiresAt: string | null): string {

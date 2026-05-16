@@ -206,7 +206,7 @@ async function testBranchPitr(): Promise<void> {
 
   const job = await api.branches.restore({
     targetBranch: branchName,
-    sourceBranch: 'prod',
+    sourceBranch: 'production',
     restoreTime: targetTime,
   });
   await waitForJob(job.id, JOB_TIMEOUT_MS);
@@ -222,21 +222,21 @@ async function testProductionPitrRestore(): Promise<void> {
   const targetTime = await preparePitrFixture(table);
 
   const job = await api.branches.restore({
-    targetBranch: 'prod',
-    sourceBranch: 'prod',
+    targetBranch: 'production',
+    sourceBranch: 'production',
     restoreTime: targetTime,
   });
   await waitForJob(job.id, JOB_TIMEOUT_MS);
 
   await appHead('/');
-  const rows = await runBranchSql('prod', `select label from ${table} order by id`);
+  const rows = await runBranchSql('production', `select label from ${table} order by id`);
   assert(rows.rows.map(function getLabel(row) {
     return row.label;
-  }).join(',') === 'before', `prod restore should keep before row only: ${JSON.stringify(rows.rows)}`);
+  }).join(',') === 'before', `production restore should keep before row only: ${JSON.stringify(rows.rows)}`);
 }
 
 async function preparePitrFixture(table: string): Promise<string> {
-  await runBranchSql('prod', [
+  await runBranchSql('production', [
     `drop table if exists ${table}`,
     `create table ${table} (id integer primary key, label text not null)`,
     `insert into ${table} (id, label) values (1, 'before')`,
@@ -244,11 +244,11 @@ async function preparePitrFixture(table: string): Promise<string> {
 
   const target = await prodScalar("select (clock_timestamp() + interval '1 second')::timestamptz as target", 'target');
   await sleep(1500);
-  await runBranchSql('prod', 'select pg_switch_wal()');
+  await runBranchSql('production', 'select pg_switch_wal()');
   await sleep(1500);
 
-  await runBranchSql('prod', `insert into ${table} (id, label) values (2, 'after')`);
-  await runBranchSql('prod', 'select pg_switch_wal()');
+  await runBranchSql('production', `insert into ${table} (id, label) values (2, 'after')`);
+  await runBranchSql('production', 'select pg_switch_wal()');
   await waitForProdArchive();
 
   return new Date(String(target)).toISOString();
