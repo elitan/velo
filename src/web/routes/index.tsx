@@ -160,9 +160,9 @@ function HomePage() {
                   })}
                 </SelectContent>
               </Select>
-              {parentBranchId === 'production' && shouldShowReplicaFreshnessWarning(state.replicaFreshness) ? (
-                <p className="text-sm text-amber-700">
-                  {formatReplicaFreshnessWarning(state.replicaFreshness)}
+              {parentBranchId === 'production' && shouldShowReplicaFreshnessInfo(state.replicaFreshness) ? (
+                <p className="text-xs text-muted-foreground">
+                  {formatReplicaFreshnessInfo(state.replicaFreshness)}
                 </p>
               ) : null}
             </div>
@@ -229,12 +229,12 @@ function LoadingPage(props: Readonly<{ message: string }>) {
   );
 }
 
-function shouldShowReplicaFreshnessWarning(freshness: Readonly<{ lagMs: number | null }> | null | undefined): freshness is Readonly<{ lagMs: number }> {
-  return Boolean(freshness?.lagMs && freshness.lagMs > 60_000);
+function shouldShowReplicaFreshnessInfo(freshness: Readonly<{ lagMs: number | null }> | null | undefined): freshness is Readonly<{ lagMs: number }> {
+  return freshness?.lagMs !== null && freshness?.lagMs !== undefined;
 }
 
-function formatReplicaFreshnessWarning(freshness: Readonly<{ lagMs: number }>): string {
-  return `Warning: new branch will be from production state about ${formatDuration(freshness.lagMs)} ago.`;
+function formatReplicaFreshnessInfo(freshness: Readonly<{ lagMs: number }>): string {
+  return `New branch will use production state from about ${formatDuration(freshness.lagMs)} ago.`;
 }
 
 function formatDuration(ms: number): string {
