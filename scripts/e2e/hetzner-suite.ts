@@ -73,7 +73,9 @@ async function testReplicaBase(): Promise<void> {
 
   const state = await api.dashboard.retrieve();
   assert(hasDoneStep(state.setupSteps, 'replica'), 'replica step should be done');
-  await assertZfsDatasetExists(getDatasetName(PROJECT_NAME, 'base'));
+  const baseDataset = await getSetting('replica.baseDataset');
+  assert(baseDataset, 'replica base dataset setting should be set');
+  await assertZfsDatasetExists(baseDataset);
 }
 
 async function testBranchLifecycle(): Promise<void> {
@@ -224,6 +226,8 @@ async function testBranchPitr(): Promise<void> {
 async function testProductionPitrRestore(): Promise<void> {
   const table = `e2e_prod_pitr_${RUN_ID}`;
   const targetTime = await preparePitrFixture(table);
+  const blockedBranchName = `e2e_stale_block_${RUN_ID}`;
+  const rebuiltBranchName = `e2e_after_rebuild_${RUN_ID}`;
 
   const job = await api.branches.restore({
     targetBranch: 'production',
@@ -237,6 +241,19 @@ async function testProductionPitrRestore(): Promise<void> {
   assert(rows.rows.map(function getLabel(row) {
     return row.label;
   }).join(',') === 'before', `production restore should keep before row only: ${JSON.stringify(rows.rows)}`);
+
+  const staleState = await api.dashboard.retrieve();
+  assert(hasStepStatus(staleState.setupSteps, 'replica', 'stale'), 'production restore should mark replica base stale');
+
+  await assertBranchCreateFails(blockedBranchName, 'Production was restored. Rebuild the dev replica before creating a branch');
+
+  const rebuild = await createReplicaBase();
+  assert(rebuild.ok, rebuild.message);
+
+  const rebuiltState = await api.dashboard.retrieve();
+  assert(hasDoneStep(rebuiltState.setupSteps, 'replica'), 'replica step should be done after rebuild');
+
+  await createBranch(rebuiltBranchName);
 }
 
 async function preparePitrFixture(table: string): Promise<string> {
@@ -460,9 +477,26 @@ function assertSingleValue(result: QueryResult, column: string, expected: string
 }
 
 function hasDoneStep(steps: Array<{ key: string; status: string }>, key: string): boolean {
+  return hasStepStatus(steps, key, 'done');
+}
+
+function hasStepStatus(steps: Array<{ key: string; status: string }>, key: string, status: string): boolean {
   return steps.some(function hasMatchingStep(step) {
-    return step.key === key && step.status === 'done';
+    return step.key === key && step.status === status;
   });
+}
+
+async function assertBranchCreateFails(name: string, expectedMessage: string): Promise<void> {
+  const job = await api.branches.create({ name });
+
+  try {
+    await waitForJob(job.id, JOB_TIMEOUT_MS);
+  } catch (error: any) {
+    assert(String(error?.message || error).includes(expectedMessage), `expected branch create to fail with ${expectedMessage}`);
+    return;
+  }
+
+  throw new Error(`expected branch create to fail: ${name}`);
 }
 
 function assert(value: unknown, message: string): asserts value {

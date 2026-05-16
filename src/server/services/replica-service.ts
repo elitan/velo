@@ -4,7 +4,7 @@ import { WALManager } from '../../managers/wal';
 import { CertManager } from '../../managers/cert';
 import { formatPostgresOwner, resolvePostgresOwner, type PostgresOwner } from '../../managers/postgres-owner';
 import { DEFAULTS } from '../../config/defaults';
-import { generatePassword } from '../../utils/helpers';
+import { formatTimestamp, generatePassword } from '../../utils/helpers';
 import { getZFSPool } from '../../utils/zfs-pool';
 import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getDb } from '../../db/client';
@@ -15,6 +15,7 @@ import { createLocalDockerReplicaBase, isLocalDockerMode } from './local-docker-
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
+const BASE_DATASET_PREFIX = `${PROJECT_NAME}.${BASE_BRANCH_NAME}-`;
 const REPLICATION_USER = 'velo_replica';
 const STALE_REPLICA_MS = 30_000;
 
@@ -36,6 +37,13 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
   if (isLocalDockerMode()) {
     return createLocalDockerReplicaBase();
   }
+
+  const setupStep = await getDb()
+    .selectFrom('setupSteps')
+    .select(['status'])
+    .where('key', '=', 'replica')
+    .executeTakeFirst();
+  const shouldRebuildBase = setupStep?.status === 'stale';
 
   await setStepStatus('replica', 'running', 'creating base replica');
 
@@ -71,71 +79,137 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
   const docker = new DockerManager();
   const wal = new WALManager();
   const cert = new CertManager();
-  const baseDataset = getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME);
-
-  if (!(await zfs.datasetExists(baseDataset))) {
-    await zfs.createDataset(baseDataset, {
-      compression: DEFAULTS.zfs.compression,
-      recordsize: DEFAULTS.zfs.recordsize,
-      atime: DEFAULTS.zfs.atime,
-    });
-    await zfs.mountDataset(baseDataset);
-    const mountpoint = await zfs.getMountpoint(baseDataset);
-    await runBaseBackup({
-      prodHost: prod.host,
-      replicationPassword,
-      targetDir: `${mountpoint}/pgdata`,
-    });
-  } else {
-    await zfs.mountDataset(baseDataset);
-  }
-
-  const mountpoint = await zfs.getMountpoint(baseDataset);
-  const pgdata = `${mountpoint}/pgdata`;
-  const pgVersion = await readPgVersion(pgdata);
-  const image = `postgres:${pgVersion}-alpine`;
   const containerName = getContainerName(PROJECT_NAME, BASE_BRANCH_NAME);
+  const currentBaseDataset = await getReplicaBaseDataset();
+  const currentBaseExists = await zfs.datasetExists(currentBaseDataset);
+  const shouldCreateNewBase = shouldRebuildBase || !currentBaseExists;
+  const baseDataset = shouldCreateNewBase ? buildReplicaBaseDatasetName(new Date()) : currentBaseDataset;
+  let createdDataset = false;
+  let containerId: string | null = null;
 
   const existingContainerId = await docker.getContainerByName(containerName);
   if (existingContainerId) {
     await docker.removeContainer(existingContainerId);
   }
 
-  if (!(await docker.imageExists(image))) {
-    await docker.pullImage(image);
+  try {
+    if (shouldCreateNewBase) {
+      await zfs.createDataset(baseDataset, {
+        compression: DEFAULTS.zfs.compression,
+        recordsize: DEFAULTS.zfs.recordsize,
+        atime: DEFAULTS.zfs.atime,
+      });
+      createdDataset = true;
+      await zfs.mountDataset(baseDataset);
+      const targetMountpoint = await zfs.getMountpoint(baseDataset);
+      await runBaseBackup({
+        prodHost: prod.host,
+        replicationPassword,
+        targetDir: `${targetMountpoint}/pgdata`,
+      });
+    } else {
+      await zfs.mountDataset(baseDataset);
+    }
+
+    const mountpoint = await zfs.getMountpoint(baseDataset);
+    const pgdata = `${mountpoint}/pgdata`;
+    const pgVersion = await readPgVersion(pgdata);
+    const image = `postgres:${pgVersion}-alpine`;
+
+    if (!(await docker.imageExists(image))) {
+      await docker.pullImage(image);
+    }
+
+    const postgresOwner = await resolvePostgresOwner(image);
+    await setPostgresDataOwner(pgdata, postgresOwner);
+    await ensurePortablePostgresConfig(pgdata, postgresOwner);
+
+    const certPaths = await cert.generateCerts(PROJECT_NAME, postgresOwner);
+    await wal.ensureArchiveDir(baseDataset, postgresOwner);
+
+    containerId = await docker.createContainer({
+      name: containerName,
+      image,
+      port: 0,
+      dataPath: mountpoint,
+      walArchivePath: wal.getArchivePath(baseDataset),
+      sslCertDir: certPaths.certDir,
+      password: generatePassword(),
+      username: 'postgres',
+      database: 'postgres',
+      publicAccess: false,
+    });
+
+    await docker.startContainer(containerId);
+    await docker.waitForHealthy(containerId);
+
+    await setSetting('replica.baseDataset', baseDataset);
+    await setSetting('replica.postgresImage', image);
+    await setStepStatus('replica', 'done', `base replica ready on ${baseDataset}`);
+    await cleanupOldReplicaBases(baseDataset);
+  } catch (error) {
+    if (containerId) {
+      await docker.removeContainer(containerId).catch(function ignoreContainerCleanupError() {});
+    }
+
+    if (createdDataset) {
+      await zfs.unmountDataset(baseDataset).catch(function ignoreUnmountCleanupError() {});
+      await zfs.destroyDataset(baseDataset, true).catch(function ignoreDatasetCleanupError() {});
+      await wal.deleteArchiveDir(baseDataset).catch(function ignoreWalCleanupError() {});
+    }
+
+    throw error;
   }
-
-  const postgresOwner = await resolvePostgresOwner(image);
-  await setPostgresDataOwner(pgdata, postgresOwner);
-  await ensurePortablePostgresConfig(pgdata, postgresOwner);
-
-  const certPaths = await cert.generateCerts(PROJECT_NAME, postgresOwner);
-  await wal.ensureArchiveDir(baseDataset, postgresOwner);
-
-  const containerId = await docker.createContainer({
-    name: containerName,
-    image,
-    port: 0,
-    dataPath: mountpoint,
-    walArchivePath: wal.getArchivePath(baseDataset),
-    sslCertDir: certPaths.certDir,
-    password: generatePassword(),
-    username: 'postgres',
-    database: 'postgres',
-    publicAccess: false,
-  });
-
-  await docker.startContainer(containerId);
-  await docker.waitForHealthy(containerId);
-
-  await setSetting('replica.baseDataset', baseDataset);
-  await setSetting('replica.postgresImage', image);
-  await setStepStatus('replica', 'done', `base replica ready on ${baseDataset}`);
 
   return {
     ok: true,
     message: `base replica ready on ${baseDataset}`,
   };
+}
+
+export async function getReplicaBaseDataset(): Promise<string> {
+  const configured = await getSetting('replica.baseDataset');
+
+  if (configured) {
+    return configured;
+  }
+
+  return getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME);
+}
+
+export async function cleanupOldReplicaBases(currentBaseDataset?: string): Promise<void> {
+  if (isLocalDockerMode()) {
+    return;
+  }
+
+  const current = currentBaseDataset ?? await getReplicaBaseDataset();
+  const pool = await getZFSPool();
+  const zfs = new ZFSManager(pool, DEFAULTS.zfs.datasetBase);
+  const wal = new WALManager();
+  const prefix = `${pool}/${DEFAULTS.zfs.datasetBase}/`;
+  const datasets = await zfs.listDatasets();
+
+  for (const dataset of datasets) {
+    const name = dataset.name.startsWith(prefix) ? dataset.name.slice(prefix.length) : dataset.name;
+
+    if (name === current || !isReplicaBaseDataset(name)) {
+      continue;
+    }
+
+    await zfs.destroyDatasetWithSnapshots(name).catch(function ignoreDependentBase() {});
+
+    if (!(await zfs.datasetExists(name))) {
+      await wal.deleteArchiveDir(name).catch(function ignoreWalCleanupError() {});
+    }
+  }
+}
+
+function buildReplicaBaseDatasetName(date: Date): string {
+  return `${BASE_DATASET_PREFIX}${formatTimestamp(date).toLowerCase()}`;
+}
+
+function isReplicaBaseDataset(name: string): boolean {
+  return name === getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME) || name.startsWith(BASE_DATASET_PREFIX);
 }
 
 export async function getReplicaFreshness(): Promise<ReplicaFreshness | null> {

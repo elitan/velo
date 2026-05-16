@@ -15,6 +15,7 @@ import { getBackupAvailability } from './backup-availability-service';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand, runSshCommand } from './command-service';
 import { getBackupSettings, setSetting } from './settings-service';
+import { invalidateDevReplicaBase } from './setup-state-service';
 import { createLocalDockerPitrBranch, isLocalDockerMode, restoreLocalDockerProduction } from './local-docker-service';
 import { getBranchConnectionHost } from './branch-network-service';
 
@@ -252,6 +253,7 @@ export async function restoreProductionFromPgBackRest(input: RestoreBranchInput)
   }
 
   await setSetting('prod.lastRestoreAt', restoreTime.toISOString());
+  await invalidateDevReplicaBase('Production was restored. Rebuild the dev replica before creating a branch');
 }
 
 async function restorePgBackRestLocally(pgdata: string, restoreTime: Date): Promise<void> {

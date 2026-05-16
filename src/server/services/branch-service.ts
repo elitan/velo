@@ -11,12 +11,12 @@ import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
+import { cleanupOldReplicaBases, getReplicaBaseDataset } from './replica-service';
 import { createLocalDockerBranch, deleteLocalDockerBranch, deleteLocalDockerBranchResources, isLocalDockerMode } from './local-docker-service';
 import { createJob, getActiveJobs } from './job-service';
 import { getBranchConnectionHost } from './branch-network-service';
 
 const PROJECT_NAME = 'prod';
-const BASE_BRANCH_NAME = 'base';
 
 export interface CreateBranchInput {
   name: string;
@@ -425,7 +425,7 @@ async function resolveBranchSource(parentBranchId: number | null | undefined): P
     return {
       id: null,
       slug: 'production',
-      dataset: getDatasetName(PROJECT_NAME, BASE_BRANCH_NAME),
+      dataset: await getReplicaBaseDataset(),
     };
   }
 
@@ -453,9 +453,13 @@ async function ensureBranchSourceReady(sourceSlug: string): Promise<void> {
 
   const replicaStep = await getDb()
     .selectFrom('setupSteps')
-    .select(['status'])
+    .select(['status', 'message'])
     .where('key', '=', 'replica')
     .executeTakeFirst();
+
+  if (replicaStep?.status === 'stale') {
+    throw new Error(replicaStep.message || 'Production was restored. Rebuild the dev replica before creating a branch');
+  }
 
   if (replicaStep?.status !== 'done') {
     throw new Error('Create the dev replica before creating a branch');
@@ -548,6 +552,7 @@ async function deleteBranchResources(branch: {
   }
 
   await wal.deleteArchiveDir(branch.dataset);
+  await cleanupOldReplicaBases();
 }
 
 async function getBranchContainerId(docker: DockerManager, branch: {

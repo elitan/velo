@@ -26,7 +26,7 @@ export interface SetupStepsTable {
   id: Generated<number>;
   key: string;
   label: string;
-  status: 'pending' | 'running' | 'done' | 'error';
+  status: 'pending' | 'running' | 'done' | 'error' | 'stale';
   message: string | null;
   updatedAt: Timestamp;
 }
