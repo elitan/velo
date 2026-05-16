@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Database } from 'bun:sqlite';
 import { getDatabasePath } from './paths';
+import { ensureStateDirectory, protectDatabaseFiles } from './state-permissions';
 
 interface Migration {
   id: string;
@@ -16,7 +17,7 @@ const migrationsDirs = [
 
 export function migrateDatabase(): void {
   const databasePath = getDatabasePath();
-  mkdirSync(dirname(databasePath), { recursive: true });
+  ensureStateDirectory(databasePath);
 
   const db = new Database(databasePath);
   db.exec('pragma journal_mode = WAL');
@@ -46,6 +47,7 @@ export function migrateDatabase(): void {
   }
 
   db.close();
+  protectDatabaseFiles(databasePath);
 }
 
 function readMigrations(): Migration[] {

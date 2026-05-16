@@ -41,6 +41,9 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 
 bun install --frozen-lockfile
+VELO_STATE_DIR=\"${VELO_DB%/*}\"
+mkdir -p -m 700 \"\$VELO_STATE_DIR\"
+chmod 700 \"\$VELO_STATE_DIR\"
 VELO_DB='$VELO_DB' bun run db:migrate
 bun run web:build
 

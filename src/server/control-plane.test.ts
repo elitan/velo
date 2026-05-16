@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
@@ -80,6 +80,16 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(steps.every(function isPending(step) {
       return step.status === 'pending';
     })).toBe(true);
+  });
+
+  test('keeps state directory and sqlite files private', function testStatePermissions() {
+    const databasePath = process.env.VELO_DB;
+    if (!databasePath) {
+      throw new Error('Missing VELO_DB');
+    }
+
+    expect(statMode(testDir)).toBe(0o700);
+    expect(statMode(databasePath)).toBe(0o600);
   });
 
   test('migrates job queue columns on existing databases', async function testExistingJobMigration() {
@@ -552,6 +562,10 @@ function createPreQueueDatabase(databasePath: string): void {
 
   db.prepare('insert into jobs (type, status) values (?, ?)').run('old-job', 'running');
   db.close();
+}
+
+function statMode(path: string): number {
+  return statSync(path).mode & 0o777;
 }
 
 describe('control plane jobs', function controlPlaneJobs() {

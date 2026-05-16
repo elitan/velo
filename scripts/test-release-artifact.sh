@@ -17,6 +17,14 @@ trap cleanup EXIT
 
 cd "$ROOT_DIR"
 
+file_mode() {
+  if [ "$(uname)" = "Darwin" ]; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
 bun run web:build
 TARBALL="$WORK_DIR/velo.tar.gz"
 scripts/create-release-tarball.sh "$(bun -e "import pkg from './package.json'; console.log(pkg.version)")" "$TARBALL" >/dev/null
@@ -35,6 +43,8 @@ test -f dist/server/assets/migrations/001_initial.sql
 bun install --production --frozen-lockfile
 VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
 VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
+test "$(file_mode "$WORK_DIR/app/.velo")" = "700"
+test "$(file_mode "$WORK_DIR/app/.velo/velo.sqlite")" = "600"
 
 HOST=127.0.0.1 \
 PORT="$PORT" \

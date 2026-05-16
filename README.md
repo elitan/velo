@@ -132,4 +132,4 @@ scripts       deploy, remote dev, cleanup
 
 ## Notes
 
-Velo v2 is web only. There is no CLI entrypoint, no npm binary, and no JSON state engine. Local state lives in SQLite at `.velo/velo.sqlite`.
+Velo v2 is web only. There is no CLI entrypoint, no npm binary, and no JSON state engine. Local state lives in SQLite at `.velo/velo.sqlite`. It contains operational secrets, so keep `.velo` private.
