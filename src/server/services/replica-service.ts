@@ -17,7 +17,9 @@ const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
 const BASE_DATASET_PREFIX = `${PROJECT_NAME}.${BASE_BRANCH_NAME}-`;
 const REPLICATION_USER = 'velo_replica';
+const REPLICATION_SLOT = 'velo_replica_base';
 const STALE_REPLICA_MS = 30_000;
+const MAX_SLOT_RETAINED_WAL_BYTES = 1024 * 1024 * 1024;
 
 export interface ReplicaResult {
   ok: boolean;
@@ -31,6 +33,24 @@ export interface ReplicaFreshness {
   lagMs: number | null;
   byteLag: number | null;
   stale: boolean;
+}
+
+export interface ReplicaBaseHealthInput {
+  walReceiverStatus: string | null;
+  initialReplayLsn: string | null;
+  currentReplayLsn: string | null;
+  replayPaused: boolean;
+  replayedAt: string | null;
+  replayTimelineId: number | null;
+  productionTimelineId: number | null;
+  slotRetainedWalBytes: number | null;
+  now?: Date;
+}
+
+export interface ReplicaBaseHealth {
+  ok: boolean;
+  errors: string[];
+  lagMs: number | null;
 }
 
 export async function createReplicaBase(): Promise<ReplicaResult> {
@@ -82,7 +102,12 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
   const containerName = getContainerName(PROJECT_NAME, BASE_BRANCH_NAME);
   const currentBaseDataset = await getReplicaBaseDataset();
   const currentBaseExists = await zfs.datasetExists(currentBaseDataset);
-  const shouldCreateNewBase = shouldRebuildBase || !currentBaseExists;
+  const currentBaseHasSlot = currentBaseExists && await productionReplicationSlotExists({
+    host: prod.host,
+    user: prod.sshUser,
+    keyPath: prod.sshKeyPath,
+  });
+  const shouldCreateNewBase = shouldRebuildBase || !currentBaseExists || !currentBaseHasSlot;
   const baseDataset = shouldCreateNewBase ? buildReplicaBaseDatasetName(new Date()) : currentBaseDataset;
   let createdDataset = false;
   let containerId: string | null = null;
@@ -102,6 +127,11 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
       createdDataset = true;
       await zfs.mountDataset(baseDataset);
       const targetMountpoint = await zfs.getMountpoint(baseDataset);
+      await resetProductionReplicationSlot({
+        host: prod.host,
+        user: prod.sshUser,
+        keyPath: prod.sshKeyPath,
+      });
       await runBaseBackup({
         prodHost: prod.host,
         replicationPassword,
@@ -142,6 +172,13 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
 
     await docker.startContainer(containerId);
     await docker.waitForHealthy(containerId);
+    await assertReplicaBaseHealthy({
+      docker,
+      containerId,
+      prodHost: prod.host,
+      prodUser: prod.sshUser,
+      prodKeyPath: prod.sshKeyPath,
+    });
 
     await setSetting('replica.baseDataset', baseDataset);
     await setSetting('replica.postgresImage', image);
@@ -235,6 +272,47 @@ export async function getReplicaFreshness(): Promise<ReplicaFreshness | null> {
   return buildReplicaFreshness(prodCurrentLsn, replicaState.devReplayLsn, replicaState.replayedAt);
 }
 
+export function buildReplicaBaseHealth(input: ReplicaBaseHealthInput): ReplicaBaseHealth {
+  const lagMs = getReplayLagMs(input.replayedAt, input.now ?? new Date());
+  const errors: string[] = [];
+
+  if (input.walReceiverStatus !== 'streaming') {
+    errors.push('WAL receiver is not streaming');
+  }
+
+  if (!input.currentReplayLsn || (input.initialReplayLsn !== null && input.initialReplayLsn === input.currentReplayLsn)) {
+    errors.push('replay LSN is not advancing');
+  }
+
+  if (input.replayPaused) {
+    errors.push('WAL replay is paused');
+  }
+
+  if (lagMs === null || lagMs > STALE_REPLICA_MS) {
+    errors.push('replica replay lag is too high');
+  }
+
+  if (
+    input.productionTimelineId === null
+    || input.replayTimelineId === null
+    || input.productionTimelineId !== input.replayTimelineId
+  ) {
+    errors.push('replica timeline does not follow production');
+  }
+
+  if (input.slotRetainedWalBytes === null) {
+    errors.push(`replication slot ${REPLICATION_SLOT} is missing`);
+  } else if (input.slotRetainedWalBytes > MAX_SLOT_RETAINED_WAL_BYTES) {
+    errors.push('replication slot retained WAL is too large');
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    lagMs,
+  };
+}
+
 async function configureProdReplication(options: {
   host: string;
   user: string;
@@ -291,6 +369,177 @@ async function getProductionCurrentLsn(): Promise<string> {
 
   if (result.exitCode !== 0 || !result.stdout) {
     throw new Error(result.stderr || result.stdout || 'could not read production WAL LSN');
+  }
+
+  return result.stdout.trim();
+}
+
+async function assertReplicaBaseHealthy(options: {
+  docker: DockerManager;
+  containerId: string;
+  prodHost: string;
+  prodUser: string;
+  prodKeyPath: string;
+}): Promise<void> {
+  const initial = await getDevBaseHealthState(options.docker, options.containerId);
+  await switchProductionWal({
+    host: options.prodHost,
+    user: options.prodUser,
+    keyPath: options.prodKeyPath,
+  });
+
+  const checked = await waitForReplicaReplayAdvance(options.docker, options.containerId, initial.replayLsn);
+  const production = await getProductionHealthState({
+    host: options.prodHost,
+    user: options.prodUser,
+    keyPath: options.prodKeyPath,
+  });
+  const health = buildReplicaBaseHealth({
+    walReceiverStatus: checked.walReceiverStatus,
+    initialReplayLsn: initial.replayLsn,
+    currentReplayLsn: checked.replayLsn,
+    replayPaused: checked.replayPaused,
+    replayedAt: checked.replayedAt,
+    replayTimelineId: checked.replayTimelineId,
+    productionTimelineId: production.timelineId,
+    slotRetainedWalBytes: production.slotRetainedWalBytes,
+  });
+
+  if (!health.ok) {
+    const message = `replica base health check failed: ${health.errors.join(', ')}`;
+    await setStepStatus('replica', 'error', message);
+    throw new Error(message);
+  }
+}
+
+async function waitForReplicaReplayAdvance(
+  docker: DockerManager,
+  containerId: string,
+  initialReplayLsn: string | null
+): Promise<DevBaseHealthState> {
+  const start = Date.now();
+  let state = await getDevBaseHealthState(docker, containerId);
+
+  while (Date.now() - start < STALE_REPLICA_MS) {
+    if (state.replayLsn && state.replayLsn !== initialReplayLsn) {
+      return state;
+    }
+
+    await Bun.sleep(500);
+    state = await getDevBaseHealthState(docker, containerId);
+  }
+
+  return state;
+}
+
+interface DevBaseHealthState {
+  walReceiverStatus: string | null;
+  replayLsn: string | null;
+  replayedAt: string | null;
+  replayPaused: boolean;
+  replayTimelineId: number | null;
+}
+
+async function getDevBaseHealthState(docker: DockerManager, containerId: string): Promise<DevBaseHealthState> {
+  const output = await docker.execSQL(
+    containerId,
+    [
+      'select',
+      "coalesce((select status from pg_stat_wal_receiver limit 1), '')",
+      "|| '|' || coalesce(pg_last_wal_replay_lsn()::text, '')",
+      "|| '|' || coalesce(pg_last_xact_replay_timestamp()::text, '')",
+      "|| '|' || pg_is_wal_replay_paused()::text",
+      "|| '|' || coalesce((select received_tli::text from pg_stat_wal_receiver limit 1), '')",
+    ].join(' ')
+  );
+  const [walReceiverStatus, replayLsn, replayedAt, replayPaused, replayTimelineId] = output.trim().split('|');
+
+  return {
+    walReceiverStatus: walReceiverStatus || null,
+    replayLsn: replayLsn || null,
+    replayedAt: replayedAt || null,
+    replayPaused: replayPaused === 't',
+    replayTimelineId: parseNullableInteger(replayTimelineId),
+  };
+}
+
+interface ProductionHealthState {
+  timelineId: number | null;
+  slotRetainedWalBytes: number | null;
+}
+
+async function getProductionHealthState(target: {
+  host: string;
+  user: string;
+  keyPath: string;
+}): Promise<ProductionHealthState> {
+  const query = [
+    'select',
+    "coalesce((select timeline_id::text from pg_control_checkpoint()), '')",
+    "|| '|' || coalesce((",
+    'select pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)::bigint::text',
+    'from pg_replication_slots',
+    `where slot_name = '${REPLICATION_SLOT}'`,
+    "), '')",
+  ].join(' ');
+  const output = await runProductionPsql(target, query);
+  const [timelineId, slotRetainedWalBytes] = output.trim().split('|');
+
+  return {
+    timelineId: parseNullableInteger(timelineId),
+    slotRetainedWalBytes: parseNullableInteger(slotRetainedWalBytes),
+  };
+}
+
+async function switchProductionWal(target: {
+  host: string;
+  user: string;
+  keyPath: string;
+}): Promise<void> {
+  await runProductionPsql(target, 'select pg_switch_wal()');
+}
+
+async function resetProductionReplicationSlot(target: {
+  host: string;
+  user: string;
+  keyPath: string;
+}): Promise<void> {
+  await runProductionPsql(
+    target,
+    [
+      'select pg_drop_replication_slot(slot_name)',
+      'from pg_replication_slots',
+      `where slot_name = '${REPLICATION_SLOT}' and not active`,
+    ].join(' ')
+  );
+}
+
+async function productionReplicationSlotExists(target: {
+  host: string;
+  user: string;
+  keyPath: string;
+}): Promise<boolean> {
+  const output = await runProductionPsql(
+    target,
+    `select exists(select 1 from pg_replication_slots where slot_name = '${REPLICATION_SLOT}')`
+  );
+
+  return output === 't';
+}
+
+async function runProductionPsql(target: {
+  host: string;
+  user: string;
+  keyPath: string;
+}, query: string): Promise<string> {
+  const result = await runSshCommand(
+    target,
+    `sudo -u postgres psql -tA -c ${shellQuote(query)}`,
+    30000
+  );
+
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || 'production SQL failed');
   }
 
   return result.stdout.trim();
@@ -410,6 +659,20 @@ function parseWalLsn(value: string): number | null {
   return high * 0x100000000 + low;
 }
 
+function parseNullableInteger(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return parsed;
+}
+
 async function runBaseBackup(options: {
   prodHost: string;
   replicationPassword: string;
@@ -421,7 +684,7 @@ async function runBaseBackup(options: {
     [
       `rm -rf ${shellQuote(options.targetDir)}`,
       `mkdir -p ${shellQuote(options.targetDir)}`,
-      `PGPASSWORD=${shellQuote(options.replicationPassword)} pg_basebackup -h ${shellQuote(options.prodHost)} -U ${REPLICATION_USER} -D ${shellQuote(options.targetDir)} -R -X stream --checkpoint=fast`,
+      `PGPASSWORD=${shellQuote(options.replicationPassword)} pg_basebackup -h ${shellQuote(options.prodHost)} -U ${REPLICATION_USER} -D ${shellQuote(options.targetDir)} -R -X stream --checkpoint=fast -C -S ${shellQuote(REPLICATION_SLOT)}`,
     ].join('\n'),
   ], 60 * 60 * 1000);
 
