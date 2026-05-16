@@ -235,7 +235,7 @@ function BackupRestorePage() {
         <AppSidebar branches={state.branches} activeBranchPage="backup" selectedBranch={selectedBranch} />
 
         <section className="min-w-0">
-          <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto grid w-full max-w-[980px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
             <header>
               <div className="flex items-center gap-2">
                 <Badge variant="outline">{isProd ? 'Production' : 'Development'}</Badge>
@@ -260,7 +260,7 @@ function BackupRestorePage() {
               />
             ) : null}
 
-            <Card className="max-w-5xl">
+            <Card>
               <CardHeader>
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex gap-4">
@@ -356,7 +356,7 @@ function BackupRestorePage() {
               </CardContent>
             </Card>
 
-            <Card className="max-w-5xl">
+            <Card>
               <CardHeader>
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex gap-4">
@@ -475,7 +475,7 @@ function RestoreProgressPanel(props: {
   const error = props.job.error || getLastErrorLog(props.job);
 
   return (
-    <Card className={isActive ? 'max-w-5xl border-blue-500/40 bg-blue-500/10' : 'max-w-5xl'}>
+    <Card className={isActive ? 'border-blue-500/40 bg-blue-500/10' : undefined}>
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
