@@ -11,7 +11,7 @@ import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
-import { createLocalDockerBranch, deleteLocalDockerBranch, isLocalDockerMode } from './local-docker-service';
+import { createLocalDockerBranch, deleteLocalDockerBranch, deleteLocalDockerBranchResources, isLocalDockerMode } from './local-docker-service';
 import { createJob, getActiveJobs } from './job-service';
 import { getBranchConnectionHost } from './branch-network-service';
 
@@ -47,6 +47,23 @@ export interface DeleteBranchInput {
 export interface DeleteBranchResult {
   id: number;
   slug: string;
+  displayName: string;
+}
+
+export interface ReplaceBranchResult extends CreateBranchResult {
+  cleanupLogs: string[];
+}
+
+export interface ReplaceBranchWithReadyBranchInput {
+  targetBranchId: number;
+  replacementBranchId: number;
+  cleanupReplacedBranch?: (branch: ReplacedBranchResource) => Promise<string[]>;
+  cleanupFailedReplacement?: (branchId: number) => Promise<void>;
+}
+
+export interface ReplacedBranchResource {
+  slug: string;
+  dataset: string;
   displayName: string;
 }
 
@@ -258,24 +275,88 @@ async function createBranchClone(options: {
   }
 }
 
-export async function resetBranchFromParent(input: DeleteBranchInput): Promise<CreateBranchResult> {
+export async function resetBranchFromParent(input: DeleteBranchInput): Promise<ReplaceBranchResult> {
   const db = getDb();
   const branch = await db
     .selectFrom('branches')
-    .select(['id', 'slug', 'displayName', 'parentBranchId', 'connectionUrl', 'port'])
+    .select(['id', 'slug', 'displayName', 'parentBranchId', 'connectionUrl'])
     .where('id', '=', input.id)
     .executeTakeFirstOrThrow();
   const branchPassword = getPasswordFromConnectionUrl(branch.connectionUrl);
+  const replacementSlug = buildReplacementBranchSlug(branch.slug);
 
-  await deleteBranch({ id: branch.id });
-
-  return createBranchFromBase({
+  const replacement = await createBranchFromBase({
     name: branch.displayName,
-    slug: branch.slug,
+    slug: replacementSlug,
     parentBranchId: branch.parentBranchId,
     branchPassword,
-    preferredPort: branch.port,
   });
+
+  return replaceBranchWithReadyBranch({
+    targetBranchId: branch.id,
+    replacementBranchId: replacement.id,
+  });
+}
+
+export async function replaceBranchWithReadyBranch(input: ReplaceBranchWithReadyBranchInput): Promise<ReplaceBranchResult> {
+  const db = getDb();
+  const target = await db
+    .selectFrom('branches')
+    .selectAll()
+    .where('id', '=', input.targetBranchId)
+    .executeTakeFirstOrThrow();
+  const replacement = await db
+    .selectFrom('branches')
+    .selectAll()
+    .where('id', '=', input.replacementBranchId)
+    .executeTakeFirstOrThrow();
+  let promoted = false;
+
+  try {
+    await assertBranchHasNoChildren(target.id);
+
+    await db.transaction().execute(async function promoteReplacement(tx) {
+      await tx
+        .updateTable('branches')
+        .set({
+          dataset: replacement.dataset,
+          port: replacement.port,
+          status: replacement.status,
+          sourceReplayAt: replacement.sourceReplayAt,
+          connectionUrl: replacement.connectionUrl,
+          updatedAt: new Date().toISOString(),
+        })
+        .where('id', '=', target.id)
+        .execute();
+
+      await tx
+        .deleteFrom('branches')
+        .where('id', '=', replacement.id)
+        .execute();
+    });
+
+    promoted = true;
+  } catch (error) {
+    if (input.cleanupFailedReplacement) {
+      await input.cleanupFailedReplacement(replacement.id).catch(function ignoreReplacementCleanupError() {});
+    } else {
+      await deleteBranch({ id: replacement.id }).catch(function ignoreReplacementCleanupError() {});
+    }
+
+    throw error;
+  }
+
+  const cleanupLogs = promoted
+    ? await (input.cleanupReplacedBranch || cleanupReplacedBranchResources)(target)
+    : [];
+
+  return {
+    id: target.id,
+    slug: target.slug,
+    displayName: target.displayName,
+    connectionUrl: replacement.connectionUrl || target.connectionUrl || '',
+    cleanupLogs,
+  };
 }
 
 export async function updateBranchExpiry(input: UpdateBranchExpiryInput): Promise<void> {
@@ -383,15 +464,7 @@ async function ensureBranchSourceReady(sourceSlug: string): Promise<void> {
 
 export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBranchResult> {
   const db = getDb();
-  const child = await db
-    .selectFrom('branches')
-    .select(['id', 'displayName'])
-    .where('parentBranchId', '=', input.id)
-    .executeTakeFirst();
-
-  if (child) {
-    throw new Error(`Branch has child branches. Delete ${child.displayName} first.`);
-  }
+  await assertBranchHasNoChildren(input.id);
 
   if (isLocalDockerMode()) {
     return deleteLocalDockerBranch(input.id);
@@ -402,13 +475,55 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
     .selectAll()
     .where('id', '=', input.id)
     .executeTakeFirstOrThrow();
+  await deleteBranchResources(branch);
 
+  await db
+    .deleteFrom('branches')
+    .where('id', '=', branch.id)
+    .execute();
+
+  return {
+    id: branch.id,
+    slug: branch.slug,
+    displayName: branch.displayName,
+  };
+}
+
+async function assertBranchHasNoChildren(branchId: number): Promise<void> {
+  const child = await getDb()
+    .selectFrom('branches')
+    .select(['id', 'displayName'])
+    .where('parentBranchId', '=', branchId)
+    .executeTakeFirst();
+
+  if (child) {
+    throw new Error(`Branch has child branches. Delete ${child.displayName} first.`);
+  }
+}
+
+async function cleanupReplacedBranchResources(branch: ReplacedBranchResource): Promise<string[]> {
+  try {
+    if (isLocalDockerMode()) {
+      await deleteLocalDockerBranchResources(branch.dataset);
+    } else {
+      await deleteBranchResources(branch);
+    }
+
+    return [`cleaned up old branch resources for ${branch.displayName}`];
+  } catch (error: any) {
+    return [`replacement succeeded, but old resource cleanup failed: ${error.message || String(error)}`];
+  }
+}
+
+async function deleteBranchResources(branch: {
+  slug: string;
+  dataset: string;
+}): Promise<void> {
   const pool = await getZFSPool();
   const zfs = new ZFSManager(pool, DEFAULTS.zfs.datasetBase);
   const docker = new DockerManager();
   const wal = new WALManager();
-  const containerName = getContainerName(PROJECT_NAME, branch.slug);
-  const containerId = await docker.getContainerByName(containerName);
+  const containerId = await getBranchContainerId(docker, branch);
   const originSnapshot = await getOriginSnapshot(zfs, branch.dataset);
 
   if (containerId) {
@@ -433,17 +548,23 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBran
   }
 
   await wal.deleteArchiveDir(branch.dataset);
+}
 
-  await db
-    .deleteFrom('branches')
-    .where('id', '=', branch.id)
-    .execute();
+async function getBranchContainerId(docker: DockerManager, branch: {
+  slug: string;
+  dataset: string;
+}): Promise<string | null> {
+  const slugContainer = await docker.getContainerByName(getContainerName(PROJECT_NAME, branch.slug));
 
-  return {
-    id: branch.id,
-    slug: branch.slug,
-    displayName: branch.displayName,
-  };
+  if (slugContainer) {
+    return slugContainer;
+  }
+
+  if (branch.dataset.startsWith(`${PROJECT_NAME}.`)) {
+    return docker.getContainerByName(getContainerName(PROJECT_NAME, branch.dataset.slice(PROJECT_NAME.length + 1)));
+  }
+
+  return null;
 }
 
 async function setBranchPassword(docker: DockerManager, containerId: string, password: string): Promise<void> {
@@ -597,6 +718,12 @@ function normalizeSourceBranch(name: string): string {
 function buildPreviewBranchName(sourceBranch: string): string {
   const safeSource = sourceBranch.replace(/[^a-z0-9_-]/g, '-').slice(0, 28);
   return normalizeBranchSlug(`preview-${safeSource}-${formatTimestamp(new Date())}`.slice(0, 63));
+}
+
+function buildReplacementBranchSlug(slug: string): string {
+  const suffix = formatTimestamp(new Date()).toLowerCase();
+  const prefix = slug.slice(0, Math.max(1, 63 - suffix.length - 5));
+  return normalizeBranchSlug(`${prefix}-tmp-${suffix}`);
 }
 
 function parseRestoreTime(value: string): Date {

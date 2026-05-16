@@ -208,6 +208,15 @@ export async function deleteLocalDockerBranch(id: number) {
   };
 }
 
+export async function deleteLocalDockerBranchResources(dataset: string): Promise<void> {
+  if (dataset.startsWith('container:')) {
+    await deleteRestoreContainer(dataset);
+    return;
+  }
+
+  await dropDevDatabase(dataset);
+}
+
 export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput): Promise<LocalDockerBranchResult> {
   const branchSlug = normalizeBranchSlug(input.targetBranch);
   const restoreTime = parseRestoreTime(input.restoreTime);
