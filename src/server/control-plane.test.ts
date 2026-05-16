@@ -19,7 +19,7 @@ import {
   type JobHandlers,
 } from './services/job-service';
 import { parseCreateBranchJobInput } from './services/job-handlers';
-import { createBranchFromBase, replaceBranchWithReadyBranch, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
+import { createBranchFromBase, listProxyBranches, replaceBranchWithReadyBranch, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, invalidateDevReplicaBase, saveServer, setStepStatus } from './services/setup-state-service';
@@ -132,6 +132,52 @@ describe('control plane database', function controlPlaneDatabase() {
       });
       expect(job.run_after).toBeTruthy();
       expect(log?.message).toBe('old log');
+    } finally {
+      await closeDb();
+      process.env.VELO_DB = originalDb;
+      rmSync(existingDir, { recursive: true, force: true });
+    }
+  });
+
+  test('migrates branch proxy columns on existing databases', async function testExistingBranchProxyMigration() {
+    const originalDb = process.env.VELO_DB;
+    const existingDir = mkdtempSync(join(tmpdir(), 'velo-existing-proxy-'));
+    const existingDbPath = join(existingDir, 'velo.sqlite');
+
+    await closeDb();
+
+    try {
+      createPreProxyDatabase(existingDbPath);
+      process.env.VELO_DB = existingDbPath;
+      migrateDatabase();
+
+      const db = new Database(existingDbPath);
+      const branch = db
+        .query(`
+          select port, proxy_port, backend_port, last_active_at, stopped_at
+          from branches
+          where slug = ?
+        `)
+        .get('old-dev') as {
+          port: number;
+          proxy_port: number | null;
+          backend_port: number | null;
+          last_active_at: string | null;
+          stopped_at: string | null;
+        };
+      const proxyIndex = db
+        .query("select name from sqlite_master where type = 'index' and name = 'branches_proxy_port_idx'")
+        .get() as { name: string } | null;
+      db.close();
+
+      expect(branch).toEqual({
+        port: 41001,
+        proxy_port: null,
+        backend_port: 41001,
+        last_active_at: '2026-05-16T10:00:00.000Z',
+        stopped_at: null,
+      });
+      expect(proxyIndex?.name).toBe('branches_proxy_port_idx');
     } finally {
       await closeDb();
       process.env.VELO_DB = originalDb;
@@ -520,6 +566,98 @@ describe('control plane database', function controlPlaneDatabase() {
     }]);
   });
 
+  test('keeps proxy connection stable when promoting replacement', async function testPromoteReplacementKeepsProxy() {
+    const projectId = await createProject();
+    const originalId = await createBranchRecord({
+      projectId,
+      slug: 'dev',
+      displayName: 'dev',
+      dataset: 'prod.dev',
+      port: 41001,
+      proxyPort: 41001,
+      backendPort: 51001,
+      connectionUrl: 'postgresql://postgres:old@example.com:41001/postgres',
+    });
+    const replacementId = await createBranchRecord({
+      projectId,
+      slug: 'dev-tmp',
+      displayName: 'dev',
+      dataset: 'prod.dev_tmp',
+      port: 41002,
+      proxyPort: 41002,
+      backendPort: 51002,
+      connectionUrl: 'postgresql://postgres:new@example.com:41002/postgres',
+    });
+
+    const result = await replaceBranchWithReadyBranch({
+      targetBranchId: originalId,
+      replacementBranchId: replacementId,
+      cleanupReplacedBranch: async function cleanup(branch) {
+        return [`cleaned ${branch.dataset}`];
+      },
+    });
+    const branch = await getDb()
+      .selectFrom('branches')
+      .select(['id', 'slug', 'dataset', 'port', 'proxyPort', 'backendPort', 'connectionUrl'])
+      .where('id', '=', originalId)
+      .executeTakeFirstOrThrow();
+
+    expect(result).toMatchObject({
+      id: originalId,
+      slug: 'dev',
+      connectionUrl: 'postgresql://postgres:old@example.com:41001/postgres',
+    });
+    expect(branch).toEqual({
+      id: originalId,
+      slug: 'dev',
+      dataset: 'prod.dev_tmp',
+      port: 41001,
+      proxyPort: 41001,
+      backendPort: 51002,
+      connectionUrl: 'postgresql://postgres:old@example.com:41001/postgres',
+    });
+  });
+
+  test('lists only branches with proxy and backend ports', async function testListProxyBranches() {
+    const projectId = await createProject();
+    await createBranchRecord({
+      projectId,
+      slug: 'legacy',
+      displayName: 'legacy',
+      dataset: 'prod.legacy',
+      port: 41001,
+    });
+    await createBranchRecord({
+      projectId,
+      slug: 'missing-backend',
+      displayName: 'missing-backend',
+      dataset: 'prod.missing_backend',
+      port: 41002,
+      proxyPort: 41002,
+    });
+    await createBranchRecord({
+      projectId,
+      slug: 'proxied',
+      displayName: 'proxied',
+      dataset: 'prod.proxied',
+      port: 41003,
+      proxyPort: 41003,
+      backendPort: 51003,
+      lastActiveAt: '2026-05-16T10:00:00.000Z',
+    });
+
+    const branches = await listProxyBranches();
+
+    expect(branches).toEqual([{
+      id: expect.any(Number),
+      slug: 'proxied',
+      status: 'running',
+      proxyPort: 41003,
+      backendPort: 51003,
+      lastActiveAt: '2026-05-16T10:00:00.000Z',
+    }]);
+  });
+
   test('keeps original branch when replacement promotion fails', async function testReplacementPromotionFailureKeepsOriginal() {
     const projectId = await createProject();
     const originalId = await createBranchRecord({
@@ -639,7 +777,11 @@ async function createBranchRecord(input: {
   dataset: string;
   parentBranchId?: number | null;
   port?: number | null;
+  proxyPort?: number | null;
+  backendPort?: number | null;
   connectionUrl?: string | null;
+  lastActiveAt?: string | null;
+  status?: 'creating' | 'running' | 'stopped' | 'error';
 }): Promise<number> {
   await getDb()
     .insertInto('branches')
@@ -648,10 +790,13 @@ async function createBranchRecord(input: {
       slug: input.slug,
       displayName: input.displayName,
       dataset: input.dataset,
-      status: 'running',
+      status: input.status ?? 'running',
       parentBranchId: input.parentBranchId ?? null,
       port: input.port ?? null,
+      proxyPort: input.proxyPort ?? null,
+      backendPort: input.backendPort ?? null,
       connectionUrl: input.connectionUrl ?? null,
+      lastActiveAt: input.lastActiveAt ?? null,
     })
     .execute();
 
@@ -680,6 +825,60 @@ function createPreQueueDatabase(databasePath: string): void {
 
   const job = db.prepare('insert into jobs (type, status) values (?, ?)').run('old-job', 'running');
   db.prepare('insert into job_logs (job_id, level, message) values (?, ?, ?)').run(Number(job.lastInsertRowid), 'info', 'old log');
+  db.close();
+}
+
+function createPreProxyDatabase(databasePath: string): void {
+  const db = new Database(databasePath);
+  db.exec(`
+    create table schema_migrations (
+      id text primary key,
+      applied_at text not null default (datetime('now'))
+    );
+  `);
+
+  for (const id of [
+    '001_initial',
+    '002_jobs',
+    '003_branch_parent',
+    '004_branch_identity',
+    '005_branch_expiry',
+    '005_job_queue',
+    '006_remove_first_branch_setup_step',
+    '007_setup_step_stale_status',
+    '008_job_recovery_links',
+  ]) {
+    db.exec(readFileSync(join(process.cwd(), 'src/db/migrations', `${id}.sql`), 'utf8'));
+    db.prepare('insert into schema_migrations (id) values (?)').run(id);
+  }
+
+  const project = db
+    .prepare('insert into projects (name, postgres_version, database_name, app_user) values (?, ?, ?, ?)')
+    .run('prod', '17', 'postgres', 'postgres');
+  db
+    .prepare(`
+      insert into branches (
+        project_id,
+        slug,
+        display_name,
+        dataset,
+        port,
+        status,
+        created_at,
+        updated_at
+      )
+      values (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      Number(project.lastInsertRowid),
+      'old-dev',
+      'old dev',
+      'prod.old_dev',
+      41001,
+      'running',
+      '2026-05-16T09:00:00.000Z',
+      '2026-05-16T10:00:00.000Z'
+    );
   db.close();
 }
 

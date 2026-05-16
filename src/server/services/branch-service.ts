@@ -379,7 +379,7 @@ export async function replaceBranchWithReadyBranch(input: ReplaceBranchWithReady
     id: target.id,
     slug: target.slug,
     displayName: target.displayName,
-    connectionUrl: replacement.connectionUrl || target.connectionUrl || '',
+    connectionUrl: promotedConnectionUrl || '',
     cleanupLogs,
   };
 }
