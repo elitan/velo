@@ -184,7 +184,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
 export async function restoreDevelopmentBranchFromPgBackRest(input: RestoreBranchInput): Promise<RestoreBranchResult> {
   const targetBranch = normalizeBranchName(input.targetBranch);
 
-  if (targetBranch === 'production') {
+  if (isProductionBranch(targetBranch)) {
     throw new Error('Use restoreProductionFromPgBackRest for production restores');
   }
 
@@ -423,9 +423,14 @@ async function ensureProject() {
 }
 
 function assertProdSource(sourceBranch: string): void {
-  if (sourceBranch !== 'production') {
+  if (!isProductionBranch(sourceBranch)) {
     throw new Error('PITR restore currently supports production as the source branch');
   }
+}
+
+function isProductionBranch(branch: string): boolean {
+  const normalized = branch.trim().toLowerCase();
+  return normalized === 'production' || normalized === 'prod';
 }
 
 function normalizeBranchName(name: string): string {

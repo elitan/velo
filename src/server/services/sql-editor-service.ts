@@ -51,7 +51,7 @@ export async function runBranchSql(input: RunBranchSqlInput): Promise<RunBranchS
 }
 
 async function getBranchConnectionUrl(branchId: string): Promise<string> {
-  if (branchId === 'production') {
+  if (isProductionBranch(branchId)) {
     const connectionUrl = await getSetting('prod.connectionUrl');
 
     if (!connectionUrl) {
@@ -72,6 +72,11 @@ async function getBranchConnectionUrl(branchId: string): Promise<string> {
   }
 
   return branch.connectionUrl;
+}
+
+function isProductionBranch(branchId: string): boolean {
+  const normalized = branchId.trim().toLowerCase();
+  return normalized === 'production' || normalized === 'prod';
 }
 
 function getColumns(rows: Array<Record<string, string | number | boolean | null>>): string[] {

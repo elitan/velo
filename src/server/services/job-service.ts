@@ -440,7 +440,12 @@ function isProductionRestore(input: unknown): boolean {
   return typeof input === 'object'
     && input !== null
     && 'targetBranch' in input
-    && String(input.targetBranch).trim().toLowerCase() === 'production';
+    && isProductionBranch(String(input.targetBranch));
+}
+
+function isProductionBranch(branch: string): boolean {
+  const normalized = branch.trim().toLowerCase();
+  return normalized === 'production' || normalized === 'prod';
 }
 
 function getBackoffSeconds(attempt: number): number {

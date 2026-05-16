@@ -277,7 +277,7 @@ export async function deleteTableRow(input: TableRowDeleteInput): Promise<void> 
 }
 
 async function getBranchConnectionUrl(branchId: string): Promise<string | null> {
-  if (branchId === 'production') {
+  if (isProductionBranch(branchId)) {
     return getSetting('prod.connectionUrl');
   }
 
@@ -288,6 +288,11 @@ async function getBranchConnectionUrl(branchId: string): Promise<string | null> 
     .executeTakeFirst();
 
   return branch?.connectionUrl || null;
+}
+
+function isProductionBranch(branchId: string): boolean {
+  const normalized = branchId.trim().toLowerCase();
+  return normalized === 'production' || normalized === 'prod';
 }
 
 async function listTables(sql: SQL): Promise<TableBrowserTable[]> {

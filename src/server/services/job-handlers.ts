@@ -65,7 +65,7 @@ export const jobHandlers: JobHandlers = {
     const parsed = restoreBranchInput.parse(input);
     await context.log(`restoring ${parsed.targetBranch} from ${parsed.sourceBranch}`);
 
-    if (parsed.targetBranch.trim().toLowerCase() === 'production') {
+    if (isProductionBranch(parsed.targetBranch)) {
       context.disableRetry();
       await restoreProductionFromPgBackRest(parsed);
       await context.log('production restore completed');
@@ -113,6 +113,11 @@ export const jobHandlers: JobHandlers = {
 
 export function parseCreateBranchJobInput(input: unknown) {
   return branchInput.parse(input);
+}
+
+function isProductionBranch(branch: string): boolean {
+  const normalized = branch.trim().toLowerCase();
+  return normalized === 'production' || normalized === 'prod';
 }
 
 async function runSetupJob(context: JobContext): Promise<void> {
