@@ -44,6 +44,7 @@ import {
 
 const LOCAL_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
 const TIME_FORMAT_LABEL = `Times are local to ${LOCAL_TIME_ZONE}.`;
+const PRODUCTION_RESTORE_CONFIRMATION = 'restore production';
 
 export const Route = createFileRoute('/branch/$branchId/backup-restore')({
   component: BackupRestorePage,
@@ -67,6 +68,7 @@ function BackupRestorePage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBranch, setPreviewBranch] = useState<PreviewBranch | null>(null);
   const [restorePromptOpen, setRestorePromptOpen] = useState(false);
+  const [productionRestoreConfirmation, setProductionRestoreConfirmation] = useState('');
   const [restoreJobId, setRestoreJobId] = useState<number | null>(null);
   const previewBusy = createPreviewBranch.isPending || deletePreviewBranch.isPending;
   const restoreBusy = restoreBranch.isPending;
@@ -149,6 +151,7 @@ function BackupRestorePage() {
   const restorePointOptions = getRestorePointOptions(restoreWindow);
   const restoreTimeValid = pitrAvailable && isRestoreTimeInWindow(restoreTime, restoreWindow);
   const sourceBranch = 'production';
+  const restoreHistory = getRestoreHistory(state.jobs, selectedBranch);
 
   function selectRestorePoint(value: string) {
     setRestorePoint(value);
@@ -212,17 +215,33 @@ function BackupRestorePage() {
     }
   }
 
+  function handleOpenRestorePrompt() {
+    setProductionRestoreConfirmation('');
+    setRestorePromptOpen(true);
+  }
+
   async function handleRestore() {
     try {
       const job = await restoreBranch.mutateAsync({
         targetBranch: selectedBranch,
         sourceBranch,
         restoreTime: toRestoreIso(restoreTime),
+        productionRestoreConfirmation: isProd ? productionRestoreConfirmation : undefined,
       });
+      const previewBranchToDelete = previewBranch;
       setRestoreJobId(job.id);
       setRestorePromptOpen(false);
       setPreviewOpen(false);
+      setPreviewBranch(null);
+      setProductionRestoreConfirmation('');
       toast.loading(`Restoring ${selectedBranchLabel}.`, { id: `restore-${job.id}` });
+
+      if (previewBranchToDelete) {
+        void deletePreviewBranch.mutateAsync({ id: previewBranchToDelete.id }).catch(function showPreviewDeleteError(error: any) {
+          toast.error(error?.message || `Could not delete preview branch ${previewBranchToDelete.displayName}`);
+        });
+      }
+
       await refreshDashboard();
     } catch (error: any) {
       toast.error(error?.message || 'Could not start restore');
@@ -325,6 +344,14 @@ function BackupRestorePage() {
                   </div>
                 </div>
 
+                <RestoreSelectionSummary
+                  targetBranch={selectedBranchLabel}
+                  sourceBranch={sourceBranch}
+                  restoreTime={restoreTime}
+                  restoreWindow={restoreWindow}
+                  available={pitrAvailable}
+                />
+
                 <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
                   <p className="max-w-xl text-xs leading-5 text-muted-foreground">
                     Preview creates a temporary read-only restore branch for the selected time. Production and dev branches stay untouched.
@@ -345,7 +372,7 @@ function BackupRestorePage() {
                       type="button"
                       disabled={!restoreTimeValid || previewBusy || restoreLocked}
                       onClick={function restoreClick() {
-                        setRestorePromptOpen(true);
+                        handleOpenRestorePrompt();
                       }}
                     >
                       {restoreLocked ? 'Restore running' : 'Restore to point in time'}
@@ -426,6 +453,8 @@ function BackupRestorePage() {
                 </div>
               </CardContent>
             </Card>
+
+            <RestoreHistoryPanel jobs={restoreHistory} selectedBranch={selectedBranchLabel} />
           </div>
         </section>
       </div>
@@ -440,7 +469,7 @@ function BackupRestorePage() {
             void handleClosePreview();
           }}
           onRestore={function restoreFromPreview() {
-            void handleRestore();
+            handleOpenRestorePrompt();
           }}
           restoreBusy={restoreBusy}
         />
@@ -451,11 +480,13 @@ function BackupRestorePage() {
           branch={selectedBranch}
           sourceBranch={sourceBranch}
           restoreTime={restoreTime}
+          confirmation={productionRestoreConfirmation}
           previewBusy={previewBusy}
           restoreBusy={restoreBusy}
           onClose={function closeRestorePrompt() {
             setRestorePromptOpen(false);
           }}
+          onConfirmationChange={setProductionRestoreConfirmation}
           onRestore={function confirmRestore() {
             void handleRestore();
           }}
@@ -527,15 +558,100 @@ function RestoreProgressPanel(props: {
   );
 }
 
+function RestoreSelectionSummary(props: {
+  targetBranch: string;
+  sourceBranch: string;
+  restoreTime: string;
+  restoreWindow: { min: string | null; max: string | null };
+  available: boolean;
+}) {
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-4 text-sm sm:grid-cols-3">
+      <SummaryItem label="Target" value={props.targetBranch} />
+      <SummaryItem label="Source" value={props.sourceBranch} />
+      <SummaryItem label="Selected time" value={formatDisplayDateTime(props.restoreTime)} />
+      <div className="sm:col-span-3">
+        <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">PITR window</p>
+        <p className="mt-1 text-sm text-foreground">
+          {props.available && props.restoreWindow.min && props.restoreWindow.max
+            ? `${formatDisplayDateTime(props.restoreWindow.min)} to ${formatDisplayDateTime(props.restoreWindow.max)} (${LOCAL_TIME_ZONE})`
+            : 'No PITR window available'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function RestoreHistoryPanel(props: {
+  jobs: RestoreJob[];
+  selectedBranch: string;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Restore history</CardTitle>
+        <CardDescription>Recent restore jobs for {props.selectedBranch}.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {props.jobs.length ? (
+          <div className="grid gap-3">
+            {props.jobs.map(function renderRestoreHistory(job) {
+              const input = getRestoreInput(job);
+
+              return (
+                <div key={job.id} className="grid gap-2 rounded-md border border-border p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-start">
+                  <div>
+                    <p className="font-medium">
+                      {input?.targetBranch || props.selectedBranch} from {input?.sourceBranch || 'production'}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {input?.restoreTime ? formatDisplayDateTime(input.restoreTime) : 'time unavailable'} · job #{job.id} · {formatDisplayDateTime(job.createdAt)}
+                    </p>
+                    {job.error ? (
+                      <p className="mt-2 line-clamp-2 text-xs text-destructive">{job.error}</p>
+                    ) : null}
+                  </div>
+                  <StatusBadge status={job.status} />
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No restore jobs yet.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SummaryItem(props: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{props.label}</p>
+      <p className="mt-1 font-medium text-foreground">{props.value}</p>
+    </div>
+  );
+}
+
 function RestorePromptModal(props: {
   branch: string;
   sourceBranch: string;
   restoreTime: string;
+  confirmation: string;
   previewBusy: boolean;
   restoreBusy: boolean;
   onClose: () => void;
+  onConfirmationChange: (value: string) => void;
   onRestore: () => void;
 }) {
+  const isProduction = props.branch === 'production';
+  const restoreDisabled = props.previewBusy
+    || props.restoreBusy
+    || (isProduction && props.confirmation !== PRODUCTION_RESTORE_CONFIRMATION);
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-md border border-border bg-card p-5 text-card-foreground shadow-xl">
@@ -552,6 +668,27 @@ function RestorePromptModal(props: {
           </div>
         </div>
 
+        <div className="mt-5 grid gap-3 rounded-md border border-border bg-muted/20 p-4 text-sm">
+          <SummaryItem label="Target" value={props.branch} />
+          <SummaryItem label="Source" value={props.sourceBranch} />
+          <SummaryItem label="Selected time" value={`${formatDisplayDateTime(props.restoreTime)} (${LOCAL_TIME_ZONE})`} />
+        </div>
+
+        {isProduction ? (
+          <div className="mt-5 grid gap-2">
+            <Label htmlFor="production-restore-confirmation">Type {PRODUCTION_RESTORE_CONFIRMATION}</Label>
+            <Input
+              id="production-restore-confirmation"
+              aria-label="Production restore confirmation"
+              value={props.confirmation}
+              autoComplete="off"
+              onChange={function changeConfirmation(event) {
+                props.onConfirmationChange(event.target.value);
+              }}
+            />
+          </div>
+        ) : null}
+
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="outline" onClick={props.onClose}>
             Cancel
@@ -560,7 +697,7 @@ function RestorePromptModal(props: {
             type="button"
             autoFocus
             data-default-action=""
-            disabled={props.previewBusy || props.restoreBusy}
+            disabled={restoreDisabled}
             onClick={props.onRestore}
           >
             {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
@@ -844,6 +981,14 @@ function getRestoreJob(jobs: RestoreJob[], selectedBranch: string, restoreJobId:
       && input?.targetBranch === selectedBranch
       && (job.status === 'queued' || job.status === 'running');
   }) || null;
+}
+
+function getRestoreHistory(jobs: RestoreJob[], selectedBranch: string): RestoreJob[] {
+  return jobs.filter(function isSelectedRestoreJob(job) {
+    const input = getRestoreInput(job);
+
+    return job.type === 'restore-branch' && input?.targetBranch === selectedBranch;
+  }).slice(0, 6);
 }
 
 function getRestoreInput(job: RestoreJob): { targetBranch: string; sourceBranch: string; restoreTime: string } | null {

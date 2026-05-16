@@ -373,6 +373,27 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(await listJobs(10)).toHaveLength(0);
   });
 
+  test('requires typed confirmation before production restore enqueue', async function testProductionRestoreConfirmation() {
+    const api = createApiClient();
+    const restoreInput = {
+      targetBranch: 'prod',
+      sourceBranch: 'production',
+      restoreTime: new Date().toISOString(),
+    };
+
+    await expect(api.branches.restore(restoreInput)).rejects.toThrow('Type restore production to restore production');
+    expect(await listJobs(10)).toHaveLength(0);
+
+    const job = await api.branches.restore({
+      ...restoreInput,
+      productionRestoreConfirmation: 'restore production',
+    });
+    const record = await getJob(job.id);
+
+    expect(record.type).toBe('restore-branch');
+    expect(record.input).toEqual(restoreInput);
+  });
+
   test('tracks branch expiry and skips active cleanup targets', async function testBranchExpiry() {
     const db = getDb();
     await db
