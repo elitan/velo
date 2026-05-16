@@ -16,10 +16,20 @@ import { createLocalDockerReplicaBase, isLocalDockerMode } from './local-docker-
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
 const REPLICATION_USER = 'velo_replica';
+const STALE_REPLICA_MS = 30_000;
 
 export interface ReplicaResult {
   ok: boolean;
   message: string;
+}
+
+export interface ReplicaFreshness {
+  prodCurrentLsn: string;
+  devReplayLsn: string | null;
+  replayedAt: string | null;
+  lagMs: number | null;
+  byteLag: number | null;
+  stale: boolean;
 }
 
 export async function createReplicaBase(): Promise<ReplicaResult> {
@@ -128,6 +138,29 @@ export async function createReplicaBase(): Promise<ReplicaResult> {
   };
 }
 
+export async function getReplicaFreshness(): Promise<ReplicaFreshness | null> {
+  const replicaStep = await getDb()
+    .selectFrom('setupSteps')
+    .select(['status'])
+    .where('key', '=', 'replica')
+    .executeTakeFirst();
+
+  if (replicaStep?.status !== 'done') {
+    return null;
+  }
+
+  if (isLocalDockerMode()) {
+    return getLocalDockerReplicaFreshness();
+  }
+
+  const [prodCurrentLsn, replicaState] = await Promise.all([
+    getProductionCurrentLsn(),
+    getDevBaseReplayState(),
+  ]);
+
+  return buildReplicaFreshness(prodCurrentLsn, replicaState.devReplayLsn, replicaState.replayedAt);
+}
+
 async function configureProdReplication(options: {
   host: string;
   user: string;
@@ -164,6 +197,143 @@ async function configureProdReplication(options: {
     await setStepStatus('replica', 'error', result.stderr || result.stdout || 'prod replication setup failed');
     throw new Error(result.stderr || result.stdout || 'prod replication setup failed');
   }
+}
+
+async function getProductionCurrentLsn(): Promise<string> {
+  const prod = await getDb()
+    .selectFrom('servers')
+    .selectAll()
+    .where('role', '=', 'prod')
+    .executeTakeFirstOrThrow();
+
+  const result = await runSshCommand(
+    {
+      host: prod.host,
+      user: prod.sshUser,
+      keyPath: prod.sshKeyPath,
+    },
+    'sudo -u postgres psql -tAc "select pg_current_wal_lsn()"'
+  );
+
+  if (result.exitCode !== 0 || !result.stdout) {
+    throw new Error(result.stderr || result.stdout || 'could not read production WAL LSN');
+  }
+
+  return result.stdout.trim();
+}
+
+async function getDevBaseReplayState(): Promise<{ devReplayLsn: string | null; replayedAt: string | null }> {
+  const docker = new DockerManager();
+  const containerName = getContainerName(PROJECT_NAME, BASE_BRANCH_NAME);
+  const containerId = await docker.getContainerByName(containerName);
+
+  if (!containerId) {
+    throw new Error(`Replica base container not found: ${containerName}`);
+  }
+
+  const output = await docker.execSQL(
+    containerId,
+    "select pg_last_wal_replay_lsn(), pg_last_xact_replay_timestamp()"
+  );
+
+  return parseReplayState(output);
+}
+
+async function getLocalDockerReplicaFreshness(): Promise<ReplicaFreshness> {
+  const [prodResult, devResult] = await Promise.all([
+    runLocalPsql('prod-postgres', 'postgres', 'select pg_current_wal_lsn()'),
+    runLocalPsql('dev-postgres', 'postgres', "select pg_current_wal_lsn(), now() - interval '1 millisecond'"),
+  ]);
+  const replayState = parseReplayState(devResult);
+
+  return buildReplicaFreshness(prodResult.trim(), replayState.devReplayLsn, replayState.replayedAt);
+}
+
+async function runLocalPsql(service: string, database: string, query: string): Promise<string> {
+  const result = await runCommand([
+    'sh',
+    '-lc',
+    `docker compose -f ${shellQuote(process.env.VELO_LOCAL_COMPOSE_FILE || 'docker-compose.local.yml')} exec -T ${shellQuote(service)} psql -U postgres -d ${shellQuote(database)} -tA -c ${shellQuote(query)}`,
+  ]);
+
+  if (result.exitCode !== 0 || !result.stdout) {
+    throw new Error(result.stderr || result.stdout || `could not query ${service}`);
+  }
+
+  return result.stdout.trim();
+}
+
+export function buildReplicaFreshness(
+  prodCurrentLsn: string,
+  devReplayLsn: string | null,
+  replayedAt: string | null,
+  now = new Date()
+): ReplicaFreshness {
+  const lagMs = getReplayLagMs(replayedAt, now);
+
+  return {
+    prodCurrentLsn,
+    devReplayLsn,
+    replayedAt,
+    lagMs,
+    byteLag: getWalByteLag(prodCurrentLsn, devReplayLsn),
+    stale: lagMs === null ? false : lagMs > STALE_REPLICA_MS,
+  };
+}
+
+function parseReplayState(output: string): { devReplayLsn: string | null; replayedAt: string | null } {
+  const [devReplayLsn, replayedAt] = output.trim().split('|');
+
+  return {
+    devReplayLsn: devReplayLsn || null,
+    replayedAt: replayedAt || null,
+  };
+}
+
+function getReplayLagMs(replayedAt: string | null, now: Date): number | null {
+  if (!replayedAt) {
+    return null;
+  }
+
+  const replayedTime = new Date(replayedAt).getTime();
+
+  if (Number.isNaN(replayedTime)) {
+    return null;
+  }
+
+  return Math.max(0, now.getTime() - replayedTime);
+}
+
+function getWalByteLag(prodCurrentLsn: string, devReplayLsn: string | null): number | null {
+  if (!devReplayLsn) {
+    return null;
+  }
+
+  const prod = parseWalLsn(prodCurrentLsn);
+  const dev = parseWalLsn(devReplayLsn);
+
+  if (prod === null || dev === null) {
+    return null;
+  }
+
+  return Math.max(0, prod - dev);
+}
+
+function parseWalLsn(value: string): number | null {
+  const parts = value.split('/');
+
+  if (parts.length !== 2) {
+    return null;
+  }
+
+  const high = Number.parseInt(parts[0] || '', 16);
+  const low = Number.parseInt(parts[1] || '', 16);
+
+  if (!Number.isFinite(high) || !Number.isFinite(low)) {
+    return null;
+  }
+
+  return high * 0x100000000 + low;
 }
 
 async function runBaseBackup(options: {

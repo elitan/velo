@@ -7,6 +7,7 @@ import { getBackupAvailability, type BackupAvailability } from './backup-availab
 import { getBackupSettings, getSetting, type BackupSettings } from './settings-service';
 import { checkLocalDocker, isLocalDockerMode } from './local-docker-service';
 import { getProdAllowedCidr, saveProdAllowedCidr } from './prod-network-service';
+import { getReplicaFreshness, type ReplicaFreshness } from './replica-service';
 
 export interface ServerInput {
   role: 'prod' | 'dev';
@@ -41,13 +42,14 @@ export interface ControlPlaneState {
   jobs: JobRecord[];
   backup: BackupSettings;
   backupAvailability: BackupAvailability;
+  replicaFreshness: ReplicaFreshness | null;
   prodConnectionUrl: string | null;
   prodAllowedCidr: string | null;
 }
 
 export async function getControlPlaneState(): Promise<ControlPlaneState> {
   const db = getDb();
-  const [servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl, prodAllowedCidr] = await Promise.all([
+  const [servers, setupSteps, branches, jobs, backup, backupAvailability, replicaFreshness, prodConnectionUrl, prodAllowedCidr] = await Promise.all([
     db.selectFrom('servers').selectAll().orderBy('role').execute(),
     db
       .selectFrom('setupSteps')
@@ -76,13 +78,16 @@ export async function getControlPlaneState(): Promise<ControlPlaneState> {
     listJobs(10),
     getBackupSettings(),
     getBackupAvailability(),
+    getReplicaFreshness().catch(function ignoreReplicaFreshnessError() {
+      return null;
+    }),
     getSetting('prod.connectionUrl'),
     getProdAllowedCidr().catch(function ignoreMissingCidr() {
       return null;
     }),
   ]);
 
-  return { servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl, prodAllowedCidr };
+  return { servers, setupSteps, branches, jobs, backup, backupAvailability, replicaFreshness, prodConnectionUrl, prodAllowedCidr };
 }
 
 export async function saveServer(input: ServerInput): Promise<Server> {
