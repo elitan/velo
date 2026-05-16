@@ -37,6 +37,10 @@ Bun.serve({
       return healthResponse;
     }
 
+    if (isInternalRequest(request)) {
+      return serverEntry.default.fetch(request);
+    }
+
     const authResponse = requireBasicAuth(request);
 
     if (authResponse) {
@@ -159,6 +163,10 @@ function requireBasicAuth(request: Request): Response | null {
   }
 
   return null;
+}
+
+function isInternalRequest(request: Request): boolean {
+  return new URL(request.url).pathname.startsWith('/internal/');
 }
 
 function unauthorizedResponse(): Response {

@@ -45,9 +45,9 @@ copy_file() {
 reset_app_server() {
   ssh_run "$APP_REMOTE" "
 set -e
-systemctl stop velo-web velo-web-dev >/dev/null 2>&1 || true
-systemctl disable velo-web velo-web-dev >/dev/null 2>&1 || true
-rm -f /etc/systemd/system/velo-web.service /etc/systemd/system/velo-web-dev.service
+systemctl stop velo-web velo-web-dev velo-proxy >/dev/null 2>&1 || true
+systemctl disable velo-web velo-web-dev velo-proxy >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/velo-web.service /etc/systemd/system/velo-web-dev.service /etc/systemd/system/velo-proxy.service
 systemctl daemon-reload
 if ss -ltnp | grep -q ':$VELO_PORT '; then
   ss -ltnp | awk '/:$VELO_PORT / { match(\$0, /pid=[0-9]+/); if (RSTART) print substr(\$0, RSTART + 4, RLENGTH - 4) }' | xargs -r kill
@@ -92,7 +92,7 @@ install_app_server() {
 set -e
 chmod 600 $(shell_quote "$VELO_REMOTE_KEY_PATH")
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y curl git unzip openssl docker.io zfsutils-linux postgresql-client pgbackrest
+DEBIAN_FRONTEND=noninteractive apt-get install -y curl git unzip openssl docker.io zfsutils-linux postgresql-client pgbackrest golang-go
 systemctl enable --now docker || true
 
 export BUN_INSTALL=/root/.bun
@@ -120,12 +120,14 @@ git clean -fd -e node_modules -e .velo
 bun install --frozen-lockfile
 VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") bun run db:migrate
 bun run web:build
+go build -o /usr/local/bin/velo-proxy ./cmd/velo-proxy
 
 umask 077
 if [ ! -f /etc/velo.env ]; then
   printf 'BETTER_AUTH_SECRET=%s\n' \"\$(openssl rand -base64 48)\" >/etc/velo.env
 fi
 grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' $(shell_quote "http://$VELO_DEPLOY_DEV_HOST:$VELO_PORT") >>/etc/velo.env
+grep -q '^VELO_INTERNAL_TOKEN=' /etc/velo.env || printf 'VELO_INTERNAL_TOKEN=%s\n' \"\$(openssl rand -base64 48)\" >>/etc/velo.env
 sed -i '/^VELO_BASIC_AUTH_USERNAME=/d; /^VELO_BASIC_AUTH_PASSWORD=/d' /etc/velo.env
 
 cat >/etc/systemd/system/velo-web.service <<SERVICE
@@ -150,8 +152,31 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 SERVICE
+
+cat >/etc/systemd/system/velo-proxy.service <<SERVICE
+[Unit]
+Description=Velo branch TCP proxy
+After=network-online.target docker.service velo-web.service
+Wants=network-online.target
+Requires=velo-web.service
+
+[Service]
+Type=simple
+WorkingDirectory=$VELO_DEPLOY_DIR
+Environment=VELO_INTERNAL_API_URL=http://127.0.0.1:$VELO_PORT/internal
+Environment=VELO_PROXY_BIND=127.0.0.1
+Environment=VELO_PROXY_IDLE_SECONDS=1800
+EnvironmentFile=/etc/velo.env
+ExecStart=/usr/local/bin/velo-proxy
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
 systemctl daemon-reload
 systemctl enable --now velo-web
+systemctl enable --now velo-proxy
 "
 }
 
@@ -209,7 +234,7 @@ assertOk(await runDevBootstrap());
 assertOk(await runProdBootstrap());
 assertOk(await createReplicaBase());
 '
-systemctl restart velo-web
+systemctl restart velo-web velo-proxy
 "
 }
 
@@ -231,6 +256,7 @@ check_servers() {
   ssh_run "$APP_REMOTE" "
 set -e
 systemctl is-active --quiet velo-web
+systemctl is-active --quiet velo-proxy
 cd $(shell_quote "$VELO_DEPLOY_DIR")
 VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") /root/.bun/bin/bun -e '
 import { Database } from \"bun:sqlite\";

@@ -49,11 +49,15 @@ export interface BranchesTable {
   displayName: string;
   dataset: string;
   port: number | null;
+  proxyPort: number | null;
+  backendPort: number | null;
   status: 'creating' | 'running' | 'stopped' | 'error';
   parentBranchId: number | null;
   sourceReplayAt: string | null;
   expiresAt: string | null;
   connectionUrl: string | null;
+  lastActiveAt: string | null;
+  stoppedAt: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

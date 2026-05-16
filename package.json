@@ -53,6 +53,8 @@
     "web": "bun --bun vite dev --host 0.0.0.0 --port 3000",
     "web:build": "bun --bun vite build",
     "web:start": "bun src/server/web-runtime.ts",
+    "proxy": "go run ./cmd/velo-proxy",
+    "proxy:test": "go test ./cmd/velo-proxy ./internal/proxy",
     "local:up": "scripts/local-dev.sh up",
     "local:dev": "scripts/local-dev.sh dev",
     "local:down": "scripts/local-dev.sh down",

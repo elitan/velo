@@ -4,6 +4,7 @@ import { generatePassword } from '../../utils/helpers';
 import { runCommand } from './command-service';
 import { saveBackupSettings, setSetting } from './settings-service';
 import type { SetupStepStatus } from './setup-state-service';
+import { getAvailableTcpPort } from './tcp-port-service';
 
 const COMPOSE_FILE = process.env.VELO_LOCAL_COMPOSE_FILE || 'docker-compose.local.yml';
 const LOCAL_PGBACKREST_IMAGE = 'velo-local-postgres-pgbackrest:17';
@@ -134,6 +135,8 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
   const password = input.branchPassword || generatePassword();
   const db = getDb();
   const project = await ensureProject();
+  let backendPort = 0;
+  let proxyPort = 0;
   const existing = await db
     .selectFrom('branches')
     .select('id')
@@ -154,7 +157,6 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
       containerName,
       volumeName,
       password,
-      port: input.preferredPort,
     });
 
     if (input.sourceSlug === 'production') {
@@ -164,14 +166,16 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
     } else {
       await copyDevDatabaseToContainer(input.sourceDatabase, containerName);
     }
+
+    backendPort = await getContainerPort(containerName);
+    proxyPort = await getAvailableTcpPort(input.preferredPort);
   } catch (error) {
     await removeContainer(containerName).catch(function ignoreContainerCleanupError() {});
     await removeVolume(volumeName).catch(function ignoreVolumeCleanupError() {});
     throw error;
   }
 
-  const port = await getContainerPort(containerName);
-  const connectionUrl = formatContainerConnectionUrl(password, port);
+  const connectionUrl = formatLocalConnectionUrl(password, proxyPort);
 
   await db
     .insertInto('branches')
@@ -180,12 +184,15 @@ export async function createLocalDockerBranch(input: LocalDockerBranchInput): Pr
       slug: input.slug,
       displayName: input.displayName,
       dataset,
-      port,
+      port: proxyPort,
+      proxyPort,
+      backendPort,
       status: 'running',
       parentBranchId: input.parentBranchId,
       connectionUrl: connectionUrl,
       sourceReplayAt: input.sourceReplayAt,
       expiresAt: input.expiresAt,
+      lastActiveAt: new Date().toISOString(),
     })
     .execute();
 
@@ -259,22 +266,32 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
   const volumeName = getRestoreVolumeName(branchSlug);
   const dataset = `container:${containerName}`;
   const password = input.branchPassword || generatePassword();
+  let backendPort = 0;
+  let proxyPort = 0;
 
   await removeContainer(containerName);
   await removeVolume(volumeName);
-  await createVolume(volumeName);
-  await restorePgBackRestVolume(volumeName, restoreTime);
-  await startRestoreContainer({
-    containerName,
-    volumeName,
-    password,
-    port: input.preferredPort,
-    readOnly: input.readOnly === true,
-    publicAccess: input.publicAccess === true,
-  });
 
-  const port = await getContainerPort(containerName);
-  const connectionUrl = `postgresql://postgres:${password}@localhost:${port}/postgres?sslmode=disable`;
+  try {
+    await createVolume(volumeName);
+    await restorePgBackRestVolume(volumeName, restoreTime);
+    await startRestoreContainer({
+      containerName,
+      volumeName,
+      password,
+      readOnly: input.readOnly === true,
+      publicAccess: input.publicAccess === true,
+    });
+
+    backendPort = await getContainerPort(containerName);
+    proxyPort = await getAvailableTcpPort(input.preferredPort);
+  } catch (error) {
+    await removeContainer(containerName).catch(function ignoreContainerCleanupError() {});
+    await removeVolume(volumeName).catch(function ignoreVolumeCleanupError() {});
+    throw error;
+  }
+
+  const connectionUrl = formatLocalConnectionUrl(password, proxyPort);
 
   await db
     .insertInto('branches')
@@ -283,11 +300,14 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
       slug: branchSlug,
       displayName: branchSlug,
       dataset,
-      port,
+      port: proxyPort,
+      proxyPort,
+      backendPort,
       status: 'running',
       parentBranchId: null,
       connectionUrl: connectionUrl,
       sourceReplayAt: restoreTime.toISOString(),
+      lastActiveAt: new Date().toISOString(),
     })
     .execute();
 
@@ -330,6 +350,18 @@ export async function getLocalPgBackRestInfo(): Promise<string> {
   }
 
   return result.stdout;
+}
+
+export async function startLocalDockerBranchContainer(dataset: string): Promise<number> {
+  const containerName = getContainerNameFromDataset(dataset);
+  await runLocalCommand(`docker start ${shellQuote(containerName)} >/dev/null`);
+  await waitForContainer(containerName);
+  return getContainerPort(containerName);
+}
+
+export async function stopLocalDockerBranchContainer(dataset: string): Promise<void> {
+  const containerName = getContainerNameFromDataset(dataset);
+  await runLocalCommand(`docker stop ${shellQuote(containerName)} >/dev/null 2>&1 || true`, 60_000);
 }
 
 async function saveLocalServer(input: {
@@ -453,7 +485,7 @@ async function formatProdConnectionUrl(): Promise<string> {
   return `postgresql://postgres:postgres@localhost:${await getServicePort('prod-postgres')}/postgres?sslmode=disable`;
 }
 
-function formatContainerConnectionUrl(password: string, port: number): string {
+function formatLocalConnectionUrl(password: string, port: number): string {
   return `postgresql://postgres:${encodeURIComponent(password)}@localhost:${port}/postgres?sslmode=disable`;
 }
 

@@ -12,10 +12,11 @@ import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
 import { cleanupOldReplicaBases, getReplicaBaseDataset, getReplicaFreshness } from './replica-service';
-import { createLocalDockerBranch, deleteLocalDockerBranch, deleteLocalDockerBranchResources, isLocalDockerMode } from './local-docker-service';
+import { createLocalDockerBranch, deleteLocalDockerBranch, deleteLocalDockerBranchResources, isLocalDockerMode, startLocalDockerBranchContainer, stopLocalDockerBranchContainer } from './local-docker-service';
 import { createJob, getActiveJobs } from './job-service';
 import { getBranchConnectionHost } from './branch-network-service';
 import { getReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
+import { getAvailableTcpPort } from './tcp-port-service';
 
 const PROJECT_NAME = 'prod';
 
@@ -72,6 +73,15 @@ export interface ReplacedBranchResource {
 export interface UpdateBranchExpiryInput {
   id: number;
   expiresAt: string | null;
+}
+
+export interface ProxyBranchRecord {
+  id: number;
+  slug: string;
+  status: string;
+  proxyPort: number;
+  backendPort: number;
+  lastActiveAt: string | null;
 }
 
 export async function createBranchFromBase(input: CreateBranchInput): Promise<CreateBranchResult> {
@@ -212,7 +222,7 @@ async function createBranchClone(options: {
     containerId = await docker.createContainer({
       name: targetContainer,
       image,
-      port: options.preferredPort || 0,
+      port: 0,
       dataPath: mountpoint,
       walArchivePath,
       sslCertDir: certPaths.certDir,
@@ -226,12 +236,13 @@ async function createBranchClone(options: {
     await docker.startContainer(containerId);
     await docker.waitForHealthy(containerId);
     await setBranchPassword(docker, containerId, password);
-    const port = await docker.getContainerPort(containerId);
+    const backendPort = await docker.getContainerPort(containerId);
+    const proxyPort = await getAvailableTcpPort(options.preferredPort);
     const connectionUrl = formatPostgresConnectionUrl(
       'postgres',
       password,
       getBranchConnectionHost(devServer?.host, options.publicAccess),
-      port,
+      proxyPort,
       'postgres'
     );
 
@@ -242,12 +253,15 @@ async function createBranchClone(options: {
         slug: branchSlug,
         displayName: options.displayName,
         dataset: targetDataset,
-        port,
+        port: proxyPort,
+        proxyPort,
+        backendPort,
         status: 'running',
         parentBranchId: options.parentBranchId,
         connectionUrl: connectionUrl,
         sourceReplayAt: options.sourceReplayAt,
         expiresAt: options.expiresAt,
+        lastActiveAt: new Date().toISOString(),
       })
       .execute();
 
@@ -314,6 +328,10 @@ export async function replaceBranchWithReadyBranch(input: ReplaceBranchWithReady
     .where('id', '=', input.replacementBranchId)
     .executeTakeFirstOrThrow();
   let promoted = false;
+  const keepsTargetProxy = target.proxyPort !== null;
+  const promotedProxyPort = keepsTargetProxy ? target.proxyPort : replacement.proxyPort;
+  const promotedPort = keepsTargetProxy ? target.port : replacement.port;
+  const promotedConnectionUrl = keepsTargetProxy ? target.connectionUrl : replacement.connectionUrl;
 
   try {
     await assertBranchHasNoChildren(target.id);
@@ -323,10 +341,14 @@ export async function replaceBranchWithReadyBranch(input: ReplaceBranchWithReady
         .updateTable('branches')
         .set({
           dataset: replacement.dataset,
-          port: replacement.port,
+          port: promotedPort,
+          proxyPort: promotedProxyPort,
+          backendPort: replacement.backendPort ?? replacement.port,
           status: replacement.status,
           sourceReplayAt: replacement.sourceReplayAt,
-          connectionUrl: replacement.connectionUrl,
+          connectionUrl: promotedConnectionUrl,
+          lastActiveAt: new Date().toISOString(),
+          stoppedAt: null,
           updatedAt: new Date().toISOString(),
         })
         .where('id', '=', target.id)
@@ -380,6 +402,142 @@ export async function updateBranchExpiry(input: UpdateBranchExpiryInput): Promis
     })
     .where('id', '=', input.id)
     .execute();
+}
+
+export async function listProxyBranches(): Promise<ProxyBranchRecord[]> {
+  const rows = await getDb()
+    .selectFrom('branches')
+    .select(['id', 'slug', 'status', 'proxyPort', 'backendPort', 'lastActiveAt'])
+    .where('proxyPort', 'is not', null)
+    .where('backendPort', 'is not', null)
+    .orderBy('id')
+    .execute();
+
+  return rows.map(function mapProxyBranch(row) {
+    return {
+      id: row.id,
+      slug: row.slug,
+      status: row.status,
+      proxyPort: row.proxyPort!,
+      backendPort: row.backendPort!,
+      lastActiveAt: row.lastActiveAt,
+    };
+  });
+}
+
+export async function touchBranchActivity(branchId: number): Promise<void> {
+  await getDb()
+    .updateTable('branches')
+    .set({
+      lastActiveAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where('id', '=', branchId)
+    .execute();
+}
+
+export async function startBranchForProxy(branchId: number): Promise<{ id: number; backendPort: number }> {
+  const branch = await getDb()
+    .selectFrom('branches')
+    .select(['id', 'slug', 'dataset', 'status'])
+    .where('id', '=', branchId)
+    .executeTakeFirstOrThrow();
+  const backendPort = await ensureBranchContainerRunning(branch);
+
+  if (branch.status !== 'stopped') {
+    await getDb()
+      .updateTable('branches')
+      .set({
+        backendPort,
+        lastActiveAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .where('id', '=', branch.id)
+      .execute();
+
+    return { id: branch.id, backendPort };
+  }
+
+  await getDb()
+    .updateTable('branches')
+    .set({
+      status: 'running',
+      backendPort,
+      stoppedAt: null,
+      lastActiveAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where('id', '=', branch.id)
+    .execute();
+
+  return { id: branch.id, backendPort };
+}
+
+async function ensureBranchContainerRunning(branch: {
+  slug: string;
+  dataset: string;
+}): Promise<number> {
+  if (isLocalDockerMode()) {
+    return startLocalDockerBranchContainer(branch.dataset);
+  }
+
+  const docker = new DockerManager();
+  const containerId = await getBranchContainerId(docker, branch);
+
+  if (!containerId) {
+    throw new Error(`Branch container not found: ${branch.slug}`);
+  }
+
+  await docker.startContainer(containerId).catch(function ignoreAlreadyStarted(error: any) {
+    if (error.statusCode !== 304) {
+      throw error;
+    }
+  });
+  await docker.waitForHealthy(containerId);
+  return docker.getContainerPort(containerId);
+}
+
+export async function stopBranchForProxy(branchId: number): Promise<{ id: number; stopped: boolean }> {
+  const branch = await getDb()
+    .selectFrom('branches')
+    .select(['id', 'slug', 'dataset', 'status'])
+    .where('id', '=', branchId)
+    .executeTakeFirstOrThrow();
+
+  if (branch.status === 'stopped') {
+    return { id: branch.id, stopped: false };
+  }
+
+  if (hasActiveBranchJob(branch.id, branch.slug, await getActiveJobs())) {
+    return { id: branch.id, stopped: false };
+  }
+
+  if (isLocalDockerMode()) {
+    await stopLocalDockerBranchContainer(branch.dataset);
+  } else {
+    const docker = new DockerManager();
+    const containerId = await getBranchContainerId(docker, branch);
+
+    if (containerId) {
+      await docker.stopContainer(containerId).catch(function ignoreAlreadyStopped(error: any) {
+        if (error.statusCode !== 304) {
+          throw error;
+        }
+      });
+    }
+  }
+
+  await getDb()
+    .updateTable('branches')
+    .set({
+      status: 'stopped',
+      stoppedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+    .where('id', '=', branch.id)
+    .execute();
+
+  return { id: branch.id, stopped: true };
 }
 
 export async function runExpiredBranchCleanup(): Promise<void> {

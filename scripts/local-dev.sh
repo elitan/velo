@@ -42,6 +42,7 @@ VELO_LOCAL_MINIO_CONSOLE_PORT=$VELO_LOCAL_MINIO_CONSOLE_PORT
 VELO_LOCAL_WEB_PORT=$VELO_LOCAL_WEB_PORT
 BETTER_AUTH_URL=$BETTER_AUTH_URL
 BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
+VELO_INTERNAL_TOKEN=$VELO_INTERNAL_TOKEN
 EOF
   chmod 600 "$LOCAL_ENV_FILE"
 }
@@ -85,6 +86,7 @@ ensure_ports() {
   fi
   export BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://localhost:$VELO_LOCAL_WEB_PORT}"
   export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -base64 48)}"
+  export VELO_INTERNAL_TOKEN="${VELO_INTERNAL_TOKEN:-$(openssl rand -base64 48)}"
   save_env_file
 }
 
@@ -122,6 +124,7 @@ cleanup_local_branch_containers() {
 }
 
 DEV_SERVER_PID=""
+PROXY_PID=""
 CLEANUP_WATCHER_PID=""
 
 start_cleanup_watcher() {
@@ -158,6 +161,11 @@ cleanup_dev() {
   if [ -n "$DEV_SERVER_PID" ] && kill -0 "$DEV_SERVER_PID" 2>/dev/null; then
     kill "$DEV_SERVER_PID" 2>/dev/null || true
     wait "$DEV_SERVER_PID" 2>/dev/null || true
+  fi
+
+  if [ -n "$PROXY_PID" ] && kill -0 "$PROXY_PID" 2>/dev/null; then
+    kill "$PROXY_PID" 2>/dev/null || true
+    wait "$PROXY_PID" 2>/dev/null || true
   fi
 
   cleanup_local_branch_containers
@@ -479,6 +487,10 @@ dev() {
   up
   bun --bun vite dev --host 0.0.0.0 --port "$VELO_LOCAL_WEB_PORT" &
   DEV_SERVER_PID=$!
+  VELO_INTERNAL_API_URL="http://127.0.0.1:$VELO_LOCAL_WEB_PORT/internal" \
+  VELO_PROXY_IDLE_SECONDS="${VELO_PROXY_IDLE_SECONDS:-1800}" \
+  go run ./cmd/velo-proxy &
+  PROXY_PID=$!
   wait "$DEV_SERVER_PID"
 }
 
@@ -508,6 +520,7 @@ case "${1:-up}" in
     printf 'prod: postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_PROD_PORT"
     printf 'dev:  postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_DEV_PORT"
     printf 's3:   https://localhost:%s\n' "$VELO_LOCAL_MINIO_PORT"
+    printf 'proxy: go run ./cmd/velo-proxy --api http://127.0.0.1:%s/internal\n' "$VELO_LOCAL_WEB_PORT"
     ;;
   *)
     echo "usage: bun run local:up|local:dev|local:down|local:reset|local:status" >&2
