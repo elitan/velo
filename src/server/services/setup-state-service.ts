@@ -2,7 +2,7 @@ import { sql } from 'kysely';
 import { getDb } from '../../db/client';
 import type { Server } from '../../db/schema';
 import { runCommand, runSshCommand } from './command-service';
-import { listJobs, type JobRecord } from './job-service';
+import { getCurrentJobId, listJobs, type JobRecord } from './job-service';
 import { getBackupAvailability, type BackupAvailability } from './backup-availability-service';
 import { getBackupSettings, getSetting, type BackupSettings } from './settings-service';
 import { checkLocalDocker, isLocalDockerMode } from './local-docker-service';
@@ -24,6 +24,7 @@ export interface ControlPlaneState {
     label: string;
     status: string;
     message: string | null;
+    failedJobId: number | null;
     updatedAt: string;
   }>;
   branches: Array<{
@@ -55,7 +56,7 @@ export async function getControlPlaneState(): Promise<ControlPlaneState> {
     db.selectFrom('servers').selectAll().orderBy('role').execute(),
     db
       .selectFrom('setupSteps')
-      .select(['key', 'label', 'status', 'message', 'updatedAt'])
+      .select(['key', 'label', 'status', 'message', 'failedJobId', 'updatedAt'])
       .orderBy('id')
       .execute(),
     db
@@ -182,11 +183,14 @@ export async function setStepStatus(
   status: SetupStepStatus,
   message: string | null
 ): Promise<void> {
+  const failedJobId = status === 'error' ? getCurrentJobId() : null;
+
   await getDb()
     .updateTable('setupSteps')
     .set({
       status,
       message,
+      failedJobId,
       updatedAt: sql`datetime('now')`,
     })
     .where('key', '=', key)

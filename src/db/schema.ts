@@ -28,6 +28,7 @@ export interface SetupStepsTable {
   label: string;
   status: 'pending' | 'running' | 'done' | 'error' | 'stale';
   message: string | null;
+  failedJobId: number | null;
   updatedAt: Timestamp;
 }
 
@@ -60,7 +61,7 @@ export interface BranchesTable {
 export interface JobsTable {
   id: Generated<number>;
   type: string;
-  status: 'queued' | 'running' | 'done' | 'error';
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled';
   inputJson: string | null;
   error: string | null;
   attempts: Generated<number>;

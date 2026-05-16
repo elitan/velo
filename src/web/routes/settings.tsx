@@ -32,7 +32,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '#web/components/ui/tabs';
-import { orpc } from '#web/lib/api-client';
+import { api, orpc } from '#web/lib/api-client';
 import {
   AppSidebar,
   BackupPanel,
@@ -42,6 +42,9 @@ import {
   type ServerRole,
 } from '#web/components/control-plane';
 
+const JOB_PAGE_SIZE = 20;
+type JobStatusFilter = 'all' | 'queued' | 'running' | 'done' | 'error' | 'cancelled';
+
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
 });
@@ -49,12 +52,49 @@ export const Route = createFileRoute('/settings')({
 function SettingsPage() {
   const queryClient = useQueryClient();
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
+  const [settingsTab, setSettingsTab] = useState('overview');
+  const [jobStatus, setJobStatus] = useState<JobStatusFilter>('all');
+  const [jobPage, setJobPage] = useState(0);
+  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const saveServer = useMutation(orpc.servers.update.mutationOptions({ onSuccess: refreshDashboard }));
   const checkServer = useMutation(orpc.servers.check.mutationOptions({ onSuccess: refreshDashboard }));
   const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions({ onSuccess: refreshDashboard }));
+  const jobList = useQuery({
+    queryKey: ['settings-jobs', jobStatus, jobPage],
+    queryFn: function listSettingsJobs() {
+      return api.jobs.list({
+        limit: JOB_PAGE_SIZE,
+        offset: jobPage * JOB_PAGE_SIZE,
+        status: getJobStatusQuery(jobStatus),
+      });
+    },
+  });
+  const selectedJob = useQuery({
+    queryKey: ['settings-job', selectedJobId],
+    enabled: selectedJobId !== null,
+    queryFn: function retrieveSelectedJob() {
+      if (!selectedJobId) {
+        throw new Error('Missing job id');
+      }
+
+      return api.jobs.retrieve({ id: selectedJobId });
+    },
+  });
+  const retryJob = useMutation({
+    mutationFn: function retryJobMutation(id: number) {
+      return api.jobs.retry({ id });
+    },
+    onSuccess: refreshJobs,
+  });
+  const cancelJob = useMutation({
+    mutationFn: function cancelJobMutation(id: number) {
+      return api.jobs.cancel({ id });
+    },
+    onSuccess: refreshJobs,
+  });
   const busy = getBusyKey();
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
-    return job.status === 'queued' || job.status === 'running';
+    return isActiveJobStatus(job.status);
   }).length ?? 0;
 
   useEffect(function pollActiveJobs() {
@@ -64,6 +104,7 @@ function SettingsPage() {
 
     const interval = window.setInterval(function refreshActiveJobs() {
       void dashboard.refetch();
+      void queryClient.invalidateQueries({ queryKey: ['settings-jobs'] });
     }, 2000);
 
     return function clearPoll() {
@@ -73,6 +114,14 @@ function SettingsPage() {
 
   async function refreshDashboard() {
     await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
+  }
+
+  async function refreshJobs() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() }),
+      queryClient.invalidateQueries({ queryKey: ['settings-jobs'] }),
+      queryClient.invalidateQueries({ queryKey: ['settings-job', selectedJobId] }),
+    ]);
   }
 
   function getBusyKey(): string | null {
@@ -86,6 +135,18 @@ function SettingsPage() {
 
     if (saveBackupSettings.isPending) {
       return 'save-backup';
+    }
+
+    return null;
+  }
+
+  function getBusyJobId(): number | null {
+    if (retryJob.isPending) {
+      return retryJob.variables ?? null;
+    }
+
+    if (cancelJob.isPending) {
+      return cancelJob.variables ?? null;
     }
 
     return null;
@@ -153,6 +214,38 @@ function SettingsPage() {
     }
   }
 
+  function handleJobStatusChange(status: string) {
+    if (!isJobStatusFilter(status)) {
+      return;
+    }
+
+    setJobStatus(status);
+    setJobPage(0);
+  }
+
+  function openJob(jobId: number) {
+    setSettingsTab('jobs');
+    setSelectedJobId(jobId);
+  }
+
+  async function handleRetryJob(jobId: number) {
+    try {
+      await retryJob.mutateAsync(jobId);
+      toast.success('Job queued.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not retry job.');
+    }
+  }
+
+  async function handleCancelJob(jobId: number) {
+    try {
+      await cancelJob.mutateAsync(jobId);
+      toast.success('Job cancelled.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not cancel job.');
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
@@ -173,7 +266,7 @@ function SettingsPage() {
               </Button>
             </header>
 
-            <Tabs defaultValue="overview" orientation="vertical" className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
+            <Tabs value={settingsTab} onValueChange={setSettingsTab} orientation="vertical" className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
               <TabsList variant="line" className="w-full items-stretch justify-start">
                 <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="overview">
                   <Activity />
@@ -198,14 +291,17 @@ function SettingsPage() {
               </TabsList>
 
               <TabsContent value="overview" className="min-w-0">
-                <SettingsOverview
-                  okServers={okServers}
-                  serverCount={state.servers.length}
-                  backupMode={backupMode}
-                  backupDetail={state.backup.bucket || 'not configured'}
-                  activeJobs={activeJobs}
-                  lastJob={lastJob}
-                />
+                <div className="grid gap-6">
+                  <SettingsOverview
+                    okServers={okServers}
+                    serverCount={state.servers.length}
+                    backupMode={backupMode}
+                    backupDetail={state.backup.bucket || 'not configured'}
+                    activeJobs={activeJobs}
+                    lastJob={lastJob}
+                  />
+                  <SetupStepsPanel steps={state.setupSteps} onOpenJob={openJob} />
+                </div>
               </TabsContent>
 
               <TabsContent value="servers" className="min-w-0">
@@ -224,7 +320,31 @@ function SettingsPage() {
               </TabsContent>
 
               <TabsContent value="jobs" className="min-w-0">
-                <JobsPanel jobs={state.jobs} activeJobs={activeJobs} />
+                <JobsPanel
+                  jobs={jobList.data || state.jobs}
+                  activeJobs={activeJobs}
+                  loading={jobList.isLoading}
+                  statusFilter={jobStatus}
+                  onStatusFilterChange={handleJobStatusChange}
+                  page={jobPage}
+                  hasMore={(jobList.data?.length || 0) === JOB_PAGE_SIZE}
+                  onPreviousPage={function previousJobPage() {
+                    setJobPage(Math.max(0, jobPage - 1));
+                  }}
+                  onNextPage={function nextJobPage() {
+                    setJobPage(jobPage + 1);
+                  }}
+                  selectedJob={selectedJob.data || null}
+                  selectedJobOpen={selectedJobId !== null}
+                  selectedJobLoading={selectedJob.isLoading}
+                  busyJobId={getBusyJobId()}
+                  onOpenJob={setSelectedJobId}
+                  onCloseJob={function closeJob() {
+                    setSelectedJobId(null);
+                  }}
+                  onRetry={handleRetryJob}
+                  onCancel={handleCancelJob}
+                />
               </TabsContent>
             </Tabs>
           </div>
@@ -232,6 +352,18 @@ function SettingsPage() {
       </div>
     </main>
   );
+}
+
+function getJobStatusQuery(status: JobStatusFilter): Exclude<JobStatusFilter, 'all'> | undefined {
+  return status === 'all' ? undefined : status;
+}
+
+function isJobStatusFilter(status: string): status is JobStatusFilter {
+  return ['all', 'queued', 'running', 'done', 'error', 'cancelled'].includes(status);
+}
+
+function isActiveJobStatus(status: string): boolean {
+  return status === 'queued' || status === 'running';
 }
 
 interface SettingsOverviewProps {
@@ -285,6 +417,56 @@ function SettingsOverview(props: SettingsOverviewProps) {
             {props.lastJob.error}
           </div>
         ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+interface SetupStepsPanelProps {
+  steps: Array<{
+    key: string;
+    label: string;
+    status: string;
+    message: string | null;
+    failedJobId: number | null;
+  }>;
+  onOpenJob: (jobId: number) => void;
+}
+
+function SetupStepsPanel(props: SetupStepsPanelProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Setup</CardTitle>
+        <CardDescription>Onboarding steps and failed jobs</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {props.steps.map(function renderStep(step) {
+          return (
+            <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-[1fr_auto] sm:items-center" key={step.key}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium">{step.label}</p>
+                  <StatusBadge status={step.status} />
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{step.message || 'No message yet.'}</p>
+              </div>
+              {step.failedJobId ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={function openFailedJob() {
+                    props.onOpenJob(step.failedJobId!);
+                  }}
+                >
+                  <Activity />
+                  Job #{step.failedJobId}
+                </Button>
+              ) : null}
+            </div>
+          );
+        })}
       </CardContent>
     </Card>
   );
