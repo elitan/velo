@@ -112,7 +112,7 @@ start_cleanup_watcher() {
         sleep 2
       done
 
-      COMPOSE_PROJECT_NAME="$compose_project_name" docker compose -f "$compose_file" down --remove-orphans >/dev/null 2>&1 || true
+      COMPOSE_PROJECT_NAME="$compose_project_name" docker compose -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
     ' bash "$parent_pid" "$COMPOSE_FILE" "$COMPOSE_PROJECT_NAME" >/dev/null 2>&1 &
   CLEANUP_WATCHER_PID=$!
 }
@@ -127,7 +127,7 @@ cleanup_dev() {
     wait "$DEV_SERVER_PID" 2>/dev/null || true
   fi
 
-  compose down --remove-orphans || true
+  compose down -v --remove-orphans || true
 
   if [ -n "$CLEANUP_WATCHER_PID" ] && kill -0 "$CLEANUP_WATCHER_PID" 2>/dev/null; then
     kill "$CLEANUP_WATCHER_PID" 2>/dev/null || true
