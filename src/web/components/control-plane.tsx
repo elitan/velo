@@ -399,7 +399,6 @@ export interface BranchesPanelProps {
     expiresAt: string | null;
   }>;
   busy: string | null;
-  onCreate: (formData: FormData) => Promise<void>;
   onDelete: (id: number, name: string) => Promise<void>;
 }
 
@@ -562,15 +561,10 @@ export function BranchesPanel(props: BranchesPanelProps) {
           <CardTitle>Branches</CardTitle>
           <CardDescription>Writable ZFS clones from the dev base.</CardDescription>
         </div>
-        <BranchCreateForm branches={props.branches} busy={props.busy === 'create-branch'} onCreate={props.onCreate} />
       </CardHeader>
       <CardContent className="p-0">
         {props.branches.length === 0 ? (
-          <EmptyState
-            icon={GitBranch}
-            title="No branches yet"
-            detail="Create the replica base first, then create your first branch."
-          />
+          <EmptyState icon={GitBranch} title="No branches yet" detail="No writable branch clones found." />
         ) : (
           <div className="divide-y">
             {props.branches.map(function renderBranch(branch) {
@@ -637,57 +631,6 @@ export function BranchesPanel(props: BranchesPanelProps) {
         )}
       </CardContent>
     </Card>
-  );
-}
-
-interface BranchCreateFormProps {
-  branches: BranchesPanelProps['branches'];
-  busy: boolean;
-  onCreate: (formData: FormData) => Promise<void>;
-}
-
-function BranchCreateForm(props: BranchCreateFormProps) {
-  async function submitForm(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    await props.onCreate(new FormData(form));
-    form.reset();
-  }
-
-  return (
-    <form className="grid grid-cols-[minmax(0,180px)_140px_120px_auto] gap-2" onSubmit={submitForm}>
-      <Input name="name" placeholder="preview-1" />
-      <Select name="parentBranchId" defaultValue="production">
-        <SelectTrigger>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="production">production</SelectItem>
-          {props.branches.map(function renderParentOption(branch) {
-            return (
-              <SelectItem key={branch.id} value={String(branch.id)}>
-                {branch.displayName}
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
-      <Select name="ttlHours" defaultValue="none">
-        <SelectTrigger>
-          <SelectValue placeholder="no expiry" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="none">no expiry</SelectItem>
-          <SelectItem value="1">1h</SelectItem>
-          <SelectItem value="24">1 day</SelectItem>
-          <SelectItem value="168">7 days</SelectItem>
-        </SelectContent>
-      </Select>
-      <Button type="submit" variant="secondary" disabled={props.busy}>
-        {props.busy ? <Loader2 className="animate-spin" /> : <GitBranch />}
-        Create
-      </Button>
-    </form>
   );
 }
 

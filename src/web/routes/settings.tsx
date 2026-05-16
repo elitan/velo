@@ -47,7 +47,6 @@ function SettingsPage() {
   const saveServer = useMutation(orpc.servers.update.mutationOptions({ onSuccess: refreshDashboard }));
   const checkServer = useMutation(orpc.servers.check.mutationOptions({ onSuccess: refreshDashboard }));
   const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions({ onSuccess: refreshDashboard }));
-  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
   const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
   const busy = getBusyKey();
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
@@ -83,10 +82,6 @@ function SettingsPage() {
 
     if (saveBackupSettings.isPending) {
       return 'save-backup';
-    }
-
-    if (createBranch.isPending) {
-      return 'create-branch';
     }
 
     if (deleteBranch.isPending) {
@@ -156,22 +151,6 @@ function SettingsPage() {
     }
   }
 
-  async function handleCreateBranch(formData: FormData) {
-    const name = String(formData.get('name') || '');
-    const ttlHours = formData.get('ttlHours');
-    const parentBranchId = formData.get('parentBranchId');
-    try {
-      await createBranch.mutateAsync({
-        name,
-        parentBranchId: parentBranchId && parentBranchId !== 'production' ? Number(parentBranchId) : null,
-        ttlHours: ttlHours && ttlHours !== 'none' ? Number(ttlHours) : null,
-      });
-      toast.info(`Creating branch ${name}.`);
-    } catch (error: any) {
-      toast.error(error?.message || 'Could not create branch.');
-    }
-  }
-
   async function handleDeleteBranch(id: number) {
     try {
       await deleteBranch.mutateAsync({ id });
@@ -212,7 +191,6 @@ function SettingsPage() {
                 <BranchesPanel
                   branches={state.branches}
                   busy={busy}
-                  onCreate={handleCreateBranch}
                   onDelete={handleDeleteBranch}
                 />
                 <div className="grid gap-6 lg:grid-cols-2">
