@@ -12,7 +12,11 @@ trap cleanup EXIT
 cd "$ROOT_DIR"
 
 file_mode() {
-  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+  if [ "$(uname)" = "Darwin" ]; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
 }
 
 bun run web:build
