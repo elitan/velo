@@ -73,6 +73,7 @@ function HomePage() {
     setBranchName('');
     setParentBranchId('production');
     setTtlHours('none');
+    void dashboard.refetch();
     setCreateModalOpen(true);
   }
 
@@ -159,6 +160,11 @@ function HomePage() {
                   })}
                 </SelectContent>
               </Select>
+              {parentBranchId === 'production' && shouldShowReplicaFreshnessWarning(state.replicaFreshness) ? (
+                <p className="text-sm text-amber-700">
+                  {formatReplicaFreshnessWarning(state.replicaFreshness)}
+                </p>
+              ) : null}
             </div>
 
             <div className="mt-4 grid gap-2">
@@ -221,4 +227,30 @@ function LoadingPage(props: Readonly<{ message: string }>) {
       </div>
     </main>
   );
+}
+
+function shouldShowReplicaFreshnessWarning(freshness: Readonly<{ lagMs: number | null }> | null | undefined): freshness is Readonly<{ lagMs: number }> {
+  return Boolean(freshness?.lagMs && freshness.lagMs > 60_000);
+}
+
+function formatReplicaFreshnessWarning(freshness: Readonly<{ lagMs: number }>): string {
+  return `Warning: new branch will be from production state about ${formatDuration(freshness.lagMs)} ago.`;
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.round(minutes / 60);
+
+  return `${hours}h`;
 }

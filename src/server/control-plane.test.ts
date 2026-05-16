@@ -14,6 +14,7 @@ import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, saveServer } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
+import { buildReplicaFreshness } from './services/replica-service';
 
 let testDir: string;
 
@@ -157,6 +158,20 @@ describe('control plane database', function controlPlaneDatabase() {
     });
     expect(JSON.stringify(state)).not.toContain('super-secret');
     expect(state.prodConnectionUrl).toBe('postgresql://postgres:secret@example.com:5432/postgres');
+    expect(state.replicaFreshness).toBe(null);
+  });
+
+  test('computes replica freshness lag and bytes', function testReplicaFreshness() {
+    const freshness = buildReplicaFreshness(
+      '0/3000000',
+      '0/2000000',
+      '2026-05-16T10:00:00.000Z',
+      new Date('2026-05-16T10:00:03.000Z')
+    );
+
+    expect(freshness.lagMs).toBe(3000);
+    expect(freshness.byteLag).toBe(16777216);
+    expect(freshness.stale).toBe(false);
   });
 
   test('defaults prod allowed cidr to dev server ip', async function testProdAllowedCidrDefault() {
