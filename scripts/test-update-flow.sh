@@ -11,6 +11,10 @@ trap cleanup EXIT
 
 cd "$ROOT_DIR"
 
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1"
+}
+
 bun run web:build
 VERSION="$(bun -e "import pkg from './package.json'; console.log(pkg.version)")"
 TARBALL="$WORK_DIR/velo-v$VERSION.tar.gz"
@@ -55,6 +59,10 @@ VELO_TARBALL_URL="file://$TARBALL" \
 bash "$WORK_DIR/app/scripts/update.sh"
 
 test "$(cat "$WORK_DIR/app/.velo/.update-result")" = "success:$VERSION"
+test "$(file_mode "$WORK_DIR/app/.velo")" = "700"
+test "$(file_mode "$WORK_DIR/app/.velo/velo.sqlite")" = "600"
+test "$(file_mode "$WORK_DIR/app/.velo/.update-log")" = "600"
+test "$(file_mode "$WORK_DIR/app/.velo/.update-result")" = "600"
 test "$(bun -e "import pkg from '$WORK_DIR/app/package.json'; console.log(pkg.version)")" = "$VERSION"
 test "$(bun -e "
   import { Database } from 'bun:sqlite';

@@ -1,9 +1,8 @@
 import { CamelCasePlugin, Kysely, SqliteDialect } from 'kysely';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
 import type { DB } from './schema';
 import { getDatabasePath } from './paths';
 import { BunSqliteDatabase } from './bun-sqlite';
+import { ensureStateDirectory, protectDatabaseFiles } from './state-permissions';
 
 let db: Kysely<DB> | null = null;
 
@@ -13,7 +12,7 @@ export function getDb(): Kysely<DB> {
   }
 
   const databasePath = getDatabasePath();
-  mkdirSync(dirname(databasePath), { recursive: true });
+  ensureStateDirectory(databasePath);
 
   db = new Kysely<DB>({
     dialect: new SqliteDialect({
@@ -21,6 +20,7 @@ export function getDb(): Kysely<DB> {
     }),
     plugins: [new CamelCasePlugin()],
   });
+  protectDatabaseFiles(databasePath);
 
   return db;
 }

@@ -15,6 +15,8 @@ UPDATE_RESULT="$VELO_DIR/.velo/.update-result"
 BACKUP_DIR="$VELO_DIR/.backup"
 PRE_START=false
 
+umask 077
+
 if [ "${1:-}" = "--pre-start" ]; then
   PRE_START=true
 fi
@@ -33,6 +35,7 @@ service_ctl() {
 
 fail() {
   echo "failed" > "$UPDATE_RESULT"
+  chmod 600 "$UPDATE_RESULT" 2>/dev/null || true
   if [ -f "$BACKUP_DIR/commit" ]; then
     log "Restoring previous commit..."
     git reset --hard "$(cat "$BACKUP_DIR/commit")" 2>/dev/null || true
@@ -60,8 +63,11 @@ if [ "$VELO_SKIP_ROOT_CHECK" != "1" ] && [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-mkdir -p "$VELO_DIR/.velo"
+mkdir -p -m 700 "$VELO_DIR/.velo"
+chmod 700 "$VELO_DIR/.velo"
+find "$VELO_DIR/.velo" -maxdepth 1 -type f \( -name 'velo.sqlite' -o -name 'velo.sqlite-*' -o -name '.update-*' \) -exec chmod 600 {} +
 >"$UPDATE_LOG"
+chmod 600 "$UPDATE_LOG"
 exec > >(tee -a "$UPDATE_LOG") 2>&1
 trap fail ERR
 
@@ -127,6 +133,7 @@ if [ "$GIT_MODE" = true ]; then
   rm -rf "$BACKUP_DIR"
   NEW_VERSION="$(bun -e "import pkg from './package.json'; console.log(pkg.version)")"
   echo "success:$NEW_VERSION" > "$UPDATE_RESULT"
+  chmod 600 "$UPDATE_RESULT"
 
   if [ "$PRE_START" = false ]; then
     service_ctl start
@@ -182,6 +189,7 @@ VELO_DB="$VELO_DB" bun run db:migrate
 
 rm -rf "$BACKUP_DIR"
 echo "success:$LATEST_VERSION" > "$UPDATE_RESULT"
+chmod 600 "$UPDATE_RESULT"
 
 if [ "$PRE_START" = false ]; then
   service_ctl start

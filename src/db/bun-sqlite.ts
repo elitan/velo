@@ -1,10 +1,12 @@
 import { Database } from 'bun:sqlite';
+import { protectDatabaseFiles } from './state-permissions';
 
 export class BunSqliteDatabase {
   private db: Database;
 
-  constructor(path: string) {
-    this.db = new Database(path);
+  constructor(private databasePath: string) {
+    this.db = new Database(databasePath);
+    protectDatabaseFiles(databasePath);
   }
 
   close(): void {
@@ -12,11 +14,12 @@ export class BunSqliteDatabase {
   }
 
   prepare(sql: string): BunSqliteStatement {
-    return new BunSqliteStatement(sql, this.db.prepare(sql));
+    return new BunSqliteStatement(sql, this.db.prepare(sql), this.databasePath);
   }
 
   exec(sql: string): void {
     this.db.exec(sql);
+    protectDatabaseFiles(this.databasePath);
   }
 }
 
@@ -25,7 +28,8 @@ class BunSqliteStatement {
 
   constructor(
     private sql: string,
-    private statement: ReturnType<Database['prepare']>
+    private statement: ReturnType<Database['prepare']>,
+    private databasePath: string
   ) {
     this.reader = isReadStatement(sql);
   }
@@ -35,7 +39,9 @@ class BunSqliteStatement {
   }
 
   run(parameters: ReadonlyArray<unknown>): { changes: number | bigint; lastInsertRowid: number | bigint } {
-    return (this.statement.run as (...args: unknown[]) => { changes: number | bigint; lastInsertRowid: number | bigint })(parameters);
+    const result = (this.statement.run as (...args: unknown[]) => { changes: number | bigint; lastInsertRowid: number | bigint })(parameters);
+    protectDatabaseFiles(this.databasePath);
+    return result;
   }
 
   iterate(parameters: ReadonlyArray<unknown>): IterableIterator<unknown> {

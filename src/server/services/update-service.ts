@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import packageJsonRaw from '../../../package.json';
 import { getDatabasePath } from '#db/paths';
+import { ensureStateDirectory } from '#db/state-permissions';
 import { getSetting, setSetting } from './settings-service';
 
 const execAsync = promisify(exec);
@@ -162,7 +163,8 @@ export async function applyUpdate(): Promise<{ success: boolean; error?: string 
   }
 
   try {
-    writeFileSync(getUpdateMarkerPath(), status.availableVersion);
+    ensureStateDirectory(getDatabasePath());
+    writeFileSync(getUpdateMarkerPath(), status.availableVersion, { mode: 0o600 });
     execAsync('systemctl restart velo-web').catch(function ignoreRestartError() {});
     return { success: true };
   } catch (error) {

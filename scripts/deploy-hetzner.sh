@@ -102,11 +102,14 @@ if ! command -v bun >/dev/null 2>&1; then
 fi
 ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
-mkdir -p $(shell_quote "$VELO_DEPLOY_DIR") $(shell_quote "$VELO_DEPLOY_DIR/.velo")
+mkdir -p $(shell_quote "$VELO_DEPLOY_DIR")
+mkdir -p -m 700 $(shell_quote "$VELO_DEPLOY_DIR/.velo")
+chmod 700 $(shell_quote "$VELO_DEPLOY_DIR/.velo")
 if [ ! -d $(shell_quote "$VELO_DEPLOY_DIR/.git") ]; then
   rm -rf $(shell_quote "$VELO_DEPLOY_DIR")
   git clone $(shell_quote "$VELO_REPO") $(shell_quote "$VELO_DEPLOY_DIR")
-  mkdir -p $(shell_quote "$VELO_DEPLOY_DIR/.velo")
+  mkdir -p -m 700 $(shell_quote "$VELO_DEPLOY_DIR/.velo")
+  chmod 700 $(shell_quote "$VELO_DEPLOY_DIR/.velo")
 fi
 
 cd $(shell_quote "$VELO_DEPLOY_DIR")

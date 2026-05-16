@@ -143,10 +143,14 @@ sudo -u postgres pg_isready -d postgres
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
 set -euo pipefail
-mkdir -p '$VELO_DIR' '$VELO_DIR/.velo'
+mkdir -p '$VELO_DIR'
+mkdir -p -m 700 '$VELO_DIR/.velo'
+chmod 700 '$VELO_DIR/.velo'
 if [ ! -d '$VELO_DIR/.git' ]; then
   rm -rf '$VELO_DIR'
   git clone '$VELO_REPO' '$VELO_DIR'
+  mkdir -p -m 700 '$VELO_DIR/.velo'
+  chmod 700 '$VELO_DIR/.velo'
 fi
 cd '$VELO_DIR'
 git fetch --all --tags
@@ -158,6 +162,8 @@ VELO_DB='$VELO_DIR/.velo/velo.sqlite' bun run db:migrate
 bun run web:build
 "
 ```
+
+`.velo` contains SQLite state with operational secrets. Keep it private and do not copy or share it.
 
 ## 5. Put Prod SSH Key On Dev
 
