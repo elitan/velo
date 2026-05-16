@@ -126,6 +126,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
 
     await docker.startContainer(containerId);
     await docker.waitForHealthy(containerId, 10 * 60 * 1000);
+    await waitForPromotion(docker, containerId, 10 * 60 * 1000);
     await setBranchPassword(docker, containerId, branchPassword);
 
     const port = await docker.getContainerPort(containerId);
@@ -381,6 +382,27 @@ async function setPostgresDataOwner(pgdata: string, postgresOwner: PostgresOwner
 
 async function setBranchPassword(docker: DockerManager, containerId: string, password: string): Promise<void> {
   await docker.execSQL(containerId, `alter role postgres with password ${sqlStringLiteral(password)}`);
+}
+
+async function waitForPromotion(docker: DockerManager, containerId: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const result = await docker.execSQL(containerId, 'select pg_is_in_recovery()');
+
+      if (result.trim() === 'f') {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    await Bun.sleep(500);
+  }
+
+  throw new Error(`restored Postgres did not promote before timeout: ${String(lastError || 'still in recovery')}`);
 }
 
 async function readPgVersion(pgdata: string): Promise<string> {
