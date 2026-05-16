@@ -32,6 +32,40 @@ if [ -f "$source_env" ] && [ ! -f .env ]; then
 fi
 '''
 
+[cleanup]
+script = '''
+set +e
+
+worktree_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+compose_file="$worktree_root/docker-compose.local.yml"
+
+cleanup_project() {
+  project="$1"
+
+  if [ -z "$project" ] || [ ! -f "$compose_file" ]; then
+    return
+  fi
+
+  COMPOSE_PROJECT_NAME="$project" docker compose -f "$compose_file" down -v --remove-orphans >/dev/null 2>&1 || true
+}
+
+if [ -d "$worktree_root/.velo/local" ]; then
+  find "$worktree_root/.velo/local" -mindepth 2 -maxdepth 2 -name env -type f | while IFS= read -r env_file; do
+    project="$(sed -n 's/^VELO_LOCAL_COMPOSE_PROJECT=//p' "$env_file" | head -n 1)"
+    cleanup_project "$project"
+  done
+fi
+
+branch_name="$(git -C "$worktree_root" branch --show-current 2>/dev/null || true)"
+if [ -z "$branch_name" ]; then
+  worktree_id="$(basename "$(dirname "$worktree_root")")"
+  branch_name="codex-$worktree_id"
+fi
+
+instance_id="$(printf '%s' "$branch_name" | tr -c '[:alnum:]' '-' | tr '[:upper:]' '[:lower:]' | sed 's/^-*//; s/-*$//; s/--*/-/g')"
+cleanup_project "velo-$instance_id"
+'''
+
 [[actions]]
 name = "test"
 icon = "run"
