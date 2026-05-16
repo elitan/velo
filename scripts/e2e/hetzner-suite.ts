@@ -605,6 +605,25 @@ async function assertBranchPostgresPrivate(branch: Branch): Promise<void> {
 
   await assertCommandOk(result, `docker inspect branch port ${branch.slug}`);
   assert(result.stdout === '127.0.0.1', `${branch.slug} Postgres should bind localhost, got ${result.stdout}`);
+
+  await assertBranchPostgresRejectsBadPassword(branch);
+}
+
+async function assertBranchPostgresRejectsBadPassword(branch: Branch): Promise<void> {
+  assert(branch.connectionUrl, `${branch.slug} connection URL should be set`);
+  const url = new URL(branch.connectionUrl);
+  url.password = `wrong-${RUN_ID}`;
+
+  const result = await runCommand([
+    'psql',
+    url.toString(),
+    '-v',
+    'ON_ERROR_STOP=1',
+    '-c',
+    'select 1',
+  ], 30000);
+
+  assert(result.exitCode !== 0, `${branch.slug} PostgreSQL should reject bad password`);
 }
 
 async function assertZfsDatasetExists(dataset: string): Promise<void> {

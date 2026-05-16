@@ -50,20 +50,48 @@ HOST=127.0.0.1 \
 PORT="$PORT" \
 NODE_ENV=production \
 VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" \
+VELO_BASIC_AUTH_USERNAME=test \
+VELO_BASIC_AUTH_PASSWORD=test \
 BETTER_AUTH_SECRET=testtesttesttesttesttesttesttest \
 BETTER_AUTH_URL="http://127.0.0.1:$PORT" \
 bun src/server/web-runtime.ts >"$WORK_DIR/server.log" 2>&1 &
 SERVER_PID="$!"
 
-for _ in $(seq 1 30); do
-  if curl -fsS -I "http://127.0.0.1:$PORT" >/dev/null \
-    && curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null \
-    && curl -fsS -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve" >/dev/null; then
-    echo "release artifact smoke passed"
-    exit 0
+for attempt in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
+    break
   fi
+
+  if [ "$attempt" = "30" ]; then
+    cat "$WORK_DIR/server.log"
+    exit 1
+  fi
+
   sleep 1
 done
 
-cat "$WORK_DIR/server.log"
-exit 1
+http_status() {
+  curl -sS -o /dev/null -w '%{http_code}' "$@"
+}
+
+assert_status() {
+  expected="$1"
+  shift
+  actual="$(http_status "$@")"
+
+  if [ "$actual" != "$expected" ]; then
+    echo "expected HTTP $expected, got $actual: $*"
+    cat "$WORK_DIR/server.log"
+    exit 1
+  fi
+}
+
+assert_status 200 "http://127.0.0.1:$PORT/healthz"
+assert_status 401 -I "http://127.0.0.1:$PORT"
+assert_status 401 -u bad:bad -I "http://127.0.0.1:$PORT"
+assert_status 200 -u test:test -I "http://127.0.0.1:$PORT"
+assert_status 401 -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
+assert_status 401 -u bad:bad -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
+assert_status 200 -u test:test -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
+
+echo "release artifact smoke passed"
