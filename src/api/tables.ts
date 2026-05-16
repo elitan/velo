@@ -32,6 +32,7 @@ const tableInsertInput = z.object({
   schema: z.string().min(1),
   table: z.string().min(1),
   values: tableRowValues,
+  productionWriteConfirmation: z.string().optional(),
 });
 
 const tableUpdateInput = tableInsertInput.extend({
@@ -40,6 +41,7 @@ const tableUpdateInput = tableInsertInput.extend({
 
 const tableDeleteInput = tableRowsInput.extend({
   rowId: z.string().min(1),
+  productionWriteConfirmation: z.string().optional(),
 });
 
 export const tablesRouter = {

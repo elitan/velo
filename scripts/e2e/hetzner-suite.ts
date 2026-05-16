@@ -7,6 +7,7 @@ import { runCommand, runSshCommand } from '#server/services/command-service';
 import { createReplicaBase } from '#server/services/replica-service';
 import { TABLE_ROW_ID_COLUMN } from '#server/services/table-browser-service';
 import { getContainerName, getDatasetName } from '#utils/naming';
+import { isProductionBranchId, isReadOnlySql, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
 
 const api = createApiClient();
 const PROJECT_NAME = 'prod';
@@ -329,7 +330,13 @@ async function waitForJob(jobId: number, timeoutMs: number): Promise<void> {
 }
 
 async function runBranchSql(branchId: string, sql: string): Promise<QueryResult> {
-  return api.branches.sql.run({ branchId, sql });
+  return api.branches.sql.run({
+    branchId,
+    sql,
+    productionWriteConfirmation: isProductionBranchId(branchId) && !isReadOnlySql(sql)
+      ? PRODUCTION_WRITE_CONFIRMATION
+      : undefined,
+  });
 }
 
 async function assertSqlError(branchId: string, sql: string): Promise<void> {

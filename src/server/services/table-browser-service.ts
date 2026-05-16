@@ -1,6 +1,8 @@
 import { SQL } from 'bun';
 import { getDb } from '#db/client';
+import { isConfirmedProductionWrite, isProductionBranchId } from '#utils/prod-write-guard';
 import { getSetting } from './settings-service';
+import { auditProdWriteAttempt } from './prod-write-audit-service';
 
 export interface TableBrowserInput {
   branchId: string;
@@ -23,6 +25,7 @@ export interface TableRowInsertInput {
   schema: string;
   table: string;
   values: Record<string, string | null>;
+  productionWriteConfirmation?: string | undefined;
 }
 
 export interface TableRowUpdateInput extends TableRowInsertInput {
@@ -35,6 +38,7 @@ export interface TableRowDeleteInput {
   schema: string;
   table: string;
   rowId: string;
+  productionWriteConfirmation?: string | undefined;
 }
 
 export interface TableBrowserTable {
@@ -210,6 +214,8 @@ export async function getTableRows(input: TableRowsInput): Promise<TableRowsResu
 }
 
 export async function insertTableRow(input: TableRowInsertInput): Promise<void> {
+  await assertProductionTableWriteAllowed(input, 'insert');
+
   const connectionUrl = await getBranchConnectionUrl(input.branchId);
 
   if (!connectionUrl) {
@@ -234,6 +240,8 @@ export async function insertTableRow(input: TableRowInsertInput): Promise<void> 
 }
 
 export async function updateTableRow(input: TableRowUpdateInput): Promise<void> {
+  await assertProductionTableWriteAllowed(input, 'update');
+
   const connectionUrl = await getBranchConnectionUrl(input.branchId);
 
   if (!connectionUrl) {
@@ -259,6 +267,8 @@ export async function updateTableRow(input: TableRowUpdateInput): Promise<void> 
 }
 
 export async function deleteTableRow(input: TableRowDeleteInput): Promise<void> {
+  await assertProductionTableWriteAllowed(input, 'delete');
+
   const connectionUrl = await getBranchConnectionUrl(input.branchId);
 
   if (!connectionUrl) {
@@ -277,7 +287,7 @@ export async function deleteTableRow(input: TableRowDeleteInput): Promise<void> 
 }
 
 async function getBranchConnectionUrl(branchId: string): Promise<string | null> {
-  if (isProductionBranch(branchId)) {
+  if (isProductionBranchId(branchId)) {
     return getSetting('prod.connectionUrl');
   }
 
@@ -288,11 +298,6 @@ async function getBranchConnectionUrl(branchId: string): Promise<string | null> 
     .executeTakeFirst();
 
   return branch?.connectionUrl || null;
-}
-
-function isProductionBranch(branchId: string): boolean {
-  const normalized = branchId.trim().toLowerCase();
-  return normalized === 'production' || normalized === 'prod';
 }
 
 async function listTables(sql: SQL): Promise<TableBrowserTable[]> {
@@ -317,6 +322,28 @@ async function listTables(sql: SQL): Promise<TableBrowserTable[]> {
       rowEstimate: Math.max(0, Number(row.rowEstimate) || 0),
     };
   });
+}
+
+async function assertProductionTableWriteAllowed(
+  input: TableRowInsertInput | TableRowUpdateInput | TableRowDeleteInput,
+  action: 'insert' | 'update' | 'delete'
+): Promise<void> {
+  if (!isProductionBranchId(input.branchId)) {
+    return;
+  }
+
+  const allowed = isConfirmedProductionWrite(input.productionWriteConfirmation);
+  await auditProdWriteAttempt({
+    area: 'tables',
+    action,
+    branchId: input.branchId,
+    allowed,
+    target: `${input.database}.${input.schema}.${input.table}`,
+  });
+
+  if (!allowed) {
+    throw new Error('Type "write production" to edit production rows.');
+  }
 }
 
 async function listDatabases(sql: SQL): Promise<string[]> {

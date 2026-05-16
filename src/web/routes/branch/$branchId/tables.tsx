@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ShieldAlert,
   Table2,
   Trash2,
 } from 'lucide-react';
@@ -48,6 +49,7 @@ import {
 } from '#web/components/ui/select';
 import { orpc } from '#web/lib/api-client';
 import { cn } from '#lib/utils';
+import { isConfirmedProductionWrite, isProductionBranchId, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
 
 export const Route = createFileRoute('/branch/$branchId/tables')({
   component: BranchTablesPage,
@@ -62,6 +64,7 @@ function BranchTablesPage() {
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<RowEditorState | null>(null);
   const [rowToDelete, setRowToDelete] = useState<DeleteRowState | null>(null);
+  const [productionWriteConfirmation, setProductionWriteConfirmation] = useState('');
   const metadata = useQuery({
     ...orpc.tables.browse.queryOptions({
       input: {
@@ -105,6 +108,7 @@ function BranchTablesPage() {
     setSearch('');
     setEditor(null);
     setRowToDelete(null);
+    setProductionWriteConfirmation('');
   }, [params.branchId]);
 
   useEffect(function setInitialTable() {
@@ -174,6 +178,11 @@ function BranchTablesPage() {
   }
 
   function openAddRow() {
+    if (!productionWritesUnlocked) {
+      toast.error(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to edit production rows.`);
+      return;
+    }
+
     const target = getCurrentRowsTarget();
 
     if (!rows.data || !target) {
@@ -189,6 +198,11 @@ function BranchTablesPage() {
   }
 
   function openEditRow(row: Record<string, unknown>) {
+    if (!productionWritesUnlocked) {
+      toast.error(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to edit production rows.`);
+      return;
+    }
+
     const target = getCurrentRowsTarget();
 
     if (!rows.data || !target) {
@@ -204,6 +218,11 @@ function BranchTablesPage() {
   }
 
   function openDeleteRow(row: Record<string, unknown>) {
+    if (!productionWritesUnlocked) {
+      toast.error(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to edit production rows.`);
+      return;
+    }
+
     const target = getCurrentRowsTarget();
 
     if (!rows.data || !target) {
@@ -250,6 +269,7 @@ function BranchTablesPage() {
         schema: rowToDelete.target.schema,
         table: rowToDelete.target.table,
         rowId: rowToDelete.rowId,
+        productionWriteConfirmation: isProduction ? productionWriteConfirmation : undefined,
       });
       setRowToDelete(null);
       toast.success('Row deleted.');
@@ -302,6 +322,7 @@ function BranchTablesPage() {
           schema: editor.target.schema,
           table: editor.target.table,
           values,
+          productionWriteConfirmation: isProduction ? productionWriteConfirmation : undefined,
         });
       } else if (editor.rowId) {
         await updateRow.mutateAsync({
@@ -311,6 +332,7 @@ function BranchTablesPage() {
           table: editor.target.table,
           rowId: editor.rowId,
           values,
+          productionWriteConfirmation: isProduction ? productionWriteConfirmation : undefined,
         });
       }
 
@@ -329,6 +351,9 @@ function BranchTablesPage() {
   const saving = insertRow.isPending || updateRow.isPending;
   const deleting = deleteRow.isPending;
   const rowsReady = Boolean(rows.data && rowDataMatches(rows.data, params.branchId, selectedDatabase, selectedSchema, selectedTable));
+  const isProduction = isProductionBranchId(params.branchId);
+  const productionWritesUnlocked = !isProduction || isConfirmedProductionWrite(productionWriteConfirmation);
+  const tableActionsDisabled = !rowsReady || !productionWritesUnlocked;
 
   return (
     <>
@@ -430,6 +455,21 @@ function BranchTablesPage() {
             </aside>
 
             <div className="grid min-h-0 grid-rows-[auto_1fr]">
+              {isProduction ? (
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  <ShieldAlert className="size-4" />
+                  <span className="font-medium">{productionWritesUnlocked ? 'production writes unlocked' : 'production rows read-only'}</span>
+                  <Input
+                    value={productionWriteConfirmation}
+                    onChange={function updateProductionWriteConfirmation(event) {
+                      setProductionWriteConfirmation(event.target.value);
+                    }}
+                    className="h-8 w-48 bg-background font-mono text-xs text-foreground"
+                    placeholder={PRODUCTION_WRITE_CONFIRMATION}
+                    aria-label="Production write confirmation"
+                  />
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-3 py-2">
                 <div className="text-xs text-muted-foreground">
                   {rows.data ? `${rows.data.rowLimit} rows · ${rows.data.elapsedMs}ms` : 'Loading...'}
@@ -439,7 +479,7 @@ function BranchTablesPage() {
                   variant="outline"
                   size="sm"
                   className="h-8"
-                  disabled={!rowsReady || !rows.data || rows.data.columns.length === 0}
+                  disabled={tableActionsDisabled || !rows.data || rows.data.columns.length === 0}
                   onClick={openAddRow}
                 >
                   <Plus className="size-3.5" />
@@ -495,7 +535,7 @@ function BranchTablesPage() {
                 data={rows.data}
                 loading={rows.isLoading}
                 error={rows.error}
-                actionsDisabled={!rowsReady}
+                actionsDisabled={tableActionsDisabled}
                 onEditRow={openEditRow}
                 onDeleteRow={openDeleteRow}
               />
