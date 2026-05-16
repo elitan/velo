@@ -11,10 +11,11 @@ import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
-import { cleanupOldReplicaBases, getReplicaBaseDataset } from './replica-service';
+import { cleanupOldReplicaBases, getReplicaBaseDataset, getReplicaFreshness } from './replica-service';
 import { createLocalDockerBranch, deleteLocalDockerBranch, deleteLocalDockerBranchResources, isLocalDockerMode } from './local-docker-service';
 import { createJob, getActiveJobs } from './job-service';
 import { getBranchConnectionHost } from './branch-network-service';
+import { getReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 const PROJECT_NAME = 'prod';
 
@@ -26,6 +27,7 @@ export interface CreateBranchInput {
   ttlHours?: number | null;
   branchPassword?: string | null;
   preferredPort?: number | null;
+  forceReplicaStale?: boolean;
 }
 
 export interface CreatePreviewBranchInput {
@@ -83,6 +85,7 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
   }
 
   await ensureBranchSourceReady(source.slug);
+  await ensureReplicaFreshEnough(source.slug, Boolean(input.forceReplicaStale));
   try {
     if (isLocalDockerMode()) {
       const result = await createLocalDockerBranch({
@@ -466,6 +469,26 @@ async function ensureBranchSourceReady(sourceSlug: string): Promise<void> {
   }
 }
 
+async function ensureReplicaFreshEnough(sourceSlug: string, forced: boolean): Promise<void> {
+  if (sourceSlug !== 'production') {
+    return;
+  }
+
+  const policy = getReplicaBranchCreatePolicy(await getReplicaFreshness());
+
+  if (policy.status === 'block' && !forced) {
+    throw new Error(formatReplicaStaleBlockMessage(policy.lagMs));
+  }
+}
+
+function formatReplicaStaleBlockMessage(lagMs: number | null): string {
+  if (lagMs === null) {
+    return 'Dev replica freshness is unknown. Refresh the replica or force branch creation.';
+  }
+
+  return `Dev replica is ${formatDuration(lagMs)} behind production. Force branch creation to use stale production state.`;
+}
+
 export async function deleteBranch(input: DeleteBranchInput): Promise<DeleteBranchResult> {
   const db = getDb();
   await assertBranchHasNoChildren(input.id);
@@ -769,6 +792,24 @@ function parseOptionalExpiry(value: string | null | undefined): string | null {
   }
 
   return expiresAt.toISOString();
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.round(minutes / 60);
+
+  return `${hours}h`;
 }
 
 function hasActiveBranchJob(branchId: number, branchSlug: string, jobs: Awaited<ReturnType<typeof getActiveJobs>>): boolean {

@@ -25,6 +25,7 @@ import { getBackupSettings, saveBackupSettings, setSetting } from './services/se
 import { getControlPlaneState, invalidateDevReplicaBase, saveServer, setStepStatus } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
 import { buildReplicaBaseHealth, buildReplicaFreshness } from './services/replica-service';
+import { getReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 let testDir: string;
 
@@ -186,6 +187,12 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(freshness.lagMs).toBe(3000);
     expect(freshness.byteLag).toBe(16777216);
     expect(freshness.stale).toBe(false);
+  });
+
+  test('classifies replica freshness for branch creation', function testReplicaBranchCreatePolicy() {
+    expect(getReplicaBranchCreatePolicy({ lagMs: 9000 })).toEqual({ status: 'allow', lagMs: 9000 });
+    expect(getReplicaBranchCreatePolicy({ lagMs: 10_000 })).toEqual({ status: 'warn', lagMs: 10_000 });
+    expect(getReplicaBranchCreatePolicy({ lagMs: 60_001 })).toEqual({ status: 'block', lagMs: 60_001 });
   });
 
   test('accepts healthy dev replica base signals', function testHealthyReplicaBaseSignals() {

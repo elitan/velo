@@ -5,13 +5,16 @@ import { publicProcedure } from './context';
 import { userFacingError } from './errors';
 import { createJob } from '#server/services/job-service';
 import { createPreviewBranch, normalizeBranchSlug, updateBranchExpiry } from '#server/services/branch-service';
+import { getReplicaFreshness } from '#server/services/replica-service';
 import { runBranchSql } from '#server/services/sql-editor-service';
+import { getReplicaBranchCreatePolicy, type ReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 const branchInput = z.object({
   name: z.string().min(1),
   parentBranchId: z.number().int().positive().nullable().optional(),
   ttlHours: z.number().positive().nullable().optional(),
   expiresAt: z.string().nullable().optional(),
+  forceReplicaStale: z.boolean().optional(),
 });
 
 const branchIdInput = z.object({
@@ -46,10 +49,12 @@ export const branchesRouter = {
     .handler(async function createBranch({ input }) {
       const branchSlug = normalizeBranchSlug(input.name);
       await assertBranchSlugAvailable(branchSlug);
+      const replicaPolicy = await assertReplicaCreateAllowed(input);
       const job = await createJob('create-branch', input);
       return {
         ...job,
         branchSlug,
+        replicaWarning: replicaPolicy.status === 'warn' ? formatReplicaWarning(replicaPolicy) : null,
       };
     }),
   delete: publicProcedure
@@ -128,6 +133,52 @@ async function assertBranchSlugAvailable(branchSlug: string): Promise<void> {
   if (hasActiveCreate) {
     throwDuplicateBranch(branchSlug);
   }
+}
+
+async function assertReplicaCreateAllowed(input: z.infer<typeof branchInput>): Promise<ReplicaBranchCreatePolicy> {
+  if (input.parentBranchId) {
+    return { status: 'allow', lagMs: null };
+  }
+
+  const policy = getReplicaBranchCreatePolicy(await getReplicaFreshness());
+
+  if (policy.status === 'block' && !input.forceReplicaStale) {
+    throw new ORPCError('BAD_REQUEST', {
+      message: formatReplicaBlock(policy),
+    });
+  }
+
+  return policy;
+}
+
+function formatReplicaWarning(policy: ReplicaBranchCreatePolicy): string {
+  return `Dev replica is ${formatDuration(policy.lagMs ?? 0)} behind production. Branch may start stale.`;
+}
+
+function formatReplicaBlock(policy: ReplicaBranchCreatePolicy): string {
+  if (policy.lagMs === null) {
+    return 'Dev replica freshness is unknown. Refresh the replica or force branch creation.';
+  }
+
+  return `Dev replica is ${formatDuration(policy.lagMs)} behind production. Force branch creation to use stale production state.`;
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  const hours = Math.round(minutes / 60);
+
+  return `${hours}h`;
 }
 
 function getCreateBranchSlug(inputJson: string | null): string | null {
