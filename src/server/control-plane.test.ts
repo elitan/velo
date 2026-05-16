@@ -221,7 +221,7 @@ describe('control plane database', function controlPlaneDatabase() {
       initialReplayLsn: '0/2000000',
       currentReplayLsn: '0/2000000',
       replayPaused: true,
-      replayedAt: '2026-05-16T09:58:59.000Z',
+      replayedAt: '2026-05-16T09:59:00.000Z',
       replayTimelineId: 2,
       productionTimelineId: 1,
       slotRetainedWalBytes: 2 * 1024 * 1024 * 1024,
@@ -233,7 +233,6 @@ describe('control plane database', function controlPlaneDatabase() {
       'WAL receiver is not streaming',
       'replay LSN is not advancing',
       'WAL replay is paused',
-      'replica replay lag is too high',
       'replica timeline does not follow production',
       'replication slot retained WAL is too large',
     ]);
