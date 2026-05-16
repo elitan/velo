@@ -288,12 +288,19 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(cleanupJob).toBeUndefined();
   });
 
-  test('preserves branch expiry fields in create job input', function testCreateBranchJobExpiry() {
-    const parsed = parseCreateBranchJobInput({
+  test('preserves branch ttl through queued create job input', async function testCreateBranchJobTtl() {
+    const api = createApiClient();
+    await api.branches.create({
       name: 'ttl-branch',
       parentBranchId: null,
       ttlHours: 1,
     });
+
+    const jobs = await listJobs(10);
+    const job = jobs.find(function isCreateBranchJob(record) {
+      return record.type === 'create-branch';
+    });
+    const parsed = parseCreateBranchJobInput(job?.input);
 
     expect(parsed).toEqual({
       name: 'ttl-branch',
