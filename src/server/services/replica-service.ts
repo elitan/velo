@@ -12,13 +12,14 @@ import { runCommand, runSshCommand } from './command-service';
 import { getSetting, setSetting } from './settings-service';
 import { setStepStatus } from './setup-state-service';
 import { createLocalDockerReplicaBase, isLocalDockerMode } from './local-docker-service';
+import { REPLICA_BRANCH_BLOCK_MS } from '#utils/replica-freshness-policy';
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
 const BASE_DATASET_PREFIX = `${PROJECT_NAME}.${BASE_BRANCH_NAME}-`;
 const REPLICATION_USER = 'velo_replica';
 const REPLICATION_SLOT = 'velo_replica_base';
-const STALE_REPLICA_MS = 30_000;
+const STALE_REPLICA_MS = REPLICA_BRANCH_BLOCK_MS;
 const MAX_SLOT_RETAINED_WAL_BYTES = 1024 * 1024 * 1024;
 
 export interface ReplicaResult {
