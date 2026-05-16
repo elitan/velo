@@ -7,12 +7,22 @@ import { sql } from 'kysely';
 import { createApiClient } from '../api/router';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
-import { createAuditJob, createJob, getActiveJob, getJob, listJobs, startJobWorker, type JobHandlers } from './services/job-service';
+import {
+  cancelJobById,
+  createAuditJob,
+  createJob,
+  getActiveJob,
+  getJob,
+  listJobs,
+  retryJobById,
+  startJobWorker,
+  type JobHandlers,
+} from './services/job-service';
 import { parseCreateBranchJobInput } from './services/job-handlers';
 import { createBranchFromBase, replaceBranchWithReadyBranch, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
-import { getControlPlaneState, invalidateDevReplicaBase, saveServer } from './services/setup-state-service';
+import { getControlPlaneState, invalidateDevReplicaBase, saveServer, setStepStatus } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
 import { buildReplicaBaseHealth, buildReplicaFreshness } from './services/replica-service';
 
@@ -109,6 +119,9 @@ describe('control plane database', function controlPlaneDatabase() {
       const job = db
         .query('select type, attempts, max_attempts, run_after from jobs where type = ?')
         .get('old-job') as { type: string; attempts: number; max_attempts: number; run_after: string | null };
+      const log = db
+        .query('select message from job_logs where job_id = (select id from jobs where type = ?)')
+        .get('old-job') as { message: string } | null;
       db.close();
 
       expect(job).toMatchObject({
@@ -117,6 +130,7 @@ describe('control plane database', function controlPlaneDatabase() {
         max_attempts: 1,
       });
       expect(job.run_after).toBeTruthy();
+      expect(log?.message).toBe('old log');
     } finally {
       await closeDb();
       process.env.VELO_DB = originalDb;
@@ -637,7 +651,8 @@ function createPreQueueDatabase(databasePath: string): void {
     db.prepare('insert into schema_migrations (id) values (?)').run(id);
   }
 
-  db.prepare('insert into jobs (type, status) values (?, ?)').run('old-job', 'running');
+  const job = db.prepare('insert into jobs (type, status) values (?, ?)').run('old-job', 'running');
+  db.prepare('insert into job_logs (job_id, level, message) values (?, ?, ?)').run(Number(job.lastInsertRowid), 'info', 'old log');
   db.close();
 }
 
@@ -696,6 +711,70 @@ describe('control plane jobs', function controlPlaneJobs() {
     expect(record.error).toContain('access_key_id=***');
     expect(record.error).toContain('password=***');
     expect(jobs[0]?.id).toBe(job.id);
+  });
+
+  test('redacts job input returned to API callers', async function testRedactedJobInput() {
+    const job = await createJob('test-job', {
+      branch: 'preview-1',
+      password: 'secret-value',
+      connectionUrl: 'postgresql://postgres:bad@localhost:5432/postgres',
+    });
+    const record = await getJob(job.id);
+
+    expect(JSON.stringify(record.input)).toContain('preview-1');
+    expect(JSON.stringify(record.input)).not.toContain('secret-value');
+    expect(JSON.stringify(record.input)).not.toContain('bad@localhost');
+  });
+
+  test('cancels queued jobs', async function testCancelQueuedJob() {
+    const job = await createJob('create-branch', { name: 'preview-1' });
+    const record = await cancelJobById(job.id);
+
+    expect(record.status).toBe('cancelled');
+    expect(record.error).toBe('cancelled by user');
+    expect(record.canCancel).toBe(false);
+  });
+
+  test('requeues only safe failed jobs', async function testManualRetryRules() {
+    const safe = await createJob('create-branch', { name: 'preview-1' });
+    const unsafe = await createJob('restore-branch', {
+      targetBranch: 'production',
+      sourceBranch: 'production',
+      restoreTime: new Date().toISOString(),
+    });
+
+    await getDb()
+      .updateTable('jobs')
+      .set({ status: 'error', error: 'failed' })
+      .where('id', 'in', [safe.id, unsafe.id])
+      .execute();
+
+    const retried = await retryJobById(safe.id);
+
+    expect(retried.status).toBe('queued');
+    expect(retried.attempts).toBe(0);
+    await expect(retryJobById(unsafe.id)).rejects.toThrow('Job cannot be retried');
+  });
+
+  test('links setup step errors to the running job', async function testSetupFailedJobLink() {
+    const job = await createJob('setup-step-job');
+    const worker = startTestWorker({
+      'setup-step-job': async function handleJob() {
+        await setStepStatus('prod-check', 'error', 'prod failed');
+        throw new Error('prod failed');
+      },
+    });
+
+    await worker.tick();
+    await waitForJob(job.id);
+    worker.stop();
+
+    const state = await getControlPlaneState();
+    const step = state.setupSteps.find(function findProdCheck(item) {
+      return item.key === 'prod-check';
+    });
+
+    expect(step?.failedJobId).toBe(job.id);
   });
 
   test('finds only queued or running jobs by type', async function testActiveJob() {
@@ -841,7 +920,7 @@ async function waitForJob(jobId: number) {
   while (Date.now() - startedAt < 2000) {
     const job = await getJob(jobId);
 
-    if (job.status === 'done' || job.status === 'error') {
+    if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
       return job;
     }
 

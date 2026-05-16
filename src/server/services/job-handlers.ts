@@ -158,7 +158,11 @@ async function runSetupJob(context: JobContext): Promise<void> {
 
   if (!(await isStepDone('prod-check'))) {
     await context.log('checking prod server');
-    await checkServer('prod');
+    const server = await checkServer('prod');
+
+    if (server.status !== 'ok') {
+      throw new Error(server.statusMessage || 'prod server check failed');
+    }
   }
 
   if (!(await isStepDone('prod-setup')) || !(await isStepDone('backups'))) {

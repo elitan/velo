@@ -1,13 +1,28 @@
 import { sql } from 'kysely';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { getDb } from '../../db/client';
 import type { Job, JobLog } from '../../db/schema';
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'error';
+export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 export type JobHandler = (input: unknown, context: JobContext) => Promise<void>;
 export type JobHandlers = Record<string, JobHandler>;
 
 const DEFAULT_STALE_TIMEOUT_SECONDS = 5 * 60;
 const DEFAULT_POLL_INTERVAL_MS = 1000;
+const SAFE_MANUAL_RETRY_JOB_TYPES = [
+  'dev-bootstrap',
+  'prod-bootstrap',
+  'setup',
+  'replica-base',
+  'create-branch',
+  'delete-branch',
+  'branch-cleanup',
+];
+const AUTO_RETRY_JOB_TYPES = [
+  ...SAFE_MANUAL_RETRY_JOB_TYPES,
+  'restore-branch',
+];
+const currentJobId = new AsyncLocalStorage<number>();
 
 export interface JobRecord {
   id: number;
@@ -25,6 +40,9 @@ export interface JobRecord {
   startedAt: string | null;
   finishedAt: string | null;
   updatedAt: string;
+  durationMs: number | null;
+  canRetry: boolean;
+  canCancel: boolean;
   logs: Array<{
     id: number;
     level: 'info' | 'error';
@@ -42,6 +60,12 @@ export interface JobContext {
 
 export interface CreateJobOptions {
   maxAttempts?: number;
+}
+
+export interface ListJobsOptions {
+  offset?: number;
+  status?: JobStatus;
+  type?: string;
 }
 
 export interface JobWorker {
@@ -70,6 +94,10 @@ export async function createJob(type: string, input?: unknown, options: CreateJo
     })
     .returningAll()
     .executeTakeFirstOrThrow();
+}
+
+export function getCurrentJobId(): number | null {
+  return currentJobId.getStore() ?? null;
 }
 
 export async function createAuditJob(type: string, input: unknown, message: string): Promise<Job> {
@@ -141,13 +169,23 @@ export function startJobWorker(handlers: JobHandlers, options: StartJobWorkerOpt
   return { tick, stop };
 }
 
-export async function listJobs(limit = 20): Promise<JobRecord[]> {
-  const jobs = await getDb()
+export async function listJobs(limit = 20, options: ListJobsOptions = {}): Promise<JobRecord[]> {
+  let query = getDb()
     .selectFrom('jobs')
     .selectAll()
     .orderBy('createdAt', 'desc')
     .limit(limit)
-    .execute();
+    .offset(options.offset ?? 0);
+
+  if (options.status) {
+    query = query.where('status', '=', options.status);
+  }
+
+  if (options.type) {
+    query = query.where('type', '=', options.type);
+  }
+
+  const jobs = await query.execute();
 
   const result: JobRecord[] = [];
 
@@ -168,6 +206,70 @@ export async function getJob(jobId: number): Promise<JobRecord> {
   const logs = await getJobLogs(job.id, 100);
 
   return mapJob(job, logs);
+}
+
+export async function retryJobById(jobId: number): Promise<JobRecord> {
+  const job = await getDb()
+    .selectFrom('jobs')
+    .selectAll()
+    .where('id', '=', jobId)
+    .executeTakeFirstOrThrow();
+
+  if (!canRetryJob(job)) {
+    throw new Error(`Job cannot be retried: ${job.type}`);
+  }
+
+  await appendJobLog(job.id, 'info', `queued retry for ${job.type}`);
+  await getDb()
+    .updateTable('jobs')
+    .set({
+      status: 'queued',
+      error: null,
+      attempts: 0,
+      runAfter: sql<string>`datetime('now')`,
+      lockedAt: null,
+      lockedBy: null,
+      heartbeatAt: null,
+      startedAt: null,
+      finishedAt: null,
+      updatedAt: sql<string>`datetime('now')`,
+    })
+    .where('id', '=', job.id)
+    .where('status', '=', 'error')
+    .execute();
+
+  return getJob(job.id);
+}
+
+export async function cancelJobById(jobId: number): Promise<JobRecord> {
+  const job = await getDb()
+    .selectFrom('jobs')
+    .selectAll()
+    .where('id', '=', jobId)
+    .executeTakeFirstOrThrow();
+
+  if (job.status !== 'queued') {
+    throw new Error('Only queued jobs can be cancelled');
+  }
+
+  await appendJobLog(job.id, 'info', `cancelled ${job.type}`);
+  await getDb()
+    .updateTable('jobs')
+    .set({
+      status: 'cancelled',
+      error: 'cancelled by user',
+      runAfter: null,
+      lockedAt: null,
+      lockedBy: null,
+      heartbeatAt: null,
+      finishedAt: sql<string>`datetime('now')`,
+      updatedAt: sql<string>`datetime('now')`,
+    })
+    .where('id', '=', job.id)
+    .where('status', '=', 'queued')
+    .execute();
+
+  return getJob(job.id);
 }
 
 export async function getActiveJob(type: string): Promise<Job | undefined> {
@@ -249,7 +351,9 @@ async function runClaimedJob(
     }
 
     await appendJobLog(job.id, 'info', `attempt ${job.attempts} started ${job.type}`);
-    await handler(parseJobInput(job), context);
+    await currentJobId.run(job.id, async function runJobWithContext() {
+      await handler(parseJobInput(job), context);
+    });
     await appendJobLog(job.id, 'info', `attempt ${job.attempts} finished ${job.type}`);
     await finishJob(job.id, workerId);
   } catch (error: any) {
@@ -408,7 +512,7 @@ function mapJob(job: Job, logs: JobLog[]): JobRecord {
     id: job.id,
     type: job.type,
     status: job.status,
-    input: parseJobInput(job),
+    input: redactValue(parseJobInput(job)),
     error: job.error,
     attempts: job.attempts,
     maxAttempts: job.maxAttempts,
@@ -420,6 +524,9 @@ function mapJob(job: Job, logs: JobLog[]): JobRecord {
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
     updatedAt: job.updatedAt,
+    durationMs: getJobDurationMs(job),
+    canRetry: canRetryJob(job),
+    canCancel: job.status === 'queued',
     logs: logs.map(function mapLog(log) {
       return {
         id: log.id,
@@ -444,20 +551,35 @@ function getDefaultMaxAttempts(type: string, input: unknown): number {
     return 1;
   }
 
-  if ([
-    'dev-bootstrap',
-    'prod-bootstrap',
-    'setup',
-    'replica-base',
-    'create-branch',
-    'delete-branch',
-    'branch-cleanup',
-    'restore-branch',
-  ].includes(type)) {
+  if (AUTO_RETRY_JOB_TYPES.includes(type)) {
     return 3;
   }
 
   return 1;
+}
+
+function canRetryJob(job: Job): boolean {
+  return job.status === 'error' && isSafeRetryJobType(job.type);
+}
+
+function isSafeRetryJobType(type: string): boolean {
+  return SAFE_MANUAL_RETRY_JOB_TYPES.includes(type);
+}
+
+function getJobDurationMs(job: Job): number | null {
+  const startedAt = job.startedAt ? new Date(job.startedAt).getTime() : null;
+
+  if (!startedAt || Number.isNaN(startedAt)) {
+    return null;
+  }
+
+  const finishedAt = job.finishedAt ? new Date(job.finishedAt).getTime() : Date.now();
+
+  if (Number.isNaN(finishedAt)) {
+    return null;
+  }
+
+  return Math.max(0, finishedAt - startedAt);
 }
 
 function isProductionRestore(input: unknown): boolean {
@@ -478,8 +600,35 @@ function getBackoffSeconds(attempt: number): number {
 
 function sanitizeLogMessage(message: string): string {
   return message
+    .replace(/postgres(?:ql)?:\/\/([^:\s/]+):([^@\s]+)@/gi, 'postgresql://$1:***@')
     .replace(/password=[^ '\n]+/gi, 'password=***')
     .replace(/secret[ _-]?access[ _-]?key(?:\s*[=:]?\s*[^ '\n]+)?/gi, 'secret_access_key=***')
     .replace(/access[ _-]?key[ _-]?id(?:\s*[=:]?\s*[^ '\n]+)?/gi, 'access_key_id=***')
     .slice(0, 4000);
+}
+
+function redactValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return sanitizeLogMessage(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(redactValue);
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const redacted: Record<string, unknown> = {};
+
+  for (const [key, item] of Object.entries(value)) {
+    redacted[key] = isSensitiveKey(key) ? '***' : redactValue(item);
+  }
+
+  return redacted;
+}
+
+function isSensitiveKey(key: string): boolean {
+  return /password|secret|token|accessKey|access_key|connectionUrl|sshKeyPath/i.test(key);
 }

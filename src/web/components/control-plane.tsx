@@ -6,16 +6,21 @@ import {
   Activity,
   AlertTriangle,
   ArchiveRestore,
+  Ban,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Code2,
   Copy,
   Database,
+  Eye,
   GitBranch,
   LayoutDashboard,
   Loader2,
   Menu,
   RefreshCw,
+  RotateCcw,
   Settings2,
   ShieldCheck,
   Table2,
@@ -49,6 +54,8 @@ import {
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from '#web/components/ui/dialog';
@@ -824,73 +831,328 @@ export function BackupPanel(props: BackupPanelProps) {
 }
 
 export interface JobsPanelProps {
-  jobs: Array<{
-    id: number;
-    type: string;
-    status: string;
-    input: unknown;
-    error: string | null;
-    updatedAt: string;
-    logs: Array<{
-      id: number;
-      level: 'info' | 'error';
-      message: string;
-    }>;
-  }>;
+  jobs: JobPanelRecord[];
   activeJobs: number;
+  loading?: boolean;
+  statusFilter: string;
+  onStatusFilterChange: (status: string) => void;
+  page: number;
+  hasMore: boolean;
+  selectedJob: JobPanelRecord | null;
+  selectedJobOpen: boolean;
+  selectedJobLoading: boolean;
+  busyJobId: number | null;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
+  onOpenJob: (jobId: number) => void;
+  onCloseJob: () => void;
+  onRetry: (jobId: number) => Promise<void>;
+  onCancel: (jobId: number) => Promise<void>;
 }
+
+interface JobPanelRecord {
+  id: number;
+  type: string;
+  status: string;
+  input: unknown;
+  error: string | null;
+  attempts: number;
+  maxAttempts: number;
+  updatedAt: string;
+  durationMs: number | null;
+  canRetry: boolean;
+  canCancel: boolean;
+  logs: Array<{
+    id: number;
+    level: 'info' | 'error';
+    message: string;
+    createdAt?: string;
+  }>;
+}
+
+const JOB_STATUS_FILTERS = ['all', 'queued', 'running', 'done', 'error', 'cancelled'];
 
 export function JobsPanel(props: JobsPanelProps) {
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <div>
-          <CardTitle>Jobs</CardTitle>
-          <CardDescription>Background branch and maintenance activity</CardDescription>
-        </div>
-        <Badge variant={props.activeJobs > 0 ? 'info' : 'secondary'}>{props.activeJobs} active</Badge>
-      </CardHeader>
-      <CardContent>
-        {props.jobs.length === 0 ? (
-          <EmptyState icon={Clock3} title="No jobs yet" detail="Branch and maintenance actions will appear here." compact />
-        ) : (
-          <div className="grid gap-3">
-            {props.jobs.map(function renderJob(job) {
-              return (
-                <div className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={job.id}>
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="truncate text-sm font-medium">{job.type}</p>
-                    <StatusBadge status={job.status} />
-                  </div>
-                  <p className="mt-2 truncate text-xs text-muted-foreground">{job.error || job.updatedAt}</p>
-                  {job.logs.length > 0 ? (
-                    <>
-                      <Separator className="my-3" />
-                      <div className="grid gap-1">
-                        {job.logs.slice(0, 3).map(function renderLog(log) {
-                          return (
-                            <code
-                              className={cn(
-                                'block truncate text-xs text-muted-foreground',
-                                log.level === 'error' && 'text-destructive'
-                              )}
-                              key={log.id}
-                            >
-                              {log.message}
-                            </code>
-                          );
-                        })}
-                      </div>
-                    </>
-                  ) : null}
-                </div>
-              );
-            })}
+    <>
+      <Card>
+        <CardHeader className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div>
+            <CardTitle>Jobs</CardTitle>
+            <CardDescription>Background branch and maintenance activity</CardDescription>
           </div>
-        )}
-      </CardContent>
-    </Card>
+          <div className="flex items-center gap-2">
+            <Select value={props.statusFilter} onValueChange={props.onStatusFilterChange}>
+              <SelectTrigger className="h-9 w-36 bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {JOB_STATUS_FILTERS.map(function renderStatusFilter(status) {
+                  return <SelectItem key={status} value={status}>{status}</SelectItem>;
+                })}
+              </SelectContent>
+            </Select>
+            <Badge variant={props.activeJobs > 0 ? 'info' : 'secondary'}>{props.activeJobs} active</Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {props.loading ? (
+            <EmptyState icon={Loader2} title="Loading jobs" detail="Fetching latest job history." compact />
+          ) : props.jobs.length === 0 ? (
+            <EmptyState icon={Clock3} title="No jobs yet" detail="Branch and maintenance actions will appear here." compact />
+          ) : (
+            <div className="grid gap-3">
+              {props.jobs.map(function renderJob(job) {
+                const busy = props.busyJobId === job.id;
+
+                return (
+                  <div className="border-t border-border pt-3 first:border-t-0 first:pt-0" key={job.id}>
+                    <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-medium">{job.type}</p>
+                          <StatusBadge status={job.status} />
+                        </div>
+                        <p className="mt-2 truncate text-xs text-muted-foreground">
+                          {job.error || `${formatJobDuration(job.durationMs)} · ${formatLastCheck(job.updatedAt)}`}
+                        </p>
+                      </div>
+                      <JobActionButtons job={job} busy={busy} compact onOpen={props.onOpenJob} onRetry={props.onRetry} onCancel={props.onCancel} />
+                    </div>
+                    {job.logs.length > 0 ? (
+                      <>
+                        <Separator className="my-3" />
+                        <div className="grid gap-1">
+                          {job.logs.slice(0, 3).map(function renderLog(log) {
+                            return (
+                              <code
+                                className={cn(
+                                  'block truncate text-xs text-muted-foreground',
+                                  log.level === 'error' && 'text-destructive'
+                                )}
+                                key={log.id}
+                              >
+                                {log.message}
+                              </code>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+                <Button type="button" variant="outline" size="sm" disabled={props.page === 0} onClick={props.onPreviousPage}>
+                  <ChevronLeft />
+                  Previous
+                </Button>
+                <span className="text-xs text-muted-foreground">Page {props.page + 1}</span>
+                <Button type="button" variant="outline" size="sm" disabled={!props.hasMore} onClick={props.onNextPage}>
+                  Next
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <JobDetailDialog
+        job={props.selectedJob}
+        open={props.selectedJobOpen}
+        loading={props.selectedJobLoading}
+        busy={props.selectedJob ? props.busyJobId === props.selectedJob.id : false}
+        onClose={props.onCloseJob}
+        onRetry={props.onRetry}
+        onCancel={props.onCancel}
+      />
+    </>
   );
+}
+
+function JobDetailDialog(props: {
+  job: JobPanelRecord | null;
+  open: boolean;
+  loading: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onRetry: (jobId: number) => Promise<void>;
+  onCancel: (jobId: number) => Promise<void>;
+}) {
+  const job = props.job;
+
+  return (
+    <Dialog open={props.open} onOpenChange={function changeJobDialog(open) {
+      if (!open) {
+        props.onClose();
+      }
+    }}>
+      <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-2xl">
+        {props.loading || !job ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="animate-spin" />
+            Loading job...
+          </div>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>{job.type}</DialogTitle>
+              <DialogDescription>Job #{job.id}</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 overflow-y-auto pr-1">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <InfoCell label="Status" value={job.status} />
+                <InfoCell label="Duration" value={formatJobDuration(job.durationMs)} />
+                <InfoCell label="Attempts" value={`${job.attempts}/${job.maxAttempts}`} />
+              </div>
+              {job.error ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                  {job.error}
+                </div>
+              ) : null}
+              <div>
+                <Label>Input</Label>
+                <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  {formatJobInput(job.input)}
+                </pre>
+              </div>
+              <div>
+                <Label>Logs</Label>
+                <div className="mt-2 grid max-h-72 gap-1 overflow-auto rounded-md border border-border bg-muted/40 p-3">
+                  {job.logs.length > 0 ? job.logs.map(function renderJobLog(log) {
+                    return (
+                      <code
+                        className={cn('text-xs text-muted-foreground', log.level === 'error' && 'text-destructive')}
+                        key={log.id}
+                      >
+                        {log.createdAt ? `${formatLastCheck(log.createdAt)} ` : ''}{log.message}
+                      </code>
+                    );
+                  }) : (
+                    <p className="text-xs text-muted-foreground">No logs.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <JobActionButtons job={job} busy={props.busy} onRetry={props.onRetry} onCancel={props.onCancel} />
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function JobActionButtons(props: {
+  job: JobPanelRecord;
+  busy: boolean;
+  compact?: boolean;
+  onOpen?: (jobId: number) => void;
+  onRetry: (jobId: number) => Promise<void>;
+  onCancel: (jobId: number) => Promise<void>;
+}) {
+  return (
+    <div className="flex gap-2">
+      {props.onOpen ? (
+        <Button type="button" size="icon" variant="outline" title="View job" onClick={function openJob() {
+          props.onOpen?.(props.job.id);
+        }}>
+          <Eye />
+        </Button>
+      ) : null}
+      {props.job.canRetry ? (
+        <Button
+          type="button"
+          size={props.compact ? 'icon' : 'default'}
+          variant={props.compact ? 'outline' : 'default'}
+          title="Retry job"
+          disabled={props.busy}
+          onClick={function retryJob() {
+            void props.onRetry(props.job.id);
+          }}
+        >
+          {props.busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+          {props.compact ? null : 'Retry'}
+        </Button>
+      ) : null}
+      {props.job.canCancel ? (
+        <Button
+          type="button"
+          size={props.compact ? 'icon' : 'default'}
+          variant="outline"
+          title="Cancel job"
+          disabled={props.busy}
+          onClick={function cancelJob() {
+            void props.onCancel(props.job.id);
+          }}
+        >
+          {props.busy ? <Loader2 className="animate-spin" /> : <Ban />}
+          {props.compact ? null : 'Cancel'}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function formatJobDuration(durationMs: number | null): string {
+  if (durationMs === null) {
+    return '-';
+  }
+
+  const seconds = Math.round(durationMs / 1000);
+
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+
+  const minutes = Math.round(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+
+  return `${Math.round(minutes / 60)}h`;
+}
+
+function formatJobInput(input: unknown): string {
+  if (input === undefined) {
+    return 'none';
+  }
+
+  return JSON.stringify(input, null, 2);
+}
+
+function formatLastCheck(value: string | null | undefined): string {
+  if (!value) {
+    return 'never';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.max(0, Math.round(diffMs / 60000));
+
+  if (minutes < 1) {
+    return 'just now';
+  }
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.round(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  return `${Math.round(hours / 24)}d ago`;
 }
 
 interface FieldProps {
