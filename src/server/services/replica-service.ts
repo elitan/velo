@@ -13,13 +13,12 @@ import { getSetting, setSetting } from './settings-service';
 import { setStepStatus } from './setup-state-service';
 import { createLocalDockerReplicaBase, isLocalDockerMode } from './local-docker-service';
 import { REPLICA_BRANCH_BLOCK_MS } from '#utils/replica-freshness-policy';
-
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
 const BASE_DATASET_PREFIX = `${PROJECT_NAME}.${BASE_BRANCH_NAME}-`;
 const REPLICATION_USER = 'velo_replica';
 const REPLICATION_SLOT = 'velo_replica_base';
-const STALE_REPLICA_MS = REPLICA_BRANCH_BLOCK_MS;
+const REPLICA_REPLAY_ADVANCE_TIMEOUT_MS = 60_000;
 const MAX_SLOT_RETAINED_WAL_BYTES = 1024 * 1024 * 1024;
 
 export interface ReplicaResult {
@@ -289,10 +288,6 @@ export function buildReplicaBaseHealth(input: ReplicaBaseHealthInput): ReplicaBa
     errors.push('WAL replay is paused');
   }
 
-  if (lagMs === null || lagMs > STALE_REPLICA_MS) {
-    errors.push('replica replay lag is too high');
-  }
-
   if (
     input.productionTimelineId === null
     || input.replayTimelineId === null
@@ -421,7 +416,7 @@ async function waitForReplicaReplayAdvance(
   const start = Date.now();
   let state = await getDevBaseHealthState(docker, containerId);
 
-  while (Date.now() - start < STALE_REPLICA_MS) {
+  while (Date.now() - start < REPLICA_REPLAY_ADVANCE_TIMEOUT_MS) {
     if (state.replayLsn && state.replayLsn !== initialReplayLsn) {
       return state;
     }
@@ -601,7 +596,7 @@ export function buildReplicaFreshness(
     replayedAt,
     lagMs,
     byteLag: getWalByteLag(prodCurrentLsn, devReplayLsn),
-    stale: lagMs === null ? false : lagMs > STALE_REPLICA_MS,
+    stale: lagMs === null ? false : lagMs > REPLICA_BRANCH_BLOCK_MS,
   };
 }
 
