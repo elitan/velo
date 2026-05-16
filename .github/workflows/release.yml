@@ -4,13 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version bump type
+        description: Version bump type. Must be at least the recommended bump.
         required: true
         type: choice
         options:
           - patch
           - minor
           - major
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -28,9 +32,60 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Validate bump
+        id: policy
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Releases must run from main. Current ref: $GITHUB_REF"
+            exit 1
+          fi
+
+          last_tag="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -n "$last_tag" ]; then
+            range="$last_tag..HEAD"
+          else
+            range="HEAD"
+          fi
+
+          git log --pretty=format:'%s' --no-merges "$range" > commits.txt
+          if [ ! -s commits.txt ]; then
+            echo "No commits since last release."
+            exit 1
+          fi
+
+          recommended="patch"
+          if grep -Eq '^[a-z]+(\([^)]+\))?!:|BREAKING CHANGE' commits.txt; then
+            recommended="major"
+          elif grep -Eq '^feat(\(|:)' commits.txt; then
+            recommended="minor"
+          fi
+
+          selected="${{ inputs.version }}"
+          rank_patch=0
+          rank_minor=1
+          rank_major=2
+          selected_rank_var="rank_$selected"
+          recommended_rank_var="rank_$recommended"
+          selected_rank="${!selected_rank_var}"
+          recommended_rank="${!recommended_rank_var}"
+
+          echo "last_tag=$last_tag" >> "$GITHUB_OUTPUT"
+          echo "recommended=$recommended" >> "$GITHUB_OUTPUT"
+
+          if [ "$selected_rank" -lt "$recommended_rank" ]; then
+            echo "Selected bump '$selected' is lower than recommended '$recommended'."
+            echo "Commits:"
+            git log --pretty=format:'- %h %s' --no-merges "$range"
+            exit 1
+          fi
+
+          echo "Recommended bump: $recommended"
+
       - name: Calculate version
         id: version
         run: |
+          set -euo pipefail
           current="$(jq -r .version package.json)"
           IFS='.' read -r major minor patch <<< "$current"
           case "${{ inputs.version }}" in
@@ -51,48 +106,29 @@ jobs:
 
       - name: Bump package version
         run: |
+          set -euo pipefail
           jq '.version = "${{ steps.version.outputs.value }}"' package.json > package.tmp
           mv package.tmp package.json
 
       - name: Commit version bump
         run: |
+          set -euo pipefail
           git add package.json
           git commit -m "chore(release): bump version to ${{ steps.version.outputs.value }}"
           git push
 
       - name: Tag release
         run: |
+          set -euo pipefail
           git tag "v${{ steps.version.outputs.value }}"
           git push origin "v${{ steps.version.outputs.value }}"
 
       - name: Generate release notes
         run: |
+          set -euo pipefail
           version="${{ steps.version.outputs.value }}"
-          last_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
-          if [ -n "$last_tag" ]; then
-            range="$last_tag..HEAD^"
-          else
-            range="HEAD^"
-          fi
-
-          notes=""
-          if [ -n "$last_tag" ] && git diff --name-only "$last_tag" HEAD -- src/db/migrations src/db/migrate.ts | grep -q .; then
-            notes="> This release includes Velo SQLite migrations. Back up /opt/velo/.velo before updating.\n\n"
-          fi
-
-          for type in feat fix refactor docs test chore; do
-            items="$(git log --pretty=format:'- %s (`%h`)' --no-merges "$range" | grep "^- $type" || true)"
-            if [ -n "$items" ]; then
-              title="$(printf '%s' "$type" | sed 's/.*/\u&/')"
-              notes="$notes### $title\n$items\n\n"
-            fi
-          done
-
-          if [ -n "$last_tag" ]; then
-            notes="$notes---\nFull changelog: https://github.com/elitan/velo/compare/$last_tag...v$version"
-          fi
-
-          printf '%b\n' "$notes" > release_notes.md
+          VELO_LAST_TAG="${{ steps.policy.outputs.last_tag }}" scripts/generate-release-notes.sh "$version" release_notes.md HEAD^
+          cat release_notes.md
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -104,18 +140,24 @@ jobs:
 
       - name: Check
         run: |
+          set -euo pipefail
           bun run typecheck
           bun run test
           bun run web:build
           bash -n scripts/*.sh
+          scripts/test-release-artifact.sh
+          scripts/test-update-flow.sh
+          scripts/test-release-upgrade-flow.sh
 
       - name: Create release tarball
         run: |
+          set -euo pipefail
           version="${{ steps.version.outputs.value }}"
           scripts/create-release-tarball.sh "$version" "velo-v$version.tar.gz"
 
       - name: Smoke test tarball
         run: |
+          set -euo pipefail
           version="${{ steps.version.outputs.value }}"
           mkdir -p /tmp/velo-smoke
           tar -xzf "velo-v$version.tar.gz" -C /tmp/velo-smoke
@@ -125,11 +167,21 @@ jobs:
           test -f dist/server/server.js
           test -d dist/client
           test -f dist/server/assets/migrations/001_initial.sql
+          test -f scripts/update.sh
+
+      - name: Upload release candidate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: velo-v${{ steps.version.outputs.value }}
+          path: |
+            velo-v${{ steps.version.outputs.value }}.tar.gz
+            release_notes.md
 
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           version="${{ steps.version.outputs.value }}"
           gh release create "v$version" \
             --title "v$version" \

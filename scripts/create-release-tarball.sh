@@ -19,6 +19,13 @@ rsync -a \
   --exclude='*.tsbuildinfo' \
   ./ "$WORK_DIR/release/"
 
+bun -e "
+  import { readFileSync, writeFileSync } from 'node:fs';
+  const pkg = JSON.parse(readFileSync('$WORK_DIR/release/package.json', 'utf8'));
+  pkg.version = '$VERSION';
+  writeFileSync('$WORK_DIR/release/package.json', JSON.stringify(pkg, null, 2) + '\n');
+"
+
 tar -czf "$OUTPUT" -C "$WORK_DIR/release" .
 tar -tzf "$OUTPUT" >/dev/null
 

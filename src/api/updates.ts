@@ -59,13 +59,16 @@ export const updatesRouter = {
 function formatUpdateInfo(info: Awaited<ReturnType<typeof getUpdateStatus>>) {
   return {
     currentVersion: info.currentVersion,
-    latestVersion: info.availableVersion,
+    latestVersion: info.latestVersion,
+    availableVersion: info.availableVersion,
     updateAvailable: Boolean(info.availableVersion),
     releaseNotes: info.releaseNotes,
     publishedAt: info.publishedAt,
     htmlUrl: info.htmlUrl,
     hasMigrations: info.hasMigrations,
     lastCheck: info.lastCheck ? new Date(info.lastCheck).toISOString() : null,
+    checkStatus: info.checkStatus,
+    checkMessage: info.checkMessage,
     restarting: false,
   };
 }

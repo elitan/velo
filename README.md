@@ -98,7 +98,20 @@ bun run typecheck
 bun run test
 bun run web:build
 bash -n scripts/*.sh
+scripts/test-release-artifact.sh
+scripts/test-update-flow.sh
+scripts/test-release-upgrade-flow.sh
 ```
+
+## Releases
+
+Releases are made by GitHub Actions:
+
+```bash
+gh workflow run release.yml -f version=patch
+```
+
+The workflow validates the bump, builds and tests Velo, generates release notes, creates `velo-vX.Y.Z.tar.gz`, smoke-tests update/install paths, tags the release, and uploads the artifact.
 
 ## Test Deploy
 

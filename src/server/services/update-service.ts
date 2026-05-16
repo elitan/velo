@@ -33,14 +33,19 @@ interface GitHubContent {
   type: string;
 }
 
+export type UpdateCheckStatus = 'never' | 'ok' | 'no_release' | 'offline' | 'rate_limited' | 'error';
+
 export interface UpdateInfo {
   currentVersion: string;
+  latestVersion: string | null;
   availableVersion: string | null;
   releaseNotes: string | null;
   publishedAt: string | null;
   htmlUrl: string | null;
   hasMigrations: boolean;
   lastCheck: number | null;
+  checkStatus: UpdateCheckStatus;
+  checkMessage: string | null;
 }
 
 export interface UpdateResult {
@@ -55,6 +60,15 @@ export interface AutoUpdateSettings {
   applyPatches: boolean;
   applyMigrations: boolean;
   hour: number;
+}
+
+class UpdateFetchError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
 }
 
 const packageJson = packageJsonRaw as PackageJson;
@@ -80,33 +94,42 @@ export function compareVersions(a: string, b: string): number {
 
 export async function getUpdateStatus(): Promise<UpdateInfo> {
   const currentVersion = getCurrentVersion();
+  const latestVersion = await getSetting('update.latestVersion');
   const availableVersion = await getSetting('update.available');
   const lastCheck = parseOptionalInteger(await getSetting('update.lastCheck'));
+  const checkStatus = parseCheckStatus(await getSetting('update.checkStatus'));
+  const checkMessage = await getSetting('update.checkMessage');
 
   if (!availableVersion || compareVersions(currentVersion, availableVersion) >= 0) {
     if (availableVersion) {
-      await setSetting('update.available', '');
+      await clearAvailableUpdate();
     }
 
     return {
       currentVersion,
+      latestVersion: latestVersion || null,
       availableVersion: null,
-      releaseNotes: null,
-      publishedAt: null,
-      htmlUrl: null,
+      releaseNotes: await getSetting('update.releaseNotes'),
+      publishedAt: await getSetting('update.publishedAt'),
+      htmlUrl: await getSetting('update.htmlUrl'),
       hasMigrations: false,
       lastCheck,
+      checkStatus,
+      checkMessage: checkMessage || null,
     };
   }
 
   return {
     currentVersion,
+    latestVersion: latestVersion || availableVersion,
     availableVersion,
     releaseNotes: await getSetting('update.releaseNotes'),
     publishedAt: await getSetting('update.publishedAt'),
     htmlUrl: await getSetting('update.htmlUrl'),
     hasMigrations: (await getSetting('update.hasMigrations')) === 'true',
     lastCheck,
+    checkStatus,
+    checkMessage: checkMessage || null,
   };
 }
 
@@ -118,37 +141,58 @@ export async function checkForUpdate(force = false): Promise<UpdateInfo> {
     return getUpdateStatus();
   }
 
-  const release = await fetchLatestRelease();
   const now = Date.now();
-  await setSetting('update.lastCheck', String(now));
+  let release: GitHubRelease | null;
+
+  try {
+    release = await fetchLatestRelease();
+  } catch (error) {
+    const result = classifyUpdateFetchError(error);
+    await saveCheckResult(now, result.status, result.message);
+    return getUpdateStatus();
+  }
+
+  await saveCheckResult(now, release ? 'ok' : 'no_release', release ? null : 'No GitHub release found.');
 
   if (!release) {
-    await clearAvailableUpdate();
-    return emptyUpdateInfo(currentVersion, now);
+    await clearReleaseInfo();
+    return emptyUpdateInfo(currentVersion, now, 'no_release', 'No GitHub release found.');
   }
 
   const latestVersion = release.tag_name.replace(/^v/, '');
   if (compareVersions(latestVersion, currentVersion) <= 0) {
     await clearAvailableUpdate();
-    return emptyUpdateInfo(currentVersion, now);
+    await saveLatestRelease(release, latestVersion, false);
+    return {
+      currentVersion,
+      latestVersion,
+      availableVersion: null,
+      releaseNotes: release.body || '',
+      publishedAt: release.published_at,
+      htmlUrl: release.html_url,
+      hasMigrations: false,
+      lastCheck: now,
+      checkStatus: 'ok',
+      checkMessage: null,
+    };
   }
 
   const hasMigrations = await detectMigrations(currentVersion, latestVersion);
 
+  await saveLatestRelease(release, latestVersion, hasMigrations);
   await setSetting('update.available', latestVersion);
-  await setSetting('update.releaseNotes', release.body || '');
-  await setSetting('update.publishedAt', release.published_at || '');
-  await setSetting('update.htmlUrl', release.html_url);
-  await setSetting('update.hasMigrations', hasMigrations ? 'true' : 'false');
 
   return {
     currentVersion,
+    latestVersion,
     availableVersion: latestVersion,
     releaseNotes: release.body || '',
     publishedAt: release.published_at,
     htmlUrl: release.html_url,
     hasMigrations,
     lastCheck: now,
+    checkStatus: 'ok',
+    checkMessage: null,
   };
 }
 
@@ -311,8 +355,12 @@ async function fetchLatestRelease(): Promise<GitHubRelease | null> {
     return null;
   }
 
+  if (response.status === 429 || response.status === 403) {
+    throw new UpdateFetchError(response.status, 'GitHub rate limit reached. Try again later.');
+  }
+
   if (!response.ok) {
-    throw new Error(`GitHub API returned ${response.status}`);
+    throw new UpdateFetchError(response.status, `GitHub API returned ${response.status}`);
   }
 
   const release = (await response.json()) as GitHubRelease;
@@ -383,24 +431,88 @@ function parseVersion(version: string) {
   return { major, minor, patch };
 }
 
-function emptyUpdateInfo(currentVersion: string, lastCheck: number): UpdateInfo {
+function emptyUpdateInfo(
+  currentVersion: string,
+  lastCheck: number,
+  checkStatus: UpdateCheckStatus,
+  checkMessage: string | null
+): UpdateInfo {
   return {
     currentVersion,
+    latestVersion: null,
     availableVersion: null,
     releaseNotes: null,
     publishedAt: null,
     htmlUrl: null,
     hasMigrations: false,
     lastCheck,
+    checkStatus,
+    checkMessage,
   };
 }
 
 async function clearAvailableUpdate(): Promise<void> {
   await setSetting('update.available', '');
+  await setSetting('update.hasMigrations', 'false');
+}
+
+async function clearReleaseInfo(): Promise<void> {
+  await clearAvailableUpdate();
+  await setSetting('update.latestVersion', '');
   await setSetting('update.releaseNotes', '');
   await setSetting('update.publishedAt', '');
   await setSetting('update.htmlUrl', '');
-  await setSetting('update.hasMigrations', 'false');
+}
+
+async function saveLatestRelease(release: GitHubRelease, latestVersion: string, hasMigrations: boolean): Promise<void> {
+  await setSetting('update.latestVersion', latestVersion);
+  await setSetting('update.releaseNotes', release.body || '');
+  await setSetting('update.publishedAt', release.published_at || '');
+  await setSetting('update.htmlUrl', release.html_url);
+  await setSetting('update.hasMigrations', hasMigrations ? 'true' : 'false');
+}
+
+async function saveCheckResult(
+  lastCheck: number,
+  status: UpdateCheckStatus,
+  message: string | null
+): Promise<void> {
+  await setSetting('update.lastCheck', String(lastCheck));
+  await setSetting('update.checkStatus', status);
+  await setSetting('update.checkMessage', message || '');
+}
+
+function classifyUpdateFetchError(error: unknown): { status: UpdateCheckStatus; message: string } {
+  if (error instanceof UpdateFetchError) {
+    if (error.status === 429 || error.status === 403) {
+      return { status: 'rate_limited', message: error.message };
+    }
+
+    return { status: 'error', message: error.message };
+  }
+
+  if (error instanceof TypeError) {
+    return { status: 'offline', message: 'Could not reach GitHub. Check network access and try again.' };
+  }
+
+  return {
+    status: 'error',
+    message: error instanceof Error ? error.message : 'Could not check for updates.',
+  };
+}
+
+function parseCheckStatus(value: string | null): UpdateCheckStatus {
+  if (
+    value === 'ok' ||
+    value === 'no_release' ||
+    value === 'offline' ||
+    value === 'rate_limited' ||
+    value === 'error'
+  ) {
+    return value;
+  }
+
+  return 'never';
 }
 
 function parseOptionalInteger(value: string | null): number | null {
