@@ -13,6 +13,7 @@ import { createBranchFromBase, runExpiredBranchCleanup, updateBranchExpiry } fro
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, saveServer } from './services/setup-state-service';
+import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
 
 let testDir: string;
 
@@ -146,6 +147,40 @@ describe('control plane database', function controlPlaneDatabase() {
     });
     expect(JSON.stringify(state)).not.toContain('super-secret');
     expect(state.prodConnectionUrl).toBe('postgresql://postgres:secret@example.com:5432/postgres');
+  });
+
+  test('defaults prod allowed cidr to dev server ip', async function testProdAllowedCidrDefault() {
+    await saveServer({
+      role: 'dev',
+      host: '157.180.22.136',
+      sshUser: 'root',
+      sshKeyPath: '/root/.ssh/frost-e2e-ci',
+    });
+
+    expect(await getProdAllowedCidr()).toBe('157.180.22.136/32');
+    expect(defaultCidrForHost('2001:db8::1')).toBe('2001:db8::1/128');
+  });
+
+  test('saves prod allowed cidr override', async function testSaveProdAllowedCidr() {
+    await saveServer({
+      role: 'prod',
+      host: '89.167.89.255',
+      sshUser: 'root',
+      sshKeyPath: '/root/.ssh/frost-e2e-ci',
+      allowedCidr: '198.51.100.0/24',
+    });
+
+    const state = await getControlPlaneState();
+    expect(state.prodAllowedCidr).toBe('198.51.100.0/24');
+  });
+
+  test('rejects invalid prod allowed cidr', function testInvalidProdAllowedCidr() {
+    expect(function invalidNoPrefix() {
+      normalizeAllowedCidr('0.0.0.0');
+    }).toThrow('CIDR');
+    expect(function invalidPrefix() {
+      normalizeAllowedCidr('203.0.113.10/99');
+    }).toThrow('between 0 and 32');
   });
 
   test('keeps existing backup secret when saving without a new one', async function testKeepBackupSecret() {

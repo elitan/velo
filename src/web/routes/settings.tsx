@@ -117,6 +117,7 @@ function SettingsPage() {
         host: String(formData.get('host') || ''),
         sshUser: String(formData.get('sshUser') || ''),
         sshKeyPath: String(formData.get('sshKeyPath') || ''),
+        allowedCidr: role === 'prod' ? String(formData.get('allowedCidr') || '') : undefined,
       });
       toast.success(`${role === 'prod' ? 'Production' : 'Development'} server saved.`);
     } catch (error: any) {
@@ -209,7 +210,7 @@ function SettingsPage() {
 
               <TabsContent value="servers" className="min-w-0">
                 <div className="grid gap-6 lg:grid-cols-2">
-                  <ServerPanel title="Production" role="prod" server={prodServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
+                  <ServerPanel title="Production" role="prod" server={prodServer} allowedCidr={state.prodAllowedCidr || ''} busy={busy} onSave={handleSave} onCheck={handleCheck} />
                   <ServerPanel title="Development" role="dev" server={devServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
                 </div>
               </TabsContent>

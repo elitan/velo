@@ -7,6 +7,7 @@ const serverInput = z.object({
   host: z.string().min(1),
   sshUser: z.string().min(1),
   sshKeyPath: z.string().min(1),
+  allowedCidr: z.string().optional(),
 });
 
 export const serversRouter = {
