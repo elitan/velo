@@ -14,7 +14,7 @@ import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, invalidateDevReplicaBase, saveServer } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
-import { buildReplicaFreshness } from './services/replica-service';
+import { buildReplicaBaseHealth, buildReplicaFreshness } from './services/replica-service';
 
 let testDir: string;
 
@@ -172,6 +172,50 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(freshness.lagMs).toBe(3000);
     expect(freshness.byteLag).toBe(16777216);
     expect(freshness.stale).toBe(false);
+  });
+
+  test('accepts healthy dev replica base signals', function testHealthyReplicaBaseSignals() {
+    const health = buildReplicaBaseHealth({
+      walReceiverStatus: 'streaming',
+      initialReplayLsn: '0/2000000',
+      currentReplayLsn: '0/3000000',
+      replayPaused: false,
+      replayedAt: '2026-05-16T10:00:00.000Z',
+      replayTimelineId: 1,
+      productionTimelineId: 1,
+      slotRetainedWalBytes: 1024,
+      now: new Date('2026-05-16T10:00:03.000Z'),
+    });
+
+    expect(health).toEqual({
+      ok: true,
+      errors: [],
+      lagMs: 3000,
+    });
+  });
+
+  test('reports broken dev replica base signals', function testBrokenReplicaBaseSignals() {
+    const health = buildReplicaBaseHealth({
+      walReceiverStatus: 'stopped',
+      initialReplayLsn: '0/2000000',
+      currentReplayLsn: '0/2000000',
+      replayPaused: true,
+      replayedAt: '2026-05-16T09:59:00.000Z',
+      replayTimelineId: 2,
+      productionTimelineId: 1,
+      slotRetainedWalBytes: 2 * 1024 * 1024 * 1024,
+      now: new Date('2026-05-16T10:00:00.000Z'),
+    });
+
+    expect(health.ok).toBe(false);
+    expect(health.errors).toEqual([
+      'WAL receiver is not streaming',
+      'replay LSN is not advancing',
+      'WAL replay is paused',
+      'replica replay lag is too high',
+      'replica timeline does not follow production',
+      'replication slot retained WAL is too large',
+    ]);
   });
 
   test('defaults prod allowed cidr to dev server ip', async function testProdAllowedCidrDefault() {
