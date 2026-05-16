@@ -51,7 +51,7 @@ It starts:
 - MinIO: `localhost:59000`
 - real pgBackRest backups and WAL archive to MinIO
 
-Local Docker is prod-like for backup and PITR work. Startup creates a pgBackRest stanza, checks WAL archiving, runs a full backup, and can restore a temporary Postgres container from PITR. Local branch clones still use simple database copies unless they come from PITR. It does not prove SSH, systemd, Hetzner networking, R2, or ZFS COW. Use remote dev for that.
+Local Docker is prod-like for backup and PITR work. Startup creates a pgBackRest stanza, checks WAL archiving, runs a full backup, and can restore a temporary Postgres container from PITR. Local branch clones run as separate Postgres containers and copy source data with `pg_dump`. It does not prove SSH, systemd, Hetzner networking, R2, or ZFS COW. Use remote dev for that.
 
 Each git branch gets one local environment by default. Ports are assigned once and stored in `.velo/local/<branch>/env`, so branches can run in parallel without port collisions. Use `VELO_LOCAL_INSTANCE=<name>` only when you need more than one environment for the same git branch.
 
