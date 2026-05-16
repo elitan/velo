@@ -30,7 +30,6 @@ import { orpc } from '#web/lib/api-client';
 import {
   AppSidebar,
   BackupPanel,
-  BranchesPanel,
   JobsPanel,
   MetricCard,
   ServerPanel,
@@ -47,7 +46,6 @@ function SettingsPage() {
   const saveServer = useMutation(orpc.servers.update.mutationOptions({ onSuccess: refreshDashboard }));
   const checkServer = useMutation(orpc.servers.check.mutationOptions({ onSuccess: refreshDashboard }));
   const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions({ onSuccess: refreshDashboard }));
-  const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
   const busy = getBusyKey();
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
     return job.status === 'queued' || job.status === 'running';
@@ -82,10 +80,6 @@ function SettingsPage() {
 
     if (saveBackupSettings.isPending) {
       return 'save-backup';
-    }
-
-    if (deleteBranch.isPending) {
-      return `delete-branch-${deleteBranch.variables?.id}`;
     }
 
     return null;
@@ -151,15 +145,6 @@ function SettingsPage() {
     }
   }
 
-  async function handleDeleteBranch(id: number) {
-    try {
-      await deleteBranch.mutateAsync({ id });
-      toast.success('Branch deleted.');
-    } catch (error: any) {
-      toast.error(error?.message || 'Could not delete branch.');
-    }
-  }
-
   return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="flex min-h-screen flex-col lg:grid lg:grid-cols-[244px_1fr]">
@@ -188,11 +173,6 @@ function SettingsPage() {
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_390px]">
               <div className="grid min-w-0 gap-6">
-                <BranchesPanel
-                  branches={state.branches}
-                  busy={busy}
-                  onDelete={handleDeleteBranch}
-                />
                 <div className="grid gap-6 lg:grid-cols-2">
                   <ServerPanel title="Production" role="prod" server={prodServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />
                   <ServerPanel title="Development" role="dev" server={devServer} busy={busy} onSave={handleSave} onCheck={handleCheck} />

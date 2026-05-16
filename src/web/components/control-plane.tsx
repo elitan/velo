@@ -445,7 +445,6 @@ export function BranchTreePanel(props: BranchTreePanelProps) {
             <div className="flex items-center gap-2">
               <p className="truncate font-medium">production</p>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">root branch</p>
           </div>
           <StatusBadge status={props.prodReady ? 'ready' : 'pending'} />
         </Link>
@@ -468,6 +467,7 @@ export function BranchTreePanel(props: BranchTreePanelProps) {
 
 function BranchTreeItem(props: { node: BranchTreeNode }) {
   const branch = props.node.branch;
+  const branchLine = formatBranchLine(branch.expiresAt);
 
   return (
     <div className="relative">
@@ -490,9 +490,7 @@ function BranchTreeItem(props: { node: BranchTreeNode }) {
           <div className="flex min-w-0 items-center gap-2">
             <p className="truncate font-medium">{branch.displayName}</p>
           </div>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {formatBranchLine(formatBranchName(branch.parentName || branch.parentSlug || 'production'), branch.expiresAt)}
-          </p>
+          {branchLine ? <p className="mt-1 truncate text-xs text-muted-foreground">{branchLine}</p> : null}
         </div>
         <StatusBadge status={branch.status} />
       </Link>
@@ -634,18 +632,14 @@ export function BranchesPanel(props: BranchesPanelProps) {
   );
 }
 
-function formatBranchLine(parent: string, expiresAt: string | null): string {
+function formatBranchLine(expiresAt: string | null): string | null {
   const expiry = formatExpiry(expiresAt);
 
   if (expiry === 'no expiry') {
-    return `from ${parent}`;
+    return null;
   }
 
-  return `from ${parent} · ${expiry}`;
-}
-
-function formatBranchName(name: string): string {
-  return name;
+  return expiry;
 }
 
 export function formatExpiry(expiresAt: string | null): string {
@@ -983,11 +977,12 @@ function EmptyState(props: EmptyStateProps) {
 export function StatusBadge(props: { status: string }) {
   const variant = getStatusVariant(props.status);
   const Icon = getStatusIcon(props.status);
+  const label = getStatusLabel(props.status);
 
   return (
     <Badge variant={variant} className="capitalize">
       <Icon className={cn('size-3', props.status === 'creating' && 'animate-spin')} />
-      {props.status}
+      {label}
     </Badge>
   );
 }
@@ -1009,16 +1004,16 @@ function getStatusVariant(status: string): BadgeProps['variant'] {
 }
 
 function getStatusIcon(status: string) {
-  if (status === 'ok' || status === 'done' || status === 'ready') {
+  if (status === 'ok' || status === 'done') {
     return CheckCircle2;
+  }
+
+  if (status === 'ready' || status === 'running') {
+    return Activity;
   }
 
   if (status === 'creating') {
     return Loader2;
-  }
-
-  if (status === 'running') {
-    return Activity;
   }
 
   if (status === 'error' || status === 'stopped') {
@@ -1026,4 +1021,12 @@ function getStatusIcon(status: string) {
   }
 
   return Clock3;
+}
+
+function getStatusLabel(status: string): string {
+  if (status === 'ready') {
+    return 'running';
+  }
+
+  return status;
 }

@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
 import { useEffect, useState } from 'react';
@@ -273,7 +273,21 @@ function BranchOverviewPage() {
                 <h1 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">Branch overview</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
                   Current branch: {branch.name}
-                  {branch.parentName ? ` · Parent: ${branch.parentName}` : ''}
+                  {branch.parentName ? (
+                    <>
+                      {' · Parent: '}
+                      <Link
+                        className="font-medium text-foreground underline-offset-4 hover:underline"
+                        to="/branch/$branchId/overview"
+                        params={{ branchId: branch.parentSlug || 'production' }}
+                        onClick={function saveParentBranch() {
+                          window.localStorage.setItem('velo.selectedBranch', branch.parentSlug || 'production');
+                        }}
+                      >
+                        {branch.parentName}
+                      </Link>
+                    </>
+                  ) : null}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2 md:ml-auto">
@@ -353,8 +367,8 @@ function BranchOverviewPage() {
             </header>
 
             <BranchOverviewPanel
-              title={`${branch.name} database`}
-              connectionLabel={`${branch.name} connection string`}
+              title="Database"
+              connectionLabel="Connection string"
               connectionUrl={branch.connectionUrl}
             />
 
