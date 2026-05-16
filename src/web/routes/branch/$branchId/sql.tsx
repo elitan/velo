@@ -6,13 +6,16 @@ import {
   Database,
   Loader2,
   Play,
+  ShieldAlert,
   Terminal,
 } from 'lucide-react';
 import { Button } from '#web/components/ui/button';
+import { Input } from '#web/components/ui/input';
 import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
 } from '#web/components/control-plane';
+import { isConfirmedProductionWrite, isProductionBranchId, isReadOnlySql, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
 
 export const Route = createFileRoute('/branch/$branchId/sql')({
   component: SqlEditorPage,
@@ -28,6 +31,7 @@ function SqlEditorPage() {
   const [sql, setSql] = useState(function getInitialSql() {
     return readSavedSql(params.branchId);
   });
+  const [productionWriteConfirmation, setProductionWriteConfirmation] = useState('');
   const [result, setResult] = useState<SqlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +39,7 @@ function SqlEditorPage() {
     currentBranchIdRef.current = params.branchId;
     skipNextSaveRef.current = true;
     setSql(readSavedSql(params.branchId));
+    setProductionWriteConfirmation('');
     setResult(null);
     setError(null);
   }, [params.branchId]);
@@ -55,9 +60,19 @@ function SqlEditorPage() {
   const state = dashboard.data;
 
   const branch = getBranchView(state, params.branchId);
+  const isProduction = isProductionBranchId(params.branchId);
+  const isProductionWrite = isProduction && Boolean(sql.trim()) && !isReadOnlySql(sql);
+  const productionWriteUnlocked = isConfirmedProductionWrite(productionWriteConfirmation);
+  const runDisabled = runSql.isPending
+    || !sql.trim()
+    || branch.status === 'missing'
+    || (isProductionWrite && !productionWriteUnlocked);
 
   async function runCurrentSql() {
-    if (runSql.isPending || !sql.trim() || branch.status === 'missing') {
+    if (runDisabled) {
+      if (isProductionWrite && !productionWriteUnlocked) {
+        setError(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to run write SQL on production.`);
+      }
       return;
     }
 
@@ -68,6 +83,7 @@ function SqlEditorPage() {
       const nextResult = await runSql.mutateAsync({
         branchId,
         sql,
+        productionWriteConfirmation: isProduction ? productionWriteConfirmation : undefined,
       });
 
       if (currentBranchIdRef.current !== branchId) {
@@ -109,14 +125,30 @@ function SqlEditorPage() {
                   type="submit"
                   size="sm"
                   className="h-8"
-                  disabled={runSql.isPending || !sql.trim() || branch.status === 'missing'}
+                  disabled={runDisabled}
                 >
                   {runSql.isPending ? <Loader2 className="animate-spin" /> : <Play />}
                   Run
                 </Button>
               </div>
 
-              <div className="relative h-[calc(100%-3rem)] min-h-0 bg-background">
+              {isProduction ? (
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
+                  <ShieldAlert className="size-4" />
+                  <span className="font-medium">{isProductionWrite ? 'production writes locked' : 'production read-only'}</span>
+                  <Input
+                    value={productionWriteConfirmation}
+                    onChange={function updateProductionWriteConfirmation(event) {
+                      setProductionWriteConfirmation(event.target.value);
+                    }}
+                    className="h-8 w-48 bg-background font-mono text-xs text-foreground"
+                    placeholder={PRODUCTION_WRITE_CONFIRMATION}
+                    aria-label="Production write confirmation"
+                  />
+                </div>
+              ) : null}
+
+              <div className={isProduction ? 'relative h-[calc(100%-6.25rem)] min-h-0 bg-background' : 'relative h-[calc(100%-3rem)] min-h-0 bg-background'}>
                 <pre
                   ref={highlightRef}
                   aria-hidden="true"
