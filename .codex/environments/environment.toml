@@ -10,17 +10,8 @@ source_repo="$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)"
 source_env="$source_repo/.env"
 
 [ -d "$source_repo" ]
-[ -f "$source_env" ]
 
 git -C "$source_repo" fetch origin main
-
-if git -C "$source_repo" rev-parse --abbrev-ref HEAD | grep -qx main; then
-  git -C "$source_repo" pull --ff-only
-fi
-
-bun install
-
-[ -f .env ] || cp "$source_env" .env
 
 if [ "$(git rev-parse --abbrev-ref HEAD)" = "HEAD" ]; then
   worktree_root="$(git rev-parse --show-toplevel)"
@@ -32,6 +23,12 @@ if [ "$(git rev-parse --abbrev-ref HEAD)" = "HEAD" ]; then
   else
     git switch -c "$branch_name" origin/main
   fi
+fi
+
+bun install
+
+if [ -f "$source_env" ] && [ ! -f .env ]; then
+  cp "$source_env" .env
 fi
 '''
 
@@ -59,6 +56,11 @@ command = "bun run web"
 name = "web:build"
 icon = "run"
 command = "bun run web:build"
+
+[[actions]]
+name = "shell:check"
+icon = "run"
+command = "bash -n scripts/*.sh"
 
 [[actions]]
 name = "web:start"
