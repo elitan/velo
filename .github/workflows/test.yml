@@ -62,6 +62,11 @@ jobs:
     - name: Test update flow
       run: scripts/test-update-flow.sh
 
+    - name: Test release upgrade flow
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: scripts/test-release-upgrade-flow.sh
+
   hetzner-e2e:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [ typecheck, test ]

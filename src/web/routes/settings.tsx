@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, ArchiveRestore, Database, Loader2, RefreshCw } from 'lucide-react';
+import { Activity, AlertTriangle, ArchiveRestore, CheckCircle2, Database, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -587,6 +587,7 @@ function UpdatePanel() {
   const isBusy = check.isPending || apply.isPending || state === 'restarting';
   const update = status.data;
   const autoSettings = auto.data;
+  const checkTone = getUpdateCheckTone(update?.checkStatus);
 
   return (
     <Card>
@@ -602,15 +603,39 @@ function UpdatePanel() {
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
+        <div className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4">
+          <UpdateMetaRow label="Current version" value={update?.currentVersion ? `v${update.currentVersion}` : 'loading'} />
+          <UpdateMetaRow label="Latest release" value={update?.latestVersion ? `v${update.latestVersion}` : 'unknown'} />
+          <UpdateMetaRow label="Last check" value={formatLastCheck(update?.lastCheck)} />
+          <div className="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+            <p className="text-xs text-muted-foreground">Check result</p>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Badge variant={checkTone}>{formatUpdateCheckStatus(update?.checkStatus)}</Badge>
+              {update?.checkMessage ? (
+                <span className="truncate text-xs text-muted-foreground">{update.checkMessage}</span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
         {state === 'restarting' ? (
           <UpdateNotice icon={<Loader2 className="size-4 animate-spin" />} title="Restarting" detail="Update is running." />
+        ) : null}
+
+        {update?.checkStatus && update.checkStatus !== 'ok' && update.checkStatus !== 'never' ? (
+          <UpdateNotice
+            icon={<AlertTriangle className="size-4" />}
+            title={formatUpdateCheckStatus(update.checkStatus)}
+            detail={update.checkMessage || 'Could not complete update check.'}
+            tone={update.checkStatus === 'offline' || update.checkStatus === 'rate_limited' || update.checkStatus === 'no_release' ? 'default' : 'destructive'}
+          />
         ) : null}
 
         {update?.updateAvailable ? (
           <div className="rounded-lg border border-border bg-muted/20 p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-medium">v{update.latestVersion} available</p>
+                <p className="text-sm font-medium">v{update.availableVersion || update.latestVersion} available</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Last checked {formatLastCheck(update.lastCheck)}
                 </p>
@@ -622,6 +647,14 @@ function UpdatePanel() {
                 </Badge>
               ) : null}
             </div>
+            {update.htmlUrl ? (
+              <Button asChild variant="outline" size="sm" className="mt-3">
+                <a href={update.htmlUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink />
+                  Release notes
+                </a>
+              </Button>
+            ) : null}
             {update.releaseNotes ? (
               <pre className="mt-3 max-h-36 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-xs text-muted-foreground">
                 {update.releaseNotes}
@@ -629,8 +662,29 @@ function UpdatePanel() {
             ) : null}
           </div>
         ) : (
-          <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-            {update ? `Latest version. Last checked ${formatLastCheck(update.lastCheck)}.` : 'Loading update status...'}
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="text-sm text-muted-foreground">
+                {update?.latestVersion ? (
+                  <span className="inline-flex items-center gap-2">
+                    <CheckCircle2 className="size-4 text-emerald-300" />
+                    Latest release is v{update.latestVersion}. Last checked {formatLastCheck(update.lastCheck)}.
+                  </span>
+                ) : update ? (
+                  'No release data yet. Check for updates.'
+                ) : (
+                  'Loading update status...'
+                )}
+              </div>
+              {update?.htmlUrl ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={update.htmlUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink />
+                    Release notes
+                  </a>
+                </Button>
+              ) : null}
+            </div>
           </div>
         )}
 
@@ -714,6 +768,15 @@ function UpdatePanel() {
   );
 }
 
+function UpdateMetaRow(props: Readonly<{ label: string; value: string }>) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)] sm:items-center">
+      <p className="text-xs text-muted-foreground">{props.label}</p>
+      <p className="min-w-0 truncate text-sm font-medium">{props.value}</p>
+    </div>
+  );
+}
+
 function UpdateNotice(props: Readonly<{ icon: ReactNode; title: string; detail: string; tone?: 'default' | 'destructive' }>) {
   return (
     <div className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${props.tone === 'destructive' ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-border bg-muted/20'}`}>
@@ -724,6 +787,46 @@ function UpdateNotice(props: Readonly<{ icon: ReactNode; title: string; detail: 
       </div>
     </div>
   );
+}
+
+function getUpdateCheckTone(status: string | null | undefined): 'secondary' | 'success' | 'warning' | 'destructive' {
+  if (status === 'ok') {
+    return 'success';
+  }
+
+  if (status === 'offline' || status === 'rate_limited' || status === 'no_release') {
+    return 'warning';
+  }
+
+  if (status === 'error') {
+    return 'destructive';
+  }
+
+  return 'secondary';
+}
+
+function formatUpdateCheckStatus(status: string | null | undefined): string {
+  if (status === 'ok') {
+    return 'ok';
+  }
+
+  if (status === 'no_release') {
+    return 'no release';
+  }
+
+  if (status === 'offline') {
+    return 'offline';
+  }
+
+  if (status === 'rate_limited') {
+    return 'rate limited';
+  }
+
+  if (status === 'error') {
+    return 'error';
+  }
+
+  return 'never checked';
 }
 
 function formatLastCheck(value: string | null | undefined): string {
