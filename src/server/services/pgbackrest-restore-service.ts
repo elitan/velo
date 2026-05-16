@@ -16,6 +16,7 @@ import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand, runSshCommand } from './command-service';
 import { getBackupSettings, setSetting } from './settings-service';
 import { createLocalDockerPitrBranch, isLocalDockerMode, restoreLocalDockerProduction } from './local-docker-service';
+import { getBranchConnectionHost } from './branch-network-service';
 
 const PROJECT_NAME = 'prod';
 
@@ -133,7 +134,7 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     const connectionUrl = formatPostgresConnectionUrl(
       'postgres',
       branchPassword,
-      devServer?.host || 'localhost',
+      getBranchConnectionHost(devServer?.host, input.publicAccess),
       port,
       'postgres'
     );
@@ -193,7 +194,7 @@ export async function restoreDevelopmentBranchFromPgBackRest(input: RestoreBranc
     ...input,
     targetBranch,
     readOnly: false,
-    publicAccess: true,
+    publicAccess: false,
   });
 }
 

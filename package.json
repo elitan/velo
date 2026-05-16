@@ -47,7 +47,7 @@
     "linux"
   ],
   "scripts": {
-    "test": "bun test src/server/control-plane.test.ts src/managers/docker.test.ts",
+    "test": "bun test src/server/control-plane.test.ts src/server/services/branch-network-service.test.ts src/managers/docker.test.ts",
     "build": "bun run web:build",
     "dev": "bun run web",
     "web": "bun --bun vite dev --host 0.0.0.0 --port 3000",

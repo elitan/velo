@@ -13,6 +13,7 @@ import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
 import { createLocalDockerBranch, deleteLocalDockerBranch, isLocalDockerMode } from './local-docker-service';
 import { createJob, getActiveJobs } from './job-service';
+import { getBranchConnectionHost } from './branch-network-service';
 
 const PROJECT_NAME = 'prod';
 const BASE_BRANCH_NAME = 'base';
@@ -90,7 +91,7 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
       sourceReplayAt: new Date().toISOString(),
       parentBranchId: source.id,
       expiresAt,
-      publicAccess: true,
+      publicAccess: false,
       readOnly: false,
       branchPassword: input.branchPassword,
       preferredPort: input.preferredPort,
@@ -209,7 +210,7 @@ async function createBranchClone(options: {
     const connectionUrl = formatPostgresConnectionUrl(
       'postgres',
       password,
-      devServer?.host || 'localhost',
+      getBranchConnectionHost(devServer?.host, options.publicAccess),
       port,
       'postgres'
     );

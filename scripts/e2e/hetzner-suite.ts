@@ -81,6 +81,7 @@ async function testBranchLifecycle(): Promise<void> {
 
   await assertBranchConnects(branch.slug);
   await assertDockerContainerHealthy(getContainerName(PROJECT_NAME, branch.slug));
+  await assertBranchPostgresPrivate(branch);
   await assertZfsDatasetExists(branch.dataset);
 
   await deleteBranchBySlug(branch.slug);
@@ -210,6 +211,9 @@ async function testBranchPitr(): Promise<void> {
     restoreTime: targetTime,
   });
   await waitForJob(job.id, JOB_TIMEOUT_MS);
+
+  const branch = await getBranch(branchName);
+  await assertBranchPostgresPrivate(branch);
 
   const rows = await runBranchSql(branchName, `select label from ${table} order by id`);
   assert(rows.rows.map(function getLabel(row) {
@@ -398,6 +402,22 @@ async function assertDockerContainerHealthy(containerName: string): Promise<void
 async function assertDockerContainerMissing(containerName: string): Promise<void> {
   const result = await runCommand(['docker', 'inspect', containerName]);
   assert(result.exitCode !== 0, `${containerName} should be deleted`);
+}
+
+async function assertBranchPostgresPrivate(branch: Branch): Promise<void> {
+  const host = branch.connectionUrl ? new URL(branch.connectionUrl).hostname : null;
+  assert(host === 'localhost', `branch connection URL should use localhost, got ${host}`);
+
+  const result = await runCommand([
+    'docker',
+    'inspect',
+    '--format',
+    '{{range (index .NetworkSettings.Ports "5432/tcp")}}{{.HostIp}}{{end}}',
+    getContainerName(PROJECT_NAME, branch.slug),
+  ]);
+
+  await assertCommandOk(result, `docker inspect branch port ${branch.slug}`);
+  assert(result.stdout === '127.0.0.1', `${branch.slug} Postgres should bind localhost, got ${result.stdout}`);
 }
 
 async function assertZfsDatasetExists(dataset: string): Promise<void> {
