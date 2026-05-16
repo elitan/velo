@@ -675,6 +675,7 @@ export interface ServerPanelProps {
     status: string;
     statusMessage: string | null;
   } | undefined;
+  allowedCidr?: string;
   busy: string | null;
   onSave: (formData: FormData) => Promise<void>;
   onCheck: (role: ServerRole) => Promise<void>;
@@ -716,6 +717,11 @@ export function ServerPanel(props: ServerPanelProps) {
               <Input name="sshKeyPath" defaultValue={props.server?.sshKeyPath || '~/.ssh/id_ed25519'} />
             </Field>
           </div>
+          {props.role === 'prod' ? (
+            <Field label="Allowed CIDR">
+              <Input name="allowedCidr" defaultValue={props.allowedCidr || ''} placeholder="203.0.113.10/32" />
+            </Field>
+          ) : null}
           <div className="flex gap-2">
             <Button type="submit" className="flex-1" disabled={isSaving}>
               {isSaving ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}

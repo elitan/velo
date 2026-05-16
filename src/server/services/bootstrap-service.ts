@@ -4,6 +4,7 @@ import { runCommand, runSshCommand } from './command-service';
 import { getBackupSettings, getSetting, setSetting } from './settings-service';
 import { setStepStatus } from './setup-state-service';
 import { bootstrapLocalDocker, isLocalDockerMode } from './local-docker-service';
+import { getProdAllowedCidr } from './prod-network-service';
 
 export interface BootstrapResult {
   ok: boolean;
@@ -72,7 +73,7 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
   await setStepStatus('prod-setup', 'running', 'installing Postgres on prod');
   await setStepStatus('backups', 'running', 'configuring pgBackRest');
 
-  const allowedCidr = await getSetting('prod.allowedCidr') || '0.0.0.0/0';
+  const allowedCidr = await getProdAllowedCidr();
   let pgBackRestConfig: string;
   try {
     pgBackRestConfig = await buildPgBackRestConfig();
@@ -109,7 +110,8 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
       `sudo -u postgres psql -c "alter system set ssl = 'on'"`,
       `sudo -u postgres psql -c "alter role postgres with password ${sqlStringLiteral(prodPassword)}"`,
       'HBA_FILE=$(sudo -u postgres psql -tAc "show hba_file" | xargs)',
-      `grep -q "velo prod access ${allowedCidr}" "$HBA_FILE" || echo "hostssl all postgres ${allowedCidr} scram-sha-256 # velo prod access ${allowedCidr}" | sudo tee -a "$HBA_FILE" >/dev/null`,
+      'sudo sed -i "/# velo prod access /d" "$HBA_FILE"',
+      `echo "hostssl all postgres ${allowedCidr} scram-sha-256 # velo prod access ${allowedCidr}" | sudo tee -a "$HBA_FILE" >/dev/null`,
       'sudo systemctl restart postgresql',
       'sudo -u postgres pgbackrest --stanza=main stanza-create || sudo -u postgres pgbackrest --stanza=main info',
       'sudo -u postgres pgbackrest --stanza=main check',
@@ -130,7 +132,20 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
   await setStepStatus('backups', ok ? 'done' : 'error', ok ? 'pgBackRest full backup ready' : message);
 
   if (ok) {
-    await setSetting('prod.connectionUrl', formatProdConnectionUrl(prod.host, prodPassword));
+    const connectionUrl = formatProdConnectionUrl(prod.host, prodPassword);
+    const connectionCheck = await runCommand([
+      'sh',
+      '-lc',
+      `psql ${shellQuote(connectionUrl)} -tAc 'select 1'`,
+    ], 30_000);
+
+    if (connectionCheck.exitCode !== 0) {
+      const checkMessage = connectionCheck.stderr || connectionCheck.stdout || `prod connection failed from app server. Check allowed CIDR ${allowedCidr}.`;
+      await setStepStatus('prod-setup', 'error', checkMessage);
+      return { ok: false, message: checkMessage };
+    }
+
+    await setSetting('prod.connectionUrl', connectionUrl);
   }
 
   return { ok, message };

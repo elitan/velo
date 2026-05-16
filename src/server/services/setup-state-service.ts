@@ -6,12 +6,14 @@ import { listJobs, type JobRecord } from './job-service';
 import { getBackupAvailability, type BackupAvailability } from './backup-availability-service';
 import { getBackupSettings, getSetting, type BackupSettings } from './settings-service';
 import { checkLocalDocker, isLocalDockerMode } from './local-docker-service';
+import { getProdAllowedCidr, saveProdAllowedCidr } from './prod-network-service';
 
 export interface ServerInput {
   role: 'prod' | 'dev';
   host: string;
   sshUser: string;
   sshKeyPath: string;
+  allowedCidr?: string;
 }
 
 export interface ControlPlaneState {
@@ -40,11 +42,12 @@ export interface ControlPlaneState {
   backup: BackupSettings;
   backupAvailability: BackupAvailability;
   prodConnectionUrl: string | null;
+  prodAllowedCidr: string | null;
 }
 
 export async function getControlPlaneState(): Promise<ControlPlaneState> {
   const db = getDb();
-  const [servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl] = await Promise.all([
+  const [servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl, prodAllowedCidr] = await Promise.all([
     db.selectFrom('servers').selectAll().orderBy('role').execute(),
     db
       .selectFrom('setupSteps')
@@ -74,9 +77,12 @@ export async function getControlPlaneState(): Promise<ControlPlaneState> {
     getBackupSettings(),
     getBackupAvailability(),
     getSetting('prod.connectionUrl'),
+    getProdAllowedCidr().catch(function ignoreMissingCidr() {
+      return null;
+    }),
   ]);
 
-  return { servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl };
+  return { servers, setupSteps, branches, jobs, backup, backupAvailability, prodConnectionUrl, prodAllowedCidr };
 }
 
 export async function saveServer(input: ServerInput): Promise<Server> {
@@ -104,6 +110,10 @@ export async function saveServer(input: ServerInput): Promise<Server> {
       });
     })
     .execute();
+
+  if (input.role === 'prod' && input.allowedCidr) {
+    await saveProdAllowedCidr(input.allowedCidr);
+  }
 
   const server = await db
     .selectFrom('servers')
