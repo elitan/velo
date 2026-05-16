@@ -32,6 +32,7 @@ const restoreBranchInput = z.object({
   targetBranch: z.string().min(1),
   sourceBranch: z.string().min(1),
   restoreTime: z.string().min(1),
+  productionRestoreConfirmation: z.string().optional(),
 });
 
 const runSqlInput = z.object({
@@ -91,7 +92,12 @@ export const branchesRouter = {
   restore: publicProcedure
     .input(restoreBranchInput)
     .handler(async function restoreBranch({ input }) {
-      const job = await createJob('restore-branch', input);
+      assertProductionRestoreConfirmed(input.targetBranch, input.productionRestoreConfirmation);
+      const job = await createJob('restore-branch', {
+        targetBranch: input.targetBranch,
+        sourceBranch: input.sourceBranch,
+        restoreTime: input.restoreTime,
+      });
       return job;
     }),
   reset: publicProcedure
@@ -146,6 +152,25 @@ function getCreateBranchSlug(inputJson: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function assertProductionRestoreConfirmed(targetBranch: string, confirmation: string | undefined): void {
+  if (!isProductionRestoreTarget(targetBranch)) {
+    return;
+  }
+
+  if (confirmation === 'restore production') {
+    return;
+  }
+
+  throw new ORPCError('BAD_REQUEST', {
+    message: 'Type restore production to restore production',
+  });
+}
+
+function isProductionRestoreTarget(targetBranch: string): boolean {
+  const normalized = targetBranch.trim().toLowerCase();
+  return normalized === 'production' || normalized === 'prod';
 }
 
 function throwDuplicateBranch(branchSlug: string): never {

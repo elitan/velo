@@ -234,6 +234,7 @@ async function testProductionPitrRestore(): Promise<void> {
     targetBranch: 'production',
     sourceBranch: 'production',
     restoreTime: targetTime,
+    productionRestoreConfirmation: 'restore production',
   });
   await waitForJob(job.id, JOB_TIMEOUT_MS);
 
