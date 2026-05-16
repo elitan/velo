@@ -18,6 +18,7 @@ import {
   GitBranch,
   LayoutDashboard,
   Loader2,
+  LogOut,
   Menu,
   RefreshCw,
   RotateCcw,
@@ -70,6 +71,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#web/components/ui/select';
+import { logout } from '#web/lib/auth-client';
 
 export type ServerRole = 'prod' | 'dev';
 
@@ -224,6 +226,11 @@ function SidebarContent(props: SidebarContentProps) {
     void navigate({ to: '/branch/$branchId/overview', params: { branchId: value } });
   }
 
+  async function handleLogout() {
+    await logout();
+    window.location.assign('/login');
+  }
+
   return (
     <div className={props.className}>
       <div className="hidden lg:block">
@@ -264,6 +271,13 @@ function SidebarContent(props: SidebarContentProps) {
           <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} onNavigate={props.onNavigate} />
         </div>
       </SidebarSection>
+
+      <div className="mt-8">
+        <Button type="button" variant="outline" className="w-full justify-start" onClick={handleLogout}>
+          <LogOut />
+          Sign out
+        </Button>
+      </div>
     </div>
   );
 }

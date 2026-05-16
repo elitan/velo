@@ -9,6 +9,7 @@ VELO_HOST="${VELO_HOST:-0.0.0.0}"
 VELO_PORT="${VELO_PORT:-3000}"
 VELO_DB="${VELO_DB:-$VELO_DEPLOY_DIR/.velo/velo.sqlite}"
 VELO_PUBLIC_URL="${VELO_PUBLIC_URL:-http://$VELO_DEPLOY_HOST:$VELO_PORT}"
+VELO_APP_PASSWORD="${VELO_APP_PASSWORD:-$(openssl rand -base64 24)}"
 
 SSH_ARGS=(
   -i "$VELO_DEPLOY_KEY"
@@ -49,17 +50,14 @@ VELO_STATE_DIR=\"${VELO_DB%/*}\"
 mkdir -p -m 700 \"\$VELO_STATE_DIR\"
 chmod 700 \"\$VELO_STATE_DIR\"
 VELO_DB='$VELO_DB' bun run db:migrate
+APP_PASSWORD='$VELO_APP_PASSWORD' VELO_DB='$VELO_DB' bun run auth:set-password
 bun run web:build
 go build -o /usr/local/bin/velo-proxy ./cmd/velo-proxy
 
-if [ ! -f /etc/velo.env ]; then
-  umask 077
-  printf 'BETTER_AUTH_SECRET=%s\n' \"\$(openssl rand -base64 48)\" >/etc/velo.env
-fi
-
-grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' '$VELO_PUBLIC_URL' >>/etc/velo.env
+umask 077
+touch /etc/velo.env
+chmod 600 /etc/velo.env
 grep -q '^VELO_INTERNAL_TOKEN=' /etc/velo.env || printf 'VELO_INTERNAL_TOKEN=%s\n' \"\$(openssl rand -base64 48)\" >>/etc/velo.env
-sed -i '/^VELO_BASIC_AUTH_USERNAME=/d; /^VELO_BASIC_AUTH_PASSWORD=/d' /etc/velo.env
 
 cat >/etc/systemd/system/velo-web.service <<SERVICE
 [Unit]
@@ -95,7 +93,7 @@ Type=simple
 WorkingDirectory=$VELO_DEPLOY_DIR
 Environment=VELO_INTERNAL_API_URL=http://127.0.0.1:$VELO_PORT/internal
 Environment=VELO_PROXY_BIND=127.0.0.1
-Environment=VELO_PROXY_IDLE_SECONDS=1800
+Environment=VELO_PROXY_IDLE_SECONDS=300
 EnvironmentFile=/etc/velo.env
 ExecStart=/usr/local/bin/velo-proxy
 Restart=always
@@ -126,3 +124,4 @@ systemctl is-active --quiet velo-proxy
 
 ssh "${SSH_ARGS[@]}" "$REMOTE" "curl -fsS -I 'http://127.0.0.1:$VELO_PORT' >/dev/null"
 echo "Deployed: http://$VELO_DEPLOY_HOST:$VELO_PORT"
+echo "App password: $VELO_APP_PASSWORD"

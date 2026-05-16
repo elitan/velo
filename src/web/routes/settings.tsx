@@ -1,8 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, ArchiveRestore, CheckCircle2, Database, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
+import { Activity, AlertTriangle, ArchiveRestore, CheckCircle2, Database, ExternalLink, KeyRound, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -18,6 +18,7 @@ import { Badge } from '#web/components/ui/badge';
 import { Button } from '#web/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '#web/components/ui/card';
 import { Checkbox } from '#web/components/ui/checkbox';
+import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
 import {
   Select,
@@ -33,6 +34,7 @@ import {
   TabsTrigger,
 } from '#web/components/ui/tabs';
 import { api, orpc } from '#web/lib/api-client';
+import { changePassword } from '#web/lib/auth-client';
 import {
   AppSidebar,
   BackupPanel,
@@ -284,6 +286,10 @@ function SettingsPage() {
                   <RefreshCw />
                   Updates
                 </TabsTrigger>
+                <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="security">
+                  <KeyRound />
+                  Security
+                </TabsTrigger>
                 <TabsTrigger className="pl-3 data-active:text-muted-foreground data-active:after:left-0 data-active:after:right-auto" value="jobs">
                   <Activity />
                   Jobs
@@ -317,6 +323,10 @@ function SettingsPage() {
 
               <TabsContent value="updates" className="min-w-0">
                 <UpdatePanel />
+              </TabsContent>
+
+              <TabsContent value="security" className="min-w-0">
+                <PasswordPanel />
               </TabsContent>
 
               <TabsContent value="jobs" className="min-w-0">
@@ -484,6 +494,89 @@ function OverviewRow(props: Readonly<{ icon: ReactNode; label: string; value: st
       </div>
       <StatusBadge status={props.status} />
     </div>
+  );
+}
+
+function PasswordPanel() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match.');
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      await changePassword(currentPassword, newPassword);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success('Password changed.');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not change password.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Password</CardTitle>
+        <CardDescription>Change the app password</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="grid max-w-sm gap-4" onSubmit={handleSubmit}>
+          <div className="grid gap-2">
+            <Label htmlFor="current-password">Current password</Label>
+            <Input
+              id="current-password"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={function updateCurrentPassword(event) {
+                setCurrentPassword(event.target.value);
+              }}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="new-password">New password</Label>
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={function updateNewPassword(event) {
+                setNewPassword(event.target.value);
+              }}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="confirm-password">Confirm password</Label>
+            <Input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={function updateConfirmPassword(event) {
+                setConfirmPassword(event.target.value);
+              }}
+            />
+          </div>
+          <Button type="submit" disabled={busy || !currentPassword || !newPassword || !confirmPassword}>
+            {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
+            Change password
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 

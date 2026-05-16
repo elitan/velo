@@ -18,7 +18,7 @@ func main() {
 	token := flag.String("token", envString("VELO_INTERNAL_TOKEN", ""), "internal API token")
 	bind := flag.String("bind", envString("VELO_PROXY_BIND", "127.0.0.1"), "proxy listen address")
 	refreshSeconds := flag.Int("refresh-seconds", envInt("VELO_PROXY_REFRESH_SECONDS", 2), "branch map refresh interval")
-	idleSeconds := flag.Int("idle-seconds", envInt("VELO_PROXY_IDLE_SECONDS", 1800), "idle stop timeout, 0 disables")
+	idleSeconds := flag.Int("idle-seconds", envInt("VELO_PROXY_IDLE_SECONDS", 300), "idle stop timeout, 0 disables")
 	flag.Parse()
 
 	if *token == "" {

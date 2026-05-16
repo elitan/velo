@@ -43,6 +43,7 @@ test -f dist/server/assets/migrations/001_initial.sql
 bun install --production --frozen-lockfile
 VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
 VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
+APP_PASSWORD=test-password VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run auth:set-password
 test "$(file_mode "$WORK_DIR/app/.velo")" = "700"
 test "$(file_mode "$WORK_DIR/app/.velo/velo.sqlite")" = "600"
 
@@ -50,10 +51,6 @@ HOST=127.0.0.1 \
 PORT="$PORT" \
 NODE_ENV=production \
 VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" \
-VELO_BASIC_AUTH_USERNAME=test \
-VELO_BASIC_AUTH_PASSWORD=test \
-BETTER_AUTH_SECRET=testtesttesttesttesttesttesttest \
-BETTER_AUTH_URL="http://127.0.0.1:$PORT" \
 bun src/server/web-runtime.ts >"$WORK_DIR/server.log" 2>&1 &
 SERVER_PID="$!"
 
@@ -87,11 +84,11 @@ assert_status() {
 }
 
 assert_status 200 "http://127.0.0.1:$PORT/healthz"
-assert_status 401 -I "http://127.0.0.1:$PORT"
-assert_status 401 -u bad:bad -I "http://127.0.0.1:$PORT"
-assert_status 200 -u test:test -I "http://127.0.0.1:$PORT"
+assert_status 302 -I "http://127.0.0.1:$PORT"
+assert_status 200 -I "http://127.0.0.1:$PORT/login"
 assert_status 401 -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
-assert_status 401 -u bad:bad -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
-assert_status 200 -u test:test -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
+assert_status 401 -H 'content-type: application/json' -d '{"password":"bad-password"}' "http://127.0.0.1:$PORT/api/auth/login"
+curl -fsS -c "$WORK_DIR/cookie" -H 'content-type: application/json' -d '{"password":"test-password"}' "http://127.0.0.1:$PORT/api/auth/login" >/dev/null
+assert_status 200 -b "$WORK_DIR/cookie" -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
 
 echo "release artifact smoke passed"

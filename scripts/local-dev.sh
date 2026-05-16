@@ -40,8 +40,7 @@ VELO_LOCAL_DEV_PORT=$VELO_LOCAL_DEV_PORT
 VELO_LOCAL_MINIO_PORT=$VELO_LOCAL_MINIO_PORT
 VELO_LOCAL_MINIO_CONSOLE_PORT=$VELO_LOCAL_MINIO_CONSOLE_PORT
 VELO_LOCAL_WEB_PORT=$VELO_LOCAL_WEB_PORT
-BETTER_AUTH_URL=$BETTER_AUTH_URL
-BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET
+VELO_LOCAL_APP_PASSWORD=$VELO_LOCAL_APP_PASSWORD
 VELO_INTERNAL_TOKEN=$VELO_INTERNAL_TOKEN
 EOF
   chmod 600 "$LOCAL_ENV_FILE"
@@ -84,8 +83,7 @@ ensure_ports() {
       export VELO_LOCAL_WEB_PORT="$(get_free_port)"
     fi
   fi
-  export BETTER_AUTH_URL="${BETTER_AUTH_URL:-http://localhost:$VELO_LOCAL_WEB_PORT}"
-  export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-$(openssl rand -base64 48)}"
+  export VELO_LOCAL_APP_PASSWORD="${VELO_LOCAL_APP_PASSWORD:-velo-local-password}"
   export VELO_INTERNAL_TOKEN="${VELO_INTERNAL_TOKEN:-$(openssl rand -base64 48)}"
   save_env_file
 }
@@ -477,6 +475,7 @@ up() {
   seed_prod
   seed_pgbackrest
   bun run db:migrate
+  APP_PASSWORD="$VELO_LOCAL_APP_PASSWORD" bun run auth:set-password
   bun run src/server/local-docker-seed.ts
 }
 
@@ -488,7 +487,7 @@ dev() {
   bun --bun vite dev --host 0.0.0.0 --port "$VELO_LOCAL_WEB_PORT" &
   DEV_SERVER_PID=$!
   VELO_INTERNAL_API_URL="http://127.0.0.1:$VELO_LOCAL_WEB_PORT/internal" \
-  VELO_PROXY_IDLE_SECONDS="${VELO_PROXY_IDLE_SECONDS:-1800}" \
+  VELO_PROXY_IDLE_SECONDS="${VELO_PROXY_IDLE_SECONDS:-300}" \
   go run ./cmd/velo-proxy &
   PROXY_PID=$!
   wait "$DEV_SERVER_PID"
@@ -517,6 +516,7 @@ case "${1:-up}" in
     ensure_ports
     compose ps
     printf '\napp: http://localhost:%s\n' "$VELO_LOCAL_WEB_PORT"
+    printf 'auth: skipped on localhost\n'
     printf 'prod: postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_PROD_PORT"
     printf 'dev:  postgresql://postgres:postgres@localhost:%s/postgres?sslmode=disable\n' "$VELO_LOCAL_DEV_PORT"
     printf 's3:   https://localhost:%s\n' "$VELO_LOCAL_MINIO_PORT"

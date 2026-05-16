@@ -3,6 +3,7 @@ import { onError } from '@orpc/server';
 import { createFileRoute } from '@tanstack/react-router';
 import { appRouter } from '#api/router';
 import { createOrpcContext } from '#api/context';
+import { getAuthState } from '#server/auth';
 import { jobHandlers } from '#server/services/job-handlers';
 import { startJobWorker, type JobWorker } from '#server/services/job-service';
 
@@ -24,6 +25,16 @@ export const Route = createFileRoute('/api/v1/$')({
 
 async function handleRpcRequest(context: { request: Request }) {
   startDevJobWorker();
+
+  const auth = await getAuthState(context.request);
+
+  if (!auth.configured) {
+    return Response.json({ error: 'Auth setup required.' }, { status: 401 });
+  }
+
+  if (!auth.authenticated) {
+    return Response.json({ error: 'Unauthorized.' }, { status: 401 });
+  }
 
   const { response } = await handler.handle(context.request, {
     prefix: '/api/v1',

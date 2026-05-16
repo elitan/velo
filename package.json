@@ -68,6 +68,7 @@
     "deploy:main": "scripts/deploy-main.sh",
     "deploy:dev": "scripts/deploy-dev.sh",
     "e2e:hetzner": "scripts/e2e-hetzner.sh",
+    "auth:set-password": "bun run src/server/auth-cli.ts",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:generate": "bun run db:migrate && kysely-codegen --camel-case --dialect bun-sqlite --url ${VELO_DB:-$HOME/.velo/velo.sqlite} --out-file src/db/generated.ts",
     "typecheck": "tsgo --noEmit"
@@ -97,7 +98,6 @@
     "@tanstack/react-start": "^1.167.53",
     "@tanstack/router-plugin": "^1.167.30",
     "@vitejs/plugin-react": "^6.0.1",
-    "better-auth": "^1.6.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

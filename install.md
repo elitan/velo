@@ -25,7 +25,6 @@ Ask once for missing values:
 
 Generate if missing:
 
-- app username: `admin`
 - app password: random 24+ chars
 - install dir: `/opt/velo`
 - port: `3000`
@@ -73,7 +72,6 @@ VELO_DIR="${VELO_DIR:-/opt/velo}"
 VELO_PORT="${VELO_PORT:-3000}"
 VELO_PUBLIC_URL="${VELO_PUBLIC_URL:-http://$DEV_HOST:$VELO_PORT}"
 REMOTE_KEY_PATH="${REMOTE_KEY_PATH:-/root/.ssh/velo-prod}"
-APP_USERNAME="${APP_USERNAME:-admin}"
 APP_PASSWORD="${APP_PASSWORD:-$(openssl rand -base64 24)}"
 BACKUP_MODE="${BACKUP_MODE:-local}"
 ```
@@ -220,6 +218,7 @@ git reset --hard '$VELO_REF'
 git clean -fd -e node_modules -e .velo
 bun install --frozen-lockfile
 VELO_DB='$VELO_DIR/.velo/velo.sqlite' bun run db:migrate
+APP_PASSWORD='$APP_PASSWORD' VELO_DB='$VELO_DIR/.velo/velo.sqlite' bun run auth:set-password
 bun run web:build
 "
 ```
@@ -232,13 +231,8 @@ bun run web:build
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
 set -euo pipefail
 umask 077
-if [ ! -f /etc/velo.env ]; then
-  printf 'BETTER_AUTH_SECRET=%s\n' \"\$(openssl rand -base64 48)\" >/etc/velo.env
-fi
-grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' '$VELO_PUBLIC_URL' >>/etc/velo.env
-sed -i '/^VELO_BASIC_AUTH_USERNAME=/d; /^VELO_BASIC_AUTH_PASSWORD=/d' /etc/velo.env
-printf 'VELO_BASIC_AUTH_USERNAME=%s\n' '$APP_USERNAME' >>/etc/velo.env
-printf 'VELO_BASIC_AUTH_PASSWORD=%s\n' '$APP_PASSWORD' >>/etc/velo.env
+touch /etc/velo.env
+chmod 600 /etc/velo.env
 "
 ```
 
@@ -358,13 +352,13 @@ systemctl restart velo-web
 
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
-  "systemctl is-active --quiet velo-web && curl -fsS -u '$APP_USERNAME:$APP_PASSWORD' -I 'http://127.0.0.1:$VELO_PORT' >/dev/null"
+  "systemctl is-active --quiet velo-web && curl -fsS -I 'http://127.0.0.1:$VELO_PORT/login' >/dev/null"
 
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
   "curl -fsS 'http://127.0.0.1:$VELO_PORT/healthz?ready=1' >/dev/null"
 
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
-  "curl -fsS -u '$APP_USERNAME:$APP_PASSWORD' -H 'content-type: application/json' -d '{}' 'http://127.0.0.1:$VELO_PORT/api/v1/dashboard/retrieve' >/dev/null"
+  "curl -fsS -c /tmp/velo-cookie -H 'content-type: application/json' -d '{\"password\":\"'$APP_PASSWORD'\"}' 'http://127.0.0.1:$VELO_PORT/api/auth/login' >/dev/null && curl -fsS -b /tmp/velo-cookie -H 'content-type: application/json' -d '{}' 'http://127.0.0.1:$VELO_PORT/api/v1/dashboard/retrieve' >/dev/null"
 
 ssh -i "$SSH_KEY" "$SSH_USER@$PROD_HOST" \
   "systemctl is-active --quiet postgresql && sudo -u postgres pg_isready -d postgres && sudo -u postgres pgbackrest --stanza=main info >/dev/null"
@@ -400,7 +394,6 @@ Expected:
 Return:
 
 - Velo URL
-- app username
 - app password
 - prod connection URL
 - dev branch connection URL
