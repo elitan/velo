@@ -10,6 +10,7 @@ VELO_HOST="${VELO_HOST:-0.0.0.0}"
 VELO_PORT="${VELO_PORT:-3000}"
 VELO_DB="${VELO_DB:-$VELO_DATA_DIR/.velo/velo.sqlite}"
 VELO_PUBLIC_URL="${VELO_PUBLIC_URL:-http://$VELO_REMOTE_HOST:$VELO_PORT}"
+VELO_APP_PASSWORD="${VELO_APP_PASSWORD:-velo-dev-password}"
 
 SSH_ARGS=(
   -i "$VELO_REMOTE_KEY"
@@ -36,13 +37,11 @@ VELO_STATE_DIR=\"${VELO_DB%/*}\"
 mkdir -p -m 700 \"\$VELO_STATE_DIR\"
 chmod 700 \"\$VELO_STATE_DIR\"
 VELO_DB='$VELO_DB' bun run db:migrate
+APP_PASSWORD='$VELO_APP_PASSWORD' VELO_DB='$VELO_DB' bun run auth:set-password
 
-if [ ! -f /etc/velo.env ]; then
-  umask 077
-  printf 'BETTER_AUTH_SECRET=%s\n' \"\$(openssl rand -base64 48)\" >/etc/velo.env
-fi
-
-grep -q '^BETTER_AUTH_URL=' /etc/velo.env || printf 'BETTER_AUTH_URL=%s\n' '$VELO_PUBLIC_URL' >>/etc/velo.env
+umask 077
+touch /etc/velo.env
+chmod 600 /etc/velo.env
 
 cat >/etc/systemd/system/velo-web-dev.service <<SERVICE
 [Unit]
@@ -86,3 +85,4 @@ exit 1
 
 curl -fsS -I "http://$VELO_REMOTE_HOST:$VELO_PORT" >/dev/null
 echo "Remote dev ready: http://$VELO_REMOTE_HOST:$VELO_PORT"
+echo "App password: $VELO_APP_PASSWORD"
