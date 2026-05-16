@@ -72,6 +72,28 @@ export async function createJob(type: string, input?: unknown, options: CreateJo
     .executeTakeFirstOrThrow();
 }
 
+export async function createAuditJob(type: string, input: unknown, message: string): Promise<Job> {
+  const job = await getDb()
+    .insertInto('jobs')
+    .values({
+      type,
+      status: 'done',
+      inputJson: JSON.stringify(input),
+      error: null,
+      attempts: 1,
+      maxAttempts: 1,
+      runAfter: null,
+      startedAt: sql<string>`datetime('now')`,
+      finishedAt: sql<string>`datetime('now')`,
+      updatedAt: sql<string>`datetime('now')`,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  await appendJobLog(job.id, 'info', message);
+  return job;
+}
+
 export function startJobWorker(handlers: JobHandlers, options: StartJobWorkerOptions = {}): JobWorker {
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const staleTimeoutSeconds = options.staleTimeoutSeconds ?? DEFAULT_STALE_TIMEOUT_SECONDS;

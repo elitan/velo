@@ -37,6 +37,7 @@ const restoreBranchInput = z.object({
 const runSqlInput = z.object({
   branchId: z.string().min(1),
   sql: z.string().min(1).max(100_000),
+  productionWriteConfirmation: z.string().optional(),
 });
 
 export const branchesRouter = {
