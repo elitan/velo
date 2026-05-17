@@ -1,6 +1,7 @@
 import { SQL } from 'bun';
 import { getDb } from '#db/client';
 import type { Branch } from '#db/schema';
+import { DockerManager } from '#managers/docker';
 import { createApiClient } from '#api/router';
 import { getSetting } from '#server/services/settings-service';
 import { runCommand, runSshCommand } from '#server/services/command-service';
@@ -87,6 +88,7 @@ async function testReplicaBase(): Promise<void> {
 async function testBranchLifecycle(): Promise<void> {
   const branch = await createBranch(`e2e_life_${RUN_ID}`);
 
+  await assertReplicaReplayRunning();
   await assertBranchConnects(branch.slug);
   await assertDockerContainerHealthy(getContainerName(PROJECT_NAME, branch.slug));
   await assertBranchPostgresPrivate(branch);
@@ -802,6 +804,17 @@ async function assertBranchPostgresRejectsBadPassword(branch: Branch): Promise<v
   ], 30000);
 
   assert(result.exitCode !== 0, `${branch.slug} PostgreSQL should reject bad password`);
+}
+
+async function assertReplicaReplayRunning(): Promise<void> {
+  const docker = new DockerManager();
+  const containerName = getContainerName(PROJECT_NAME, 'base');
+  const containerId = await docker.getContainerByName(containerName);
+
+  assert(containerId, `replica base container should exist: ${containerName}`);
+
+  const state = await docker.execSQL(containerId, 'select pg_get_wal_replay_pause_state()');
+  assert(state === 'not paused', `replica replay should resume after branch snapshot, got ${state}`);
 }
 
 async function assertZfsDatasetExists(dataset: string): Promise<void> {

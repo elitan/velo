@@ -24,7 +24,7 @@ import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { getControlPlaneState, invalidateDevReplicaBase, saveServer, setStepStatus } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
-import { buildReplicaBaseHealth, buildReplicaFreshness } from './services/replica-service';
+import { buildReplicaBaseHealth, buildReplicaFreshness, withPausedReplicaReplay } from './services/replica-service';
 import { getReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 let testDir: string;
@@ -281,6 +281,44 @@ describe('control plane database', function controlPlaneDatabase() {
       'WAL replay is paused',
       'replica timeline does not follow production',
       'replication slot retained WAL is too large',
+    ]);
+  });
+
+  test('pauses and resumes replica replay around snapshot work', async function testPausedReplicaReplay() {
+    const calls: string[] = [];
+    const docker = createReplicaReplayDocker(calls, ['pause requested', 'paused']);
+
+    const result = await withPausedReplicaReplay(async function snapshotReplica() {
+      calls.push('snapshot');
+      return 'done';
+    }, { docker, pollMs: 0 });
+
+    expect(result).toBe('done');
+    expect(calls).toEqual([
+      'container:velo-prod.base',
+      'sql:select pg_wal_replay_pause()',
+      'sql:select pg_get_wal_replay_pause_state()',
+      'sql:select pg_get_wal_replay_pause_state()',
+      'snapshot',
+      'sql:select pg_wal_replay_resume()',
+    ]);
+  });
+
+  test('resumes replica replay when snapshot work fails', async function testPausedReplicaReplayFailure() {
+    const calls: string[] = [];
+    const docker = createReplicaReplayDocker(calls, ['paused']);
+
+    await expect(withPausedReplicaReplay(async function failSnapshot() {
+      calls.push('snapshot');
+      throw new Error('snapshot failed');
+    }, { docker, pollMs: 0 })).rejects.toThrow('snapshot failed');
+
+    expect(calls).toEqual([
+      'container:velo-prod.base',
+      'sql:select pg_wal_replay_pause()',
+      'sql:select pg_get_wal_replay_pause_state()',
+      'snapshot',
+      'sql:select pg_wal_replay_resume()',
     ]);
   });
 
@@ -1154,4 +1192,26 @@ async function waitForJob(jobId: number) {
   }
 
   throw new Error(`job ${jobId} did not finish`);
+}
+
+function createReplicaReplayDocker(calls: string[], states: string[]) {
+  let stateIndex = 0;
+
+  return {
+    async getContainerByName(name: string): Promise<string | null> {
+      calls.push(`container:${name}`);
+      return 'replica-container';
+    },
+    async execSQL(_containerId: string, query: string): Promise<string> {
+      calls.push(`sql:${query}`);
+
+      if (query === 'select pg_get_wal_replay_pause_state()') {
+        const state = states[stateIndex] || states[states.length - 1] || 'paused';
+        stateIndex += 1;
+        return state;
+      }
+
+      return '';
+    },
+  };
 }

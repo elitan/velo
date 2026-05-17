@@ -19,6 +19,8 @@ const BASE_DATASET_PREFIX = `${PROJECT_NAME}.${BASE_BRANCH_NAME}-`;
 const REPLICATION_USER = 'velo_replica';
 const REPLICATION_SLOT = 'velo_replica_base';
 const REPLICA_REPLAY_ADVANCE_TIMEOUT_MS = 60_000;
+const REPLICA_REPLAY_PAUSE_TIMEOUT_MS = 30_000;
+const REPLICA_REPLAY_PAUSE_POLL_MS = 100;
 const MAX_SLOT_RETAINED_WAL_BYTES = 1024 * 1024 * 1024;
 
 export interface ReplicaResult {
@@ -51,6 +53,12 @@ export interface ReplicaBaseHealth {
   ok: boolean;
   errors: string[];
   lagMs: number | null;
+}
+
+export interface ReplicaReplayPauseOptions {
+  docker?: Pick<DockerManager, 'getContainerByName' | 'execSQL'>;
+  pollMs?: number;
+  timeoutMs?: number;
 }
 
 export async function createReplicaBase(): Promise<ReplicaResult> {
@@ -309,6 +317,28 @@ export function buildReplicaBaseHealth(input: ReplicaBaseHealthInput): ReplicaBa
   };
 }
 
+export async function withPausedReplicaReplay<T>(
+  callback: () => Promise<T>,
+  options: ReplicaReplayPauseOptions = {}
+): Promise<T> {
+  const docker = options.docker || new DockerManager();
+  const containerName = getContainerName(PROJECT_NAME, BASE_BRANCH_NAME);
+  const containerId = await docker.getContainerByName(containerName);
+
+  if (!containerId) {
+    throw new Error(`Replica base container not found: ${containerName}`);
+  }
+
+  await docker.execSQL(containerId, 'select pg_wal_replay_pause()');
+
+  try {
+    await waitForReplayPaused(docker, containerId, options);
+    return await callback();
+  } finally {
+    await docker.execSQL(containerId, 'select pg_wal_replay_resume()');
+  }
+}
+
 async function configureProdReplication(options: {
   host: string;
   user: string;
@@ -457,6 +487,28 @@ async function getDevBaseHealthState(docker: DockerManager, containerId: string)
     replayPaused: replayPaused === 't',
     replayTimelineId: parseNullableInteger(replayTimelineId),
   };
+}
+
+async function waitForReplayPaused(
+  docker: Pick<DockerManager, 'execSQL'>,
+  containerId: string,
+  options: Pick<ReplicaReplayPauseOptions, 'pollMs' | 'timeoutMs'>
+): Promise<void> {
+  const pollMs = options.pollMs ?? REPLICA_REPLAY_PAUSE_POLL_MS;
+  const timeoutMs = options.timeoutMs ?? REPLICA_REPLAY_PAUSE_TIMEOUT_MS;
+  const start = Date.now();
+
+  while (Date.now() - start < timeoutMs) {
+    const state = await docker.execSQL(containerId, 'select pg_get_wal_replay_pause_state()');
+
+    if (state.trim() === 'paused') {
+      return;
+    }
+
+    await Bun.sleep(pollMs);
+  }
+
+  throw new Error('Timed out waiting for replica WAL replay to pause');
 }
 
 interface ProductionHealthState {
