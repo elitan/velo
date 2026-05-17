@@ -239,6 +239,7 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(getReplicaBranchCreatePolicy({ lagMs: 9000 })).toEqual({ status: 'allow', lagMs: 9000 });
     expect(getReplicaBranchCreatePolicy({ lagMs: 10_000 })).toEqual({ status: 'warn', lagMs: 10_000 });
     expect(getReplicaBranchCreatePolicy({ lagMs: 60_001 })).toEqual({ status: 'block', lagMs: 60_001 });
+    expect(getReplicaBranchCreatePolicy({ lagMs: 60_001, byteLag: 0 })).toEqual({ status: 'allow', lagMs: 60_001 });
   });
 
   test('accepts healthy dev replica base signals', function testHealthyReplicaBaseSignals() {
