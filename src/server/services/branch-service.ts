@@ -11,7 +11,7 @@ import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
 import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
-import { cleanupOldReplicaBases, getReplicaBaseDataset, getReplicaFreshness } from './replica-service';
+import { cleanupOldReplicaBases, getReplicaBaseDataset, getReplicaFreshness, withPausedReplicaReplay } from './replica-service';
 import { createLocalDockerBranch, deleteLocalDockerBranch, deleteLocalDockerBranchResources, isLocalDockerMode, startLocalDockerBranchContainer, stopLocalDockerBranchContainer } from './local-docker-service';
 import { createJob, getActiveJobs } from './job-service';
 import { getBranchConnectionHost } from './branch-network-service';
@@ -197,7 +197,12 @@ async function createBranchClone(options: {
   let containerId: string | null = null;
 
   try {
-    await zfs.createSnapshot(options.sourceDataset, snapshotName);
+    await createSourceSnapshot({
+      zfs,
+      sourceBranch: options.sourceBranch,
+      sourceDataset: options.sourceDataset,
+      snapshotName,
+    });
     await zfs.cloneSnapshot(fullSnapshotName, targetDataset);
     await zfs.mountDataset(targetDataset);
 
@@ -290,6 +295,22 @@ async function createBranchClone(options: {
     });
     throw error;
   }
+}
+
+async function createSourceSnapshot(options: {
+  zfs: ZFSManager;
+  sourceBranch: string;
+  sourceDataset: string;
+  snapshotName: string;
+}): Promise<void> {
+  if (options.sourceBranch !== 'production') {
+    await options.zfs.createSnapshot(options.sourceDataset, options.snapshotName);
+    return;
+  }
+
+  await withPausedReplicaReplay(async function snapshotPausedReplica() {
+    await options.zfs.createSnapshot(options.sourceDataset, options.snapshotName);
+  });
 }
 
 export async function resetBranchFromParent(input: DeleteBranchInput): Promise<ReplaceBranchResult> {
