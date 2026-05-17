@@ -8,6 +8,7 @@ VELO_DEPLOY_KEY="${VELO_DEPLOY_KEY:?Set VELO_DEPLOY_KEY}"
 VELO_DEPLOY_DIR="${VELO_DEPLOY_DIR:-/opt/velo}"
 VELO_E2E_SOURCE_DIR="${VELO_E2E_SOURCE_DIR:-}"
 VELO_PORT="${VELO_PORT:-3000}"
+VELO_PROXY_E2E_IDLE_SECONDS="${VELO_PROXY_E2E_IDLE_SECONDS:-3}"
 VELO_SSH_KNOWN_HOSTS_FILE="${VELO_SSH_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}"
 
 SSH_ARGS=(
@@ -91,6 +92,7 @@ set -e
 cd $(shell_quote "$VELO_DEPLOY_DIR")
 VELO_DB=$(shell_quote "$VELO_DEPLOY_DIR/.velo/velo.sqlite") \\
 VELO_PORT=$(shell_quote "$VELO_PORT") \\
+VELO_PROXY_E2E_IDLE_SECONDS=$(shell_quote "$VELO_PROXY_E2E_IDLE_SECONDS") \\
 VELO_E2E_RUN_ID=$(shell_quote "${VELO_CI_RUN_ID:-$(date +%s)}") \\
 /root/.bun/bin/bun scripts/e2e/hetzner-suite.ts
 "

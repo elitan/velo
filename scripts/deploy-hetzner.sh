@@ -8,6 +8,7 @@ VELO_DEPLOY_KEY="${VELO_DEPLOY_KEY:-${VELO_TEST_KEY:-$HOME/.ssh/frost-e2e-ci}}"
 VELO_REPO="${VELO_REPO:-https://github.com/elitan/velo.git}"
 VELO_REF="${VELO_REF:-$(git rev-parse HEAD)}"
 VELO_PORT="${VELO_PORT:-3000}"
+VELO_PROXY_IDLE_SECONDS="${VELO_PROXY_IDLE_SECONDS:-300}"
 VELO_DEPLOY_DIR="${VELO_DEPLOY_DIR:-${VELO_DEV_DIR:-/opt/velo}}"
 VELO_REMOTE_KEY_PATH="${VELO_REMOTE_KEY_PATH:-/root/.ssh/frost-e2e-ci}"
 VELO_SSH_KNOWN_HOSTS_FILE="${VELO_SSH_KNOWN_HOSTS_FILE:-$HOME/.ssh/known_hosts}"
@@ -164,7 +165,7 @@ Type=simple
 WorkingDirectory=$VELO_DEPLOY_DIR
 Environment=VELO_INTERNAL_API_URL=http://127.0.0.1:$VELO_PORT/internal
 Environment=VELO_PROXY_BIND=127.0.0.1
-Environment=VELO_PROXY_IDLE_SECONDS=300
+Environment=VELO_PROXY_IDLE_SECONDS=$VELO_PROXY_IDLE_SECONDS
 EnvironmentFile=/etc/velo.env
 ExecStart=/usr/local/bin/velo-proxy
 Restart=always
