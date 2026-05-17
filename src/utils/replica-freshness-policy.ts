@@ -5,6 +5,7 @@ export type ReplicaBranchCreateStatus = 'allow' | 'warn' | 'block';
 
 export interface ReplicaBranchFreshness {
   lagMs: number | null;
+  byteLag?: number | null;
 }
 
 export interface ReplicaBranchCreatePolicy {
@@ -16,6 +17,11 @@ export function getReplicaBranchCreatePolicy(
   freshness: ReplicaBranchFreshness | null | undefined
 ): ReplicaBranchCreatePolicy {
   const lagMs = freshness?.lagMs ?? null;
+  const byteLag = freshness?.byteLag ?? null;
+
+  if (byteLag === 0) {
+    return { status: 'allow', lagMs };
+  }
 
   if (lagMs === null || lagMs < REPLICA_BRANCH_WARN_MS) {
     return { status: 'allow', lagMs };
