@@ -74,6 +74,7 @@ VELO_PUBLIC_URL="${VELO_PUBLIC_URL:-http://$DEV_HOST:$VELO_PORT}"
 REMOTE_KEY_PATH="${REMOTE_KEY_PATH:-/root/.ssh/velo-prod}"
 APP_PASSWORD="${APP_PASSWORD:-$(openssl rand -base64 24)}"
 BACKUP_MODE="${BACKUP_MODE:-local}"
+PROD_ALLOWED_CIDR="${PROD_ALLOWED_CIDR:-$DEV_HOST/32}"
 ```
 
 For S3 backups, also set:
@@ -348,7 +349,77 @@ systemctl restart velo-web
 "
 ```
 
-## 11. Verify
+## 11. Lock Down Prod Network
+
+Velo supports prod over the public internet without a VPN. The safe default is:
+
+- Postgres SSL on
+- only `hostssl` entries in `pg_hba.conf`
+- prod firewall allows `5432/tcp` only from dev/control
+- Velo connects with `sslmode=require`
+
+This encrypts traffic. It does not fully prove server identity yet. For that, Velo should later generate a private CA, install a SAN server cert on prod, copy the CA cert to dev/control, and use `sslmode=verify-full`.
+
+Create a local self-signed Postgres server cert on prod:
+
+```bash
+ssh -i "$SSH_KEY" "$SSH_USER@$PROD_HOST" "
+set -euo pipefail
+PGDATA=\$(sudo -u postgres psql -tAc \"show data_directory\" | xargs)
+install -d -o postgres -g postgres -m 700 /etc/postgresql/velo-ssl
+openssl req -new -x509 -days 3650 -nodes \
+  -subj \"/CN=$PROD_HOST\" \
+  -out /etc/postgresql/velo-ssl/server.crt \
+  -keyout /etc/postgresql/velo-ssl/server.key
+chown postgres:postgres /etc/postgresql/velo-ssl/server.crt /etc/postgresql/velo-ssl/server.key
+chmod 600 /etc/postgresql/velo-ssl/server.key
+chmod 644 /etc/postgresql/velo-ssl/server.crt
+sudo -u postgres psql -c \"alter system set ssl = 'on'\"
+sudo -u postgres psql -c \"alter system set ssl_cert_file = '/etc/postgresql/velo-ssl/server.crt'\"
+sudo -u postgres psql -c \"alter system set ssl_key_file = '/etc/postgresql/velo-ssl/server.key'\"
+HBA_FILE=\$(sudo -u postgres psql -tAc \"show hba_file\" | xargs)
+sed -i \"/# velo prod access /d\" \"\$HBA_FILE\"
+echo \"hostssl all postgres $PROD_ALLOWED_CIDR scram-sha-256 # velo prod access $PROD_ALLOWED_CIDR\" >>\"\$HBA_FILE\"
+systemctl restart postgresql
+"
+```
+
+Configure firewall on prod. If another firewall is already managed by the host provider, apply the same rule there instead.
+
+```bash
+ssh -i "$SSH_KEY" "$SSH_USER@$PROD_HOST" "
+set -euo pipefail
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y ufw
+ufw allow OpenSSH
+ufw delete allow 5432/tcp >/dev/null 2>&1 || true
+ufw allow from '$DEV_HOST' to any port 5432 proto tcp
+ufw --force enable
+ufw status verbose
+"
+```
+
+Verify dev/control can connect to prod with SSL and that non-SSL is rejected:
+
+```bash
+ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" "
+set -euo pipefail
+cd '$VELO_DIR'
+PROD_URL=\$(VELO_DB='$VELO_DIR/.velo/velo.sqlite' bun - <<'BUN'
+import { getSetting } from './src/server/services/settings-service.ts';
+console.log(await getSetting('prod.connectionUrl'));
+BUN
+)
+psql \"\$PROD_URL\" -c 'select ssl from pg_stat_ssl where pid = pg_backend_pid();'
+NON_SSL_URL=\$(printf '%s' \"\$PROD_URL\" | sed 's/sslmode=require/sslmode=disable/')
+if psql \"\$NON_SSL_URL\" -c 'select 1'; then
+  echo 'expected non-SSL connection to fail' >&2
+  exit 1
+fi
+"
+```
+
+## 12. Verify
 
 ```bash
 ssh -i "$SSH_KEY" "$SSH_USER@$DEV_HOST" \
@@ -382,6 +453,8 @@ Expected:
 
 - `velo-web` active
 - prod Postgres active
+- prod Postgres accepts SSL from dev/control
+- prod Postgres rejects non-SSL from dev/control
 - pgBackRest stanza `main` works
 - `/healthz?ready=1` returns ok
 - dashboard API returns ok
