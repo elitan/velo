@@ -1,28 +1,18 @@
 import { createORPCClient } from '@orpc/client';
 import { RPCLink } from '@orpc/client/fetch';
-import { OpenAPILink } from '@orpc/openapi-client/fetch';
 import { createTanstackQueryUtils } from '@orpc/tanstack-query';
-import type { ContractRouterClient } from '@orpc/contract';
 import type { RouterClient } from '@orpc/server';
-import { publicApiContract } from '#api/branch-contract';
 import type { AppRouter } from '#api/router';
 
 export type ApiClient = RouterClient<AppRouter>;
-export type PublicApiClient = ContractRouterClient<typeof publicApiContract>;
 export type ControlPlaneState = Awaited<ReturnType<ApiClient['dashboard']['retrieve']>>;
 
 const link = new RPCLink({
   url: getApiUrl,
 });
 
-const openApiLink = new OpenAPILink(publicApiContract, {
-  url: getApiUrl,
-});
-
 export const api: ApiClient = createORPCClient(link);
 export const orpc = createTanstackQueryUtils(api);
-export const publicApi: PublicApiClient = createORPCClient<PublicApiClient>(openApiLink);
-export const publicOrpc = createTanstackQueryUtils(publicApi);
 
 function getApiUrl(): string {
   if (typeof window !== 'undefined') {

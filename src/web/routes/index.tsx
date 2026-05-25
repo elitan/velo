@@ -27,7 +27,7 @@ import {
   AppSidebar,
   BranchTreePanel,
 } from '#web/components/control-plane';
-import { orpc, publicOrpc } from '#web/lib/api-client';
+import { orpc } from '#web/lib/api-client';
 import { getReplicaBranchCreatePolicy, type ReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 export const Route = createFileRoute('/')({
@@ -38,7 +38,7 @@ function HomePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
-  const createBranch = useMutation(publicOrpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
+  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [branchName, setBranchName] = useState('');
   const [parentBranchSlug, setParentBranchSlug] = useState('production');

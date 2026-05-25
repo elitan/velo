@@ -6,7 +6,7 @@ import { onError } from '@orpc/server';
 import { createFileRoute } from '@tanstack/react-router';
 import { appRouter } from '#api/router';
 import { createOrpcContext } from '#api/context';
-import { getAuthState } from '#server/auth';
+import { getRequestAuthState } from '#server/auth';
 import { jobHandlers } from '#server/services/job-handlers';
 import { startJobWorker, type JobWorker } from '#server/services/job-service';
 
@@ -39,12 +39,14 @@ export const Route = createFileRoute('/api/v1/$')({
   },
 });
 
-export async function handleApiRequest(context: { request: Request }) {
-  startDevJobWorker();
+export async function handleApiRequest(context: { request: Request }, options: { startDevJobWorker?: boolean } = {}) {
+  if (options.startDevJobWorker !== false) {
+    startDevJobWorker();
+  }
 
-  const auth = await getAuthState(context.request);
+  const auth = await getRequestAuthState(context.request);
 
-  if (!auth.configured) {
+  if (!auth.passwordConfigured && !auth.bearerAuthenticated) {
     return Response.json({ error: 'Auth setup required.' }, { status: 401 });
   }
 
@@ -100,7 +102,7 @@ async function getOpenApiDocument() {
 let devJobWorker: JobWorker | null = null;
 
 function startDevJobWorker() {
-  if (process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test' || devJobWorker) {
+  if (process.env.NODE_ENV === 'production' || devJobWorker) {
     return;
   }
 

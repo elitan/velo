@@ -13,6 +13,13 @@ export interface AuthState {
   authenticated: boolean;
 }
 
+export interface RequestAuthState {
+  passwordConfigured: boolean;
+  sessionAuthenticated: boolean;
+  bearerAuthenticated: boolean;
+  authenticated: boolean;
+}
+
 interface SessionPayload {
   exp: number;
 }
@@ -22,16 +29,35 @@ export async function getAuthState(request: Request): Promise<AuthState> {
     return { configured: true, authenticated: true };
   }
 
-  const configured = await isAuthConfigured();
-  const bearerAuthenticated = await isBearerAuthenticated(request);
+  const [configured, authenticated] = await Promise.all([
+    isAuthConfigured(),
+    isSessionAuthenticated(request),
+  ]);
 
-  if (!configured) {
-    return { configured: bearerAuthenticated, authenticated: bearerAuthenticated };
+  return { configured, authenticated };
+}
+
+export async function getRequestAuthState(request: Request): Promise<RequestAuthState> {
+  if (isLocalAuthBypass(request)) {
+    return {
+      passwordConfigured: true,
+      sessionAuthenticated: true,
+      bearerAuthenticated: false,
+      authenticated: true,
+    };
   }
 
+  const [passwordConfigured, sessionAuthenticated, bearerAuthenticated] = await Promise.all([
+    isAuthConfigured(),
+    isSessionAuthenticated(request),
+    isBearerAuthenticated(request),
+  ]);
+
   return {
-    configured,
-    authenticated: bearerAuthenticated || await isAuthenticated(request),
+    passwordConfigured,
+    sessionAuthenticated,
+    bearerAuthenticated,
+    authenticated: sessionAuthenticated || bearerAuthenticated,
   };
 }
 
@@ -44,10 +70,10 @@ export async function isAuthenticated(request: Request): Promise<boolean> {
     return true;
   }
 
-  if (await isBearerAuthenticated(request)) {
-    return true;
-  }
+  return isSessionAuthenticated(request);
+}
 
+async function isSessionAuthenticated(request: Request): Promise<boolean> {
   const token = getCookie(request, SESSION_COOKIE);
 
   if (!token) {

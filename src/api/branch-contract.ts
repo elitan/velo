@@ -73,7 +73,3 @@ export const branchesContract = {
       .output(z.object({ branch: branchSchema })),
   },
 };
-
-export const publicApiContract = {
-  branches: branchesContract,
-};

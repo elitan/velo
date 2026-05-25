@@ -422,18 +422,6 @@ describe('control plane database', function controlPlaneDatabase() {
     });
   });
 
-  test('rejects duplicate branch create requests before work starts', async function testDuplicateBranchCreate() {
-    const api = createApiClient();
-
-    await createJob('create-branch', { name: 'dev' });
-    await expect(api.branches.create({ name: 'dev' })).rejects.toThrow('Branch already exists: dev');
-
-    const jobs = await listJobs(10);
-    expect(jobs.filter(function isCreateJob(job) {
-      return job.type === 'create-branch';
-    })).toHaveLength(1);
-  });
-
   test('rejects branch create when slug already exists', async function testExistingBranchCreate() {
     const db = getDb();
     await db
@@ -596,21 +584,21 @@ describe('control plane database', function controlPlaneDatabase() {
 
     const unauthorized = await handleApiRequest({
       request: new Request('http://example.com/api/v1/branches'),
-    });
+    }, { startDevJobWorker: false });
     const authorized = await handleApiRequest({
       request: new Request('http://example.com/api/v1/branches', {
         headers: {
           authorization: `Bearer ${created.token}`,
         },
       }),
-    });
+    }, { startDevJobWorker: false });
     const specResponse = await handleApiRequest({
       request: new Request('http://example.com/api/v1/openapi.json', {
         headers: {
           authorization: `Bearer ${created.token}`,
         },
       }),
-    });
+    }, { startDevJobWorker: false });
     const body = await authorized.json() as {
       branches: Array<{ slug: string; connectionUri: string | null }>;
     };

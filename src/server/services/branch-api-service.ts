@@ -1,4 +1,3 @@
-import { getDb } from '#db/client';
 import { getSetting } from './settings-service';
 import {
   createBranchFromBase,
@@ -8,6 +7,7 @@ import {
   updateBranchExpiry,
 } from './branch-service';
 import { getReplicaFreshness } from './replica-service';
+import { branchSlugExists, findBranchRecord, getBranchRecord, listBranchRecords, type BranchRecord } from './branch-read-service';
 import { getReplicaBranchCreatePolicy, type ReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 import type { branchCreateInput } from '#api/branch-contract';
 import type { z } from 'zod';
@@ -32,7 +32,7 @@ export interface BranchApiRecord {
 export async function listBranchesApi(): Promise<{ branches: BranchApiRecord[] }> {
   const [production, branches] = await Promise.all([
     getProductionBranchApiRecord(),
-    listDevelopmentBranchRows(),
+    listBranchRecords(),
   ]);
 
   return {
@@ -51,7 +51,7 @@ export async function getBranchApi(slug: string): Promise<{ branch: BranchApiRec
   }
 
   return {
-    branch: mapDevelopmentBranchRow(await getDevelopmentBranchRow(normalized)),
+    branch: mapDevelopmentBranchRow(await getBranchRecord(normalized)),
   };
 }
 
@@ -74,7 +74,7 @@ export async function createBranchApi(input: CreateBranchApiInput): Promise<{
     forceReplicaStale: input.forceReplicaStale,
   });
 
-  const branch = mapDevelopmentBranchRow(await getDevelopmentBranchRow(branchSlug));
+  const branch = mapDevelopmentBranchRow(await getBranchRecord(branchSlug));
 
   if (!branch.connectionUri) {
     throw new Error('Branch connection URI is missing');
@@ -96,8 +96,8 @@ export async function deleteBranchApi(slug: string): Promise<{
   };
 }> {
   const normalized = normalizeDevelopmentBranchLookup(slug);
-  const branch = await getDevelopmentBranchRow(normalized);
-  const result = await deleteBranch({ id: branch.rowId });
+  const branch = await getBranchRecord(normalized);
+  const result = await deleteBranch({ id: branch.id });
 
   return {
     deleted: true,
@@ -114,10 +114,10 @@ export async function resetBranchApi(slug: string): Promise<{
   connectionUri: string;
 }> {
   const normalized = normalizeDevelopmentBranchLookup(slug);
-  const branch = await getDevelopmentBranchRow(normalized);
-  await resetBranchFromParent({ id: branch.rowId });
+  const branch = await getBranchRecord(normalized);
+  await resetBranchFromParent({ id: branch.id });
 
-  const updated = mapDevelopmentBranchRow(await getDevelopmentBranchRow(normalized));
+  const updated = mapDevelopmentBranchRow(await getBranchRecord(normalized));
 
   if (!updated.connectionUri) {
     throw new Error('Branch connection URI is missing');
@@ -134,75 +134,32 @@ export async function updateBranchExpiryApi(input: {
   expiresAt: string | null;
 }): Promise<{ branch: BranchApiRecord }> {
   const normalized = normalizeDevelopmentBranchLookup(input.slug);
-  const branch = await getDevelopmentBranchRow(normalized);
+  const branch = await getBranchRecord(normalized);
 
   await updateBranchExpiry({
-    id: branch.rowId,
+    id: branch.id,
     expiresAt: input.expiresAt,
   });
 
   return {
-    branch: mapDevelopmentBranchRow(await getDevelopmentBranchRow(normalized)),
+    branch: mapDevelopmentBranchRow(await getBranchRecord(normalized)),
   };
 }
 
 async function getProductionBranchApiRecord(): Promise<BranchApiRecord> {
+  const connectionUri = await getSetting('prod.connectionUrl');
+
   return {
     id: 'production',
     slug: 'production',
     name: 'production',
     type: 'production',
-    status: await getSetting('prod.connectionUrl') ? 'ready' : 'pending',
+    status: connectionUri ? 'ready' : 'pending',
     parent: null,
     createdAt: null,
     expiresAt: null,
-    connectionUri: await getSetting('prod.connectionUrl'),
+    connectionUri,
   };
-}
-
-async function listDevelopmentBranchRows(): Promise<DevelopmentBranchRow[]> {
-  return getDb()
-    .selectFrom('branches')
-    .leftJoin('branches as parent', 'parent.id', 'branches.parentBranchId')
-    .select([
-      'branches.id as rowId',
-      'branches.slug',
-      'branches.displayName',
-      'branches.status',
-      'branches.connectionUrl',
-      'branches.expiresAt',
-      'branches.createdAt',
-      'parent.slug as parentSlug',
-      'parent.displayName as parentName',
-    ])
-    .where('branches.slug', 'not like', 'preview-%')
-    .orderBy('branches.createdAt', 'desc')
-    .execute();
-}
-
-async function getDevelopmentBranchRow(slug: string): Promise<DevelopmentBranchRow> {
-  const branch = await getDb()
-    .selectFrom('branches')
-    .leftJoin('branches as parent', 'parent.id', 'branches.parentBranchId')
-    .select([
-      'branches.id as rowId',
-      'branches.slug',
-      'branches.displayName',
-      'branches.status',
-      'branches.connectionUrl',
-      'branches.expiresAt',
-      'branches.createdAt',
-      'parent.slug as parentSlug',
-      'parent.displayName as parentName',
-    ])
-    .where('branches.slug', '=', slug)
-    .executeTakeFirst();
-
-  if (!branch) {
-    throw new Error(`Branch not found: ${slug}`);
-  }
-
-  return branch;
 }
 
 async function resolveParentBranchId(parent: string | null | undefined): Promise<number | null> {
@@ -212,11 +169,7 @@ async function resolveParentBranchId(parent: string | null | undefined): Promise
     return null;
   }
 
-  const branch = await getDb()
-    .selectFrom('branches')
-    .select(['id'])
-    .where('slug', '=', normalized)
-    .executeTakeFirst();
+  const branch = await findBranchRecord(normalized);
 
   if (!branch) {
     throw new Error(`Parent branch not found: ${normalized}`);
@@ -226,28 +179,7 @@ async function resolveParentBranchId(parent: string | null | undefined): Promise
 }
 
 async function assertBranchSlugAvailable(branchSlug: string): Promise<void> {
-  const existingBranch = await getDb()
-    .selectFrom('branches')
-    .select('id')
-    .where('slug', '=', branchSlug)
-    .executeTakeFirst();
-
-  if (existingBranch) {
-    throwDuplicateBranch(branchSlug);
-  }
-
-  const activeCreateJobs = await getDb()
-    .selectFrom('jobs')
-    .select(['inputJson'])
-    .where('type', '=', 'create-branch')
-    .where('status', 'in', ['queued', 'running'])
-    .execute();
-
-  const hasActiveCreate = activeCreateJobs.some(function hasMatchingCreateJob(job) {
-    return getCreateBranchSlug(job.inputJson) === branchSlug;
-  });
-
-  if (hasActiveCreate) {
+  if (await branchSlugExists(branchSlug)) {
     throwDuplicateBranch(branchSlug);
   }
 }
@@ -266,7 +198,7 @@ async function assertReplicaCreateAllowed(parentBranchId: number | null, forced:
   return policy;
 }
 
-function mapDevelopmentBranchRow(row: DevelopmentBranchRow): BranchApiRecord {
+function mapDevelopmentBranchRow(row: BranchRecord): BranchApiRecord {
   return {
     id: row.slug,
     slug: row.slug,
@@ -303,24 +235,6 @@ function normalizeDevelopmentBranchLookup(slug: string): string {
   return normalized;
 }
 
-function getCreateBranchSlug(inputJson: string | null): string | null {
-  if (!inputJson) {
-    return null;
-  }
-
-  try {
-    const input = JSON.parse(inputJson) as { name?: unknown };
-
-    if (typeof input.name !== 'string') {
-      return null;
-    }
-
-    return normalizeBranchSlug(input.name);
-  } catch {
-    return null;
-  }
-}
-
 function formatReplicaWarning(policy: ReplicaBranchCreatePolicy): string {
   return `Dev replica is ${formatDuration(policy.lagMs ?? 0)} behind production. Branch may start stale.`;
 }
@@ -353,16 +267,4 @@ function formatDuration(ms: number): string {
 
 function throwDuplicateBranch(branchSlug: string): never {
   throw new Error(`Branch already exists: ${branchSlug}`);
-}
-
-interface DevelopmentBranchRow {
-  rowId: number;
-  slug: string;
-  displayName: string;
-  status: string;
-  connectionUrl: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-  parentSlug: string | null;
-  parentName: string | null;
 }

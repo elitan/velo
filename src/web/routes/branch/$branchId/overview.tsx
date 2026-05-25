@@ -53,7 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#web/components/ui/select';
-import { orpc, publicOrpc, type ControlPlaneState } from '#web/lib/api-client';
+import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   BranchOverviewPanel,
@@ -69,10 +69,10 @@ function BranchOverviewPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
-  const createBranch = useMutation(publicOrpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
-  const deleteBranch = useMutation(publicOrpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
-  const resetBranch = useMutation(publicOrpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
-  const updateExpiry = useMutation(publicOrpc.branches.expiry.update.mutationOptions({ onSuccess: refreshDashboard }));
+  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
+  const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
+  const resetBranch = useMutation(orpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
+  const updateExpiry = useMutation(orpc.branches.expiry.update.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
   const busy = getBusyKey();
   const [createModalOpen, setCreateModalOpen] = useState(false);

@@ -7,10 +7,10 @@ import { getSetting } from '#server/services/settings-service';
 import { runCommand, runSshCommand } from '#server/services/command-service';
 import { createReplicaBase } from '#server/services/replica-service';
 import { runExpiredBranchCleanup } from '#server/services/branch-service';
-import { createApiToken } from '#server/services/api-token-service';
 import { TABLE_ROW_ID_COLUMN } from '#server/services/table-browser-service';
 import { getContainerName, getDatasetName } from '#utils/naming';
 import { isProductionBranchId, isReadOnlySql, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
+import { testHttpBranchApi } from './http-branch-api';
 
 const api = createApiClient();
 const PROJECT_NAME = 'prod';
@@ -35,7 +35,7 @@ async function main() {
     { name: 'dashboard and web smoke', run: testDashboardAndWebSmoke },
     { name: 'replica base', run: testReplicaBase },
     { name: 'branch lifecycle', run: testBranchLifecycle },
-    { name: 'http branch api', run: testHttpBranchApi },
+    { name: 'http branch api', run: runHttpBranchApiTest },
     { name: 'branch proxy scale to zero', run: testBranchProxyScaleToZero },
     { name: 'branch data, sql, table browser, reset', run: testBranchDataSqlTablesAndReset },
     { name: 'branch delete guard and ttl cleanup', run: testBranchDeleteGuardAndTtlCleanup },
@@ -59,6 +59,13 @@ async function runTest(test: TestCase): Promise<void> {
   console.log(`e2e start: ${test.name}`);
   await test.run();
   console.log(`e2e ok: ${test.name} (${Math.round(performance.now() - startedAt)}ms)`);
+}
+
+function trackBranch(slug: string): void {
+  trackedBranches.add(slug);
+}
+function untrackBranch(slug: string): void {
+  trackedBranches.delete(slug);
 }
 
 async function testDashboardAndWebSmoke(): Promise<void> {
@@ -102,30 +109,15 @@ async function testBranchLifecycle(): Promise<void> {
   await assertZfsDatasetMissing(branch.dataset);
 }
 
-async function testHttpBranchApi(): Promise<void> {
-  const { token } = await createApiToken(`e2e ${RUN_ID}`);
-  const branchName = `e2e_http_${RUN_ID}`;
-  const created = await apiFetch<{ branch: { slug: string }; connectionUri: string }>('/branches', token, {
-    method: 'POST',
-    body: JSON.stringify({ name: branchName }),
+async function runHttpBranchApiTest(): Promise<void> {
+  await testHttpBranchApi({
+    runId: RUN_ID,
+    port: PORT,
+    trackBranch: trackBranch,
+    untrackBranch: untrackBranch,
+    assertBranchConnects,
+    assertBranchMissing,
   });
-  trackedBranches.add(created.branch.slug);
-
-  assert(created.branch.slug === branchName, 'HTTP create should return branch slug');
-  assert(created.connectionUri.startsWith('postgresql://'), 'HTTP create should return connection URI');
-  await assertBranchConnects(created.branch.slug);
-
-  const listed = await apiFetch<{ branches: Array<{ slug: string }> }>('/branches', token);
-  assert(listed.branches.some(function hasBranch(branch) {
-    return branch.slug === created.branch.slug;
-  }), 'HTTP list should include created branch');
-
-  const retrieved = await apiFetch<{ branch: { slug: string; connectionUri: string } }>(`/branches/${created.branch.slug}`, token);
-  assert(retrieved.branch.connectionUri === created.connectionUri, 'HTTP retrieve should return connection URI');
-
-  await apiFetch(`/branches/${created.branch.slug}`, token, { method: 'DELETE' });
-  trackedBranches.delete(created.branch.slug);
-  await assertBranchMissing(created.branch.slug);
 }
 
 async function testBranchProxyScaleToZero(): Promise<void> {
@@ -714,23 +706,6 @@ async function appHead(path: string): Promise<void> {
   ].join('\n');
 
   await assertCommandOk(await runCommand(['sh', '-lc', command], 30000), `HEAD ${path}`);
-}
-
-async function apiFetch<T = unknown>(path: string, token: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`http://127.0.0.1:${PORT}/api/v1${path}`, {
-    ...init,
-    headers: {
-      'authorization': `Bearer ${token}`,
-      'content-type': 'application/json',
-      ...init.headers,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${path}: ${await response.text()}`);
-  }
-
-  return response.json() as Promise<T>;
 }
 
 async function assertProxyServiceActive(): Promise<void> {
