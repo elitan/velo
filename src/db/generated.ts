@@ -9,6 +9,17 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
+export interface ApiTokens {
+  createdAt: Generated<string>;
+  id: Generated<number | null>;
+  lastUsedAt: string | null;
+  name: string;
+  revokedAt: string | null;
+  tokenHash: string;
+  tokenPrefix: string;
+  updatedAt: Generated<string>;
+}
+
 export interface Branches {
   backendPort: number | null;
   connectionUrl: string | null;
@@ -101,6 +112,7 @@ export interface SetupSteps {
 }
 
 export interface DB {
+  apiTokens: ApiTokens;
   branches: Branches;
   jobLogs: JobLogs;
   jobs: Jobs;

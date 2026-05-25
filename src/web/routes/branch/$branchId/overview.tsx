@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { FormEvent } from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ChevronDown,
   Clock3,
@@ -53,7 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '#web/components/ui/select';
-import { orpc, type ControlPlaneState } from '#web/lib/api-client';
+import { orpc, publicOrpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
   BranchOverviewPanel,
@@ -69,59 +69,17 @@ function BranchOverviewPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
-  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
-  const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
-  const resetBranch = useMutation(orpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
-  const updateExpiry = useMutation(orpc.branches.expiry.update.mutationOptions({ onSuccess: refreshDashboard }));
+  const createBranch = useMutation(publicOrpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
+  const deleteBranch = useMutation(publicOrpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
+  const resetBranch = useMutation(publicOrpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
+  const updateExpiry = useMutation(publicOrpc.branches.expiry.update.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
   const busy = getBusyKey();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [childBranchName, setChildBranchName] = useState('');
-  const [childParentBranchId, setChildParentBranchId] = useState('production');
+  const [childParentBranchSlug, setChildParentBranchSlug] = useState('production');
   const [childTtlHours, setChildTtlHours] = useState('none');
   const [confirmAction, setConfirmAction] = useState<'reset' | 'delete' | null>(null);
-  const [resetJobId, setResetJobId] = useState<number | null>(null);
-  const resetToastId = 'branch-reset';
-  const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
-    return job.status === 'queued' || job.status === 'running';
-  }).length ?? 0;
-
-  useEffect(function pollActiveJobs() {
-    if (activeJobs === 0) {
-      return;
-    }
-
-    const interval = window.setInterval(function refreshActiveJobs() {
-      void dashboard.refetch();
-    }, 2000);
-
-    return function clearPoll() {
-      window.clearInterval(interval);
-    };
-  }, [activeJobs, dashboard]);
-
-  useEffect(function watchResetJob() {
-    if (!dashboard.data || !resetJobId) {
-      return;
-    }
-
-    const job = dashboard.data.jobs.find(function findJob(item) {
-      return item.id === resetJobId;
-    });
-
-    if (!job || job.status === 'queued' || job.status === 'running') {
-      return;
-    }
-
-    if (job.status === 'done') {
-      toast.success('Reset complete.', { id: resetToastId });
-      setResetJobId(null);
-      return;
-    }
-
-    toast.error(job.error || 'Reset failed.', { id: resetToastId });
-    setResetJobId(null);
-  }, [dashboard.data, resetJobId]);
 
   async function refreshDashboard() {
     await queryClient.invalidateQueries({ queryKey: orpc.dashboard.retrieve.key() });
@@ -134,10 +92,6 @@ function BranchOverviewPage() {
   const state = dashboard.data;
 
   const branch = getBranchView(state, params.branchId);
-  const resetJob = resetJobId ? state.jobs.find(function findResetJob(job) {
-    return job.id === resetJobId;
-  }) : null;
-  const resetJobActive = Boolean(resetJob && (resetJob.status === 'queued' || resetJob.status === 'running'));
 
   function getBusyKey(): string | null {
     if (createBranch.isPending) {
@@ -157,7 +111,7 @@ function BranchOverviewPage() {
 
   function openCreateChildModal() {
     setChildBranchName('');
-    setChildParentBranchId(branch.rowId ? String(branch.rowId) : 'production');
+    setChildParentBranchSlug(branch.id !== 'production' ? branch.slug : 'production');
     setChildTtlHours('none');
     setCreateModalOpen(true);
   }
@@ -176,19 +130,17 @@ function BranchOverviewPage() {
     try {
       result = await createBranch.mutateAsync({
         name,
-        parentBranchId: childParentBranchId !== 'production' ? Number(childParentBranchId) : null,
+        parent: childParentBranchSlug,
         ttlHours: childTtlHours !== 'none' ? Number(childTtlHours) : null,
       });
-      toast.info(`Creating branch ${name}.`);
+      toast.success(`Created branch ${result.branch.name}.`);
       setCreateModalOpen(false);
     } catch (error: any) {
       toast.error(error?.message || 'Could not create branch.');
       return;
     }
 
-    if (result.branchSlug) {
-      await navigate({ to: '/branch/$branchId/overview', params: { branchId: result.branchSlug } });
-    }
+    await navigate({ to: '/branch/$branchId/overview', params: { branchId: result.branch.slug } });
   }
 
   async function handleResetFromParent() {
@@ -196,20 +148,12 @@ function BranchOverviewPage() {
       return;
     }
 
-    let job;
-
     try {
-      job = await resetBranch.mutateAsync({ id: branch.rowId! });
+      await resetBranch.mutateAsync({ slug: branch.slug });
+      toast.success(`Reset ${branch.name}.`);
     } catch (error: any) {
       toast.error(error?.message || 'Could not reset branch.');
-      return;
     }
-
-    toast.loading(`Resetting ${branch.name}`, {
-      id: resetToastId,
-      description: `Restoring from ${branch.parentName || 'parent'}...`,
-    });
-    setResetJobId(job.id);
   }
 
   async function handleDelete() {
@@ -218,7 +162,7 @@ function BranchOverviewPage() {
     }
 
     try {
-      await deleteBranch.mutateAsync({ id: branch.rowId! });
+      await deleteBranch.mutateAsync({ slug: branch.slug });
       toast.success(`Deleted ${branch.name}.`);
     } catch (error: any) {
       toast.error(error?.message || 'Could not delete branch.');
@@ -249,7 +193,7 @@ function BranchOverviewPage() {
 
     const expiresAt = value === 'none' ? null : new Date(Date.now() + Number(value) * 60 * 60 * 1000).toISOString();
     try {
-      await updateExpiry.mutateAsync({ id: branch.rowId, expiresAt });
+      await updateExpiry.mutateAsync({ slug: branch.slug, expiresAt });
       toast.success(expiresAt ? `Expiry set for ${branch.name}.` : `Expiry disabled for ${branch.name}.`);
     } catch (error: any) {
       toast.error(error?.message || 'Could not update expiry.');
@@ -312,7 +256,7 @@ function BranchOverviewPage() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-52">
                     <DropdownMenuItem
-                      disabled={branch.id === 'production' || !branch.parentName || busy === 'reset' || resetJobActive}
+                      disabled={branch.id === 'production' || !branch.parentName || busy === 'reset'}
                       onSelect={function selectReset() {
                         setConfirmAction('reset');
                       }}
@@ -394,7 +338,7 @@ function BranchOverviewPage() {
 
             <div className="mt-5 grid gap-2">
               <Label>Parent branch</Label>
-              <Select value={childParentBranchId} onValueChange={setChildParentBranchId}>
+              <Select value={childParentBranchSlug} onValueChange={setChildParentBranchSlug}>
                 <SelectTrigger className="h-9 w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -402,7 +346,7 @@ function BranchOverviewPage() {
                   <SelectItem value="production">production</SelectItem>
                   {state.branches.map(function renderParentOption(item) {
                     return (
-                      <SelectItem key={item.id} value={String(item.id)}>
+                      <SelectItem key={item.id} value={item.slug}>
                         {item.displayName}
                       </SelectItem>
                     );
@@ -551,9 +495,6 @@ function getBranchView(state: ControlPlaneState, branchId: string) {
   const branch = state.branches.find(function findBranch(item) {
     return item.slug === branchId;
   });
-  const hasActiveCreateJob = state.jobs.some(function findActiveCreateJob(job) {
-    return job.type === 'create-branch' && (job.status === 'queued' || job.status === 'running');
-  });
 
   return {
     id: branch?.slug || branchId,
@@ -564,7 +505,7 @@ function getBranchView(state: ControlPlaneState, branchId: string) {
     parentName: branch?.parentName || 'production',
     parentSlug: branch?.parentSlug || 'production',
     badge: 'Development',
-    status: branch?.status || (hasActiveCreateJob ? 'pending' : 'missing'),
+    status: branch?.status || 'missing',
     connectionUrl: branch?.connectionUrl || null,
     expiresAt: branch?.expiresAt || null,
   };

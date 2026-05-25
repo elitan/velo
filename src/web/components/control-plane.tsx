@@ -913,7 +913,7 @@ export function JobsPanel(props: JobsPanelProps) {
           {props.loading ? (
             <EmptyState icon={Loader2} title="Loading jobs" detail="Fetching latest job history." compact />
           ) : props.jobs.length === 0 ? (
-            <EmptyState icon={Clock3} title="No jobs yet" detail="Branch and maintenance actions will appear here." compact />
+            <EmptyState icon={Clock3} title="No jobs yet" detail="Maintenance actions will appear here." compact />
           ) : (
             <div className="grid gap-3">
               {props.jobs.map(function renderJob(job) {

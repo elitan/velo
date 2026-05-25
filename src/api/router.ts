@@ -1,4 +1,5 @@
 import { createRouterClient } from '@orpc/server';
+import { apiTokensRouter } from './api-tokens';
 import { backupRouter } from './backup';
 import { branchesRouter } from './branches';
 import { createOrpcContext } from './context';
@@ -9,6 +10,7 @@ import { tablesRouter } from './tables';
 import { updatesRouter } from './updates';
 
 export const appRouter = {
+  apiTokens: apiTokensRouter,
   dashboard: dashboardRouter,
   jobs: jobsRouter,
   servers: serversRouter,

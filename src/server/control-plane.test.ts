@@ -7,6 +7,7 @@ import { sql } from 'kysely';
 import { createApiClient } from '../api/router';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
+import { handleApiRequest } from '../web/routes/api/v1/$';
 import {
   cancelJobById,
   createAuditJob,
@@ -18,10 +19,12 @@ import {
   startJobWorker,
   type JobHandlers,
 } from './services/job-service';
-import { parseCreateBranchJobInput } from './services/job-handlers';
 import { createBranchFromBase, listProxyBranches, replaceBranchWithReadyBranch, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
+import { getBranchApi, listBranchesApi } from './services/branch-api-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
+import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken } from './services/api-token-service';
+import { setPassword } from './auth';
 import { getControlPlaneState, invalidateDevReplicaBase, saveServer, setStepStatus } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
 import { buildReplicaBaseHealth, buildReplicaFreshness, withPausedReplicaReplay } from './services/replica-service';
@@ -419,10 +422,10 @@ describe('control plane database', function controlPlaneDatabase() {
     });
   });
 
-  test('rejects duplicate branch create requests before enqueue', async function testDuplicateBranchCreate() {
+  test('rejects duplicate branch create requests before work starts', async function testDuplicateBranchCreate() {
     const api = createApiClient();
 
-    await api.branches.create({ name: 'dev' });
+    await createJob('create-branch', { name: 'dev' });
     await expect(api.branches.create({ name: 'dev' })).rejects.toThrow('Branch already exists: dev');
 
     const jobs = await listJobs(10);
@@ -536,25 +539,91 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(cleanupJob).toBeUndefined();
   });
 
-  test('preserves branch ttl through queued create job input', async function testCreateBranchJobTtl() {
-    const api = createApiClient();
-    await api.branches.create({
-      name: 'ttl-branch',
-      parentBranchId: null,
-      ttlHours: 1,
+  test('lists production and development branches for the branch API', async function testBranchApiList() {
+    const projectId = await createProject();
+    await setSetting('prod.connectionUrl', 'postgresql://postgres:prod@example.com:5432/postgres');
+    await createBranchRecord({
+      projectId,
+      slug: 'dev',
+      displayName: 'dev',
+      dataset: 'prod.dev',
+      port: 41001,
+      connectionUrl: 'postgresql://postgres:dev@example.com:41001/postgres',
     });
 
-    const jobs = await listJobs(10);
-    const job = jobs.find(function isCreateBranchJob(record) {
-      return record.type === 'create-branch';
-    });
-    const parsed = parseCreateBranchJobInput(job?.input);
+    const list = await listBranchesApi();
+    const retrieved = await getBranchApi('dev');
 
-    expect(parsed).toEqual({
-      name: 'ttl-branch',
-      parentBranchId: null,
-      ttlHours: 1,
+    expect(list.branches.map(function mapBranch(branch) {
+      return branch.slug;
+    })).toEqual(['production', 'dev']);
+    expect(list.branches[0]?.connectionUri).toBe('postgresql://postgres:prod@example.com:5432/postgres');
+    expect(retrieved.branch).toMatchObject({
+      slug: 'dev',
+      name: 'dev',
+      type: 'development',
+      connectionUri: 'postgresql://postgres:dev@example.com:41001/postgres',
     });
+  });
+
+  test('creates, verifies, and revokes API keys', async function testApiTokens() {
+    const created = await createApiToken('ci');
+
+    expect(created.token.startsWith('velo_')).toBe(true);
+    expect(JSON.stringify(await listApiTokens())).not.toContain(created.token);
+    expect(await verifyApiToken(created.token)).toBe(true);
+
+    const used = await listApiTokens();
+    expect(used[0]?.lastUsedAt).toBeTruthy();
+
+    await revokeApiToken(created.apiToken.id);
+    expect(await verifyApiToken(created.token)).toBe(false);
+  });
+
+  test('serves OpenAPI branch routes with bearer auth', async function testOpenApiBranchBearerAuth() {
+    await setPassword('password123');
+    const created = await createApiToken('ci');
+    const projectId = await createProject();
+    await setSetting('prod.connectionUrl', 'postgresql://postgres:prod@example.com:5432/postgres');
+    await createBranchRecord({
+      projectId,
+      slug: 'dev',
+      displayName: 'dev',
+      dataset: 'prod.dev',
+      port: 41001,
+      connectionUrl: 'postgresql://postgres:dev@example.com:41001/postgres',
+    });
+
+    const unauthorized = await handleApiRequest({
+      request: new Request('http://example.com/api/v1/branches'),
+    });
+    const authorized = await handleApiRequest({
+      request: new Request('http://example.com/api/v1/branches', {
+        headers: {
+          authorization: `Bearer ${created.token}`,
+        },
+      }),
+    });
+    const specResponse = await handleApiRequest({
+      request: new Request('http://example.com/api/v1/openapi.json', {
+        headers: {
+          authorization: `Bearer ${created.token}`,
+        },
+      }),
+    });
+    const body = await authorized.json() as {
+      branches: Array<{ slug: string; connectionUri: string | null }>;
+    };
+    const spec = await specResponse.json() as { paths: Record<string, unknown> };
+
+    expect(unauthorized.status).toBe(401);
+    expect(authorized.status).toBe(200);
+    expect(specResponse.status).toBe(200);
+    expect(body.branches.map(function mapBranch(branch) {
+      return branch.slug;
+    })).toEqual(['production', 'dev']);
+    expect(body.branches[1]?.connectionUri).toBe('postgresql://postgres:dev@example.com:41001/postgres');
+    expect(spec.paths['/branches']).toBeTruthy();
   });
 
   test('promotes ready replacement without changing branch identity', async function testPromoteReadyReplacement() {

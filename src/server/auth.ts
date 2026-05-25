@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getSetting, setSetting } from './services/settings-service';
+import { verifyApiToken } from './services/api-token-service';
 
 const PASSWORD_HASH_KEY = 'auth.passwordHash';
 const SESSION_SECRET_KEY = 'auth.sessionSecret';
@@ -22,14 +23,15 @@ export async function getAuthState(request: Request): Promise<AuthState> {
   }
 
   const configured = await isAuthConfigured();
+  const bearerAuthenticated = await isBearerAuthenticated(request);
 
   if (!configured) {
-    return { configured, authenticated: false };
+    return { configured: bearerAuthenticated, authenticated: bearerAuthenticated };
   }
 
   return {
     configured,
-    authenticated: await isAuthenticated(request),
+    authenticated: bearerAuthenticated || await isAuthenticated(request),
   };
 }
 
@@ -39,6 +41,10 @@ export async function isAuthConfigured(): Promise<boolean> {
 
 export async function isAuthenticated(request: Request): Promise<boolean> {
   if (isLocalAuthBypass(request)) {
+    return true;
+  }
+
+  if (await isBearerAuthenticated(request)) {
     return true;
   }
 
@@ -55,6 +61,16 @@ export async function isAuthenticated(request: Request): Promise<boolean> {
   }
 
   return verifySessionToken(token, secret);
+}
+
+async function isBearerAuthenticated(request: Request): Promise<boolean> {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return false;
+  }
+
+  return verifyApiToken(token);
 }
 
 export async function setupPassword(password: string): Promise<string> {
@@ -229,6 +245,17 @@ function getCookie(request: Request, name: string): string | null {
   }
 
   return null;
+}
+
+function getBearerToken(request: Request): string | null {
+  const authorization = request.headers.get('authorization') || '';
+  const [scheme, token] = authorization.split(/\s+/, 2);
+
+  if (scheme?.toLowerCase() !== 'bearer' || !token) {
+    return null;
+  }
+
+  return token;
 }
 
 interface CookieOptions {

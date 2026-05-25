@@ -27,7 +27,7 @@ import {
   AppSidebar,
   BranchTreePanel,
 } from '#web/components/control-plane';
-import { orpc } from '#web/lib/api-client';
+import { orpc, publicOrpc } from '#web/lib/api-client';
 import { getReplicaBranchCreatePolicy, type ReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 export const Route = createFileRoute('/')({
@@ -38,10 +38,10 @@ function HomePage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const dashboard = useQuery(orpc.dashboard.retrieve.queryOptions());
-  const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
+  const createBranch = useMutation(publicOrpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [branchName, setBranchName] = useState('');
-  const [parentBranchId, setParentBranchId] = useState('production');
+  const [parentBranchSlug, setParentBranchSlug] = useState('production');
   const [ttlHours, setTtlHours] = useState('none');
   const [forceReplicaStale, setForceReplicaStale] = useState(false);
   const activeJobs = dashboard.data?.jobs.filter(function isActive(job) {
@@ -74,7 +74,7 @@ function HomePage() {
 
   function openCreateModal() {
     setBranchName('');
-    setParentBranchId('production');
+    setParentBranchSlug('production');
     setTtlHours('none');
     setForceReplicaStale(false);
     void dashboard.refetch();
@@ -95,14 +95,14 @@ function HomePage() {
     try {
       result = await createBranch.mutateAsync({
         name,
-        parentBranchId: parentBranchId !== 'production' ? Number(parentBranchId) : null,
+        parent: parentBranchSlug,
         ttlHours: ttlHours !== 'none' ? Number(ttlHours) : null,
         forceReplicaStale,
       });
       if (result.replicaWarning) {
         toast.warning(result.replicaWarning);
       } else {
-        toast.info(`Creating branch ${name}.`);
+        toast.success(`Created branch ${result.branch.name}.`);
       }
       setCreateModalOpen(false);
     } catch (error: any) {
@@ -110,9 +110,7 @@ function HomePage() {
       return;
     }
 
-    if (result.branchSlug) {
-      await navigate({ to: '/branch/$branchId/overview', params: { branchId: result.branchSlug } });
-    }
+    await navigate({ to: '/branch/$branchId/overview', params: { branchId: result.branch.slug } });
   }
 
   return (
@@ -155,9 +153,9 @@ function HomePage() {
             <div className="mt-5 grid gap-2">
               <Label>Parent branch</Label>
               <Select
-                value={parentBranchId}
+                value={parentBranchSlug}
                 onValueChange={function changeParentBranch(value) {
-                  setParentBranchId(value);
+                  setParentBranchSlug(value);
                   setForceReplicaStale(false);
                 }}
               >
@@ -168,14 +166,14 @@ function HomePage() {
                   <SelectItem value="production">production</SelectItem>
                   {state.branches.map(function renderParentOption(branch) {
                     return (
-                      <SelectItem key={branch.id} value={String(branch.id)}>
+                      <SelectItem key={branch.id} value={branch.slug}>
                         {branch.displayName}
                       </SelectItem>
                     );
                   })}
                 </SelectContent>
               </Select>
-              {parentBranchId === 'production' && shouldShowReplicaFreshnessInfo(state.replicaFreshness) ? (
+              {parentBranchSlug === 'production' && shouldShowReplicaFreshnessInfo(state.replicaFreshness) ? (
                 <ReplicaFreshnessNotice
                   policy={getReplicaBranchCreatePolicy(state.replicaFreshness)}
                   forceReplicaStale={forceReplicaStale}
@@ -223,7 +221,7 @@ function HomePage() {
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={createBranch.isPending || !branchName.trim() || isBlockedReplicaCreate(state.replicaFreshness, parentBranchId, forceReplicaStale)}>
+              <Button type="submit" disabled={createBranch.isPending || !branchName.trim() || isBlockedReplicaCreate(state.replicaFreshness, parentBranchSlug, forceReplicaStale)}>
                 {createBranch.isPending ? <Loader2 className="animate-spin" /> : <GitBranch />}
                 Create
               </Button>
@@ -302,10 +300,10 @@ function formatReplicaPolicyMessage(policy: ReplicaBranchCreatePolicy): string {
 
 function isBlockedReplicaCreate(
   freshness: Readonly<{ lagMs: number | null }> | null | undefined,
-  parentBranchId: string,
+  parentBranchSlug: string,
   forceReplicaStale: boolean
 ): boolean {
-  if (parentBranchId !== 'production') {
+  if (parentBranchSlug !== 'production') {
     return false;
   }
 
