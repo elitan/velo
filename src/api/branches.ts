@@ -16,7 +16,7 @@ import {
 } from '#server/services/branch-api-service';
 
 const branchIdInput = z.object({
-  id: z.number().int().positive(),
+  id: z.coerce.number().int().positive(),
 });
 
 const previewBranchInput = z.object({
@@ -82,11 +82,13 @@ export const branchesRouter = {
   },
   preview: {
     create: publicProcedure
+      .route({ method: 'POST', path: '/branches/{sourceBranch}/previews', successStatus: 201, summary: 'Create preview branch' })
       .input(previewBranchInput)
       .handler(async function createBranchPreview({ input }) {
         return createPreviewBranch(input);
       }),
     delete: publicProcedure
+      .route({ method: 'DELETE', path: '/branch-previews/{id}', summary: 'Delete preview branch' })
       .input(branchIdInput)
       .handler(async function deleteBranchPreview({ input }) {
         try {
@@ -98,6 +100,7 @@ export const branchesRouter = {
   },
   sql: {
     run: publicProcedure
+      .route({ method: 'POST', path: '/branches/{branchId}/sql', summary: 'Run branch SQL' })
       .input(runSqlInput)
       .handler(async function runSql({ input }) {
         try {
@@ -108,6 +111,7 @@ export const branchesRouter = {
       }),
   },
   restore: publicProcedure
+    .route({ method: 'POST', path: '/branches/{targetBranch}/restore', summary: 'Restore branch' })
     .input(restoreBranchInput)
     .handler(async function restoreBranch({ input }) {
       assertProductionRestoreConfirmed(input.targetBranch, input.productionRestoreConfirmation);

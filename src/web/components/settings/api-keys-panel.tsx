@@ -22,15 +22,15 @@ import { orpc } from '#web/lib/api-client';
 
 export function ApiKeysPanel() {
   const queryClient = useQueryClient();
-  const apiTokens = useQuery(orpc.apiTokens.list.queryOptions());
-  const createToken = useMutation(orpc.apiTokens.create.mutationOptions({ onSuccess: refreshApiTokens }));
-  const revokeToken = useMutation(orpc.apiTokens.revoke.mutationOptions({ onSuccess: refreshApiTokens }));
+  const apiKeys = useQuery(orpc.apiKeys.list.queryOptions());
+  const createToken = useMutation(orpc.apiKeys.create.mutationOptions({ onSuccess: refreshApiTokens }));
+  const revokeToken = useMutation(orpc.apiKeys.revoke.mutationOptions({ onSuccess: refreshApiTokens }));
   const [name, setName] = useState('');
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const [revokeId, setRevokeId] = useState<number | null>(null);
 
   async function refreshApiTokens() {
-    await queryClient.invalidateQueries({ queryKey: orpc.apiTokens.list.key() });
+    await queryClient.invalidateQueries({ queryKey: orpc.apiKeys.list.key() });
   }
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
@@ -71,7 +71,7 @@ export function ApiKeysPanel() {
     }
   }
 
-  const tokens = apiTokens.data || [];
+  const tokens = apiKeys.data || [];
 
   return (
     <Card>
@@ -111,7 +111,7 @@ export function ApiKeysPanel() {
         ) : null}
 
         <div className="grid gap-2">
-          {apiTokens.isLoading ? (
+          {apiKeys.isLoading ? (
             <div className="flex items-center gap-2 rounded-md border border-border p-3 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
               Loading API keys

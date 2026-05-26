@@ -10,16 +10,20 @@ export interface HttpBranchApiTestOptions {
 }
 
 export async function testHttpBranchApi(options: HttpBranchApiTestOptions): Promise<void> {
-  const { token } = await createApiToken(`e2e ${options.runId}`);
+  const { apiToken, token } = await createApiToken(`e2e ${options.runId}`);
+  const keys = await apiFetch<Array<{ id: number }>>(options, '/api-keys', token);
   const branchName = `e2e_http_${options.runId}`;
-  const created = await apiFetch<{ branch: { slug: string }; connectionUri: string }>(options, '/branches', token, {
+  const created = await apiFetch<{ branch: { slug: string }; connectionString: string }>(options, '/branches', token, {
     method: 'POST',
     body: JSON.stringify({ name: branchName }),
   });
   options.trackBranch(created.branch.slug);
 
+  assert(keys.some(function hasCreatedKey(key) {
+    return key.id === apiToken.id;
+  }), 'HTTP API keys list should include created key');
   assert(created.branch.slug === branchName, 'HTTP create should return branch slug');
-  assert(created.connectionUri.startsWith('postgresql://'), 'HTTP create should return connection URI');
+  assert(created.connectionString.startsWith('postgresql://'), 'HTTP create should return connection string');
   await options.assertBranchConnects(created.branch.slug);
 
   const listed = await apiFetch<{ branches: Array<{ slug: string }> }>(options, '/branches', token);
@@ -27,8 +31,8 @@ export async function testHttpBranchApi(options: HttpBranchApiTestOptions): Prom
     return branch.slug === created.branch.slug;
   }), 'HTTP list should include created branch');
 
-  const retrieved = await apiFetch<{ branch: { slug: string; connectionUri: string } }>(options, `/branches/${created.branch.slug}`, token);
-  assert(retrieved.branch.connectionUri === created.connectionUri, 'HTTP retrieve should return connection URI');
+  const retrieved = await apiFetch<{ branch: { slug: string; connectionString: string } }>(options, `/branches/${created.branch.slug}`, token);
+  assert(retrieved.branch.connectionString === created.connectionString, 'HTTP retrieve should return connection string');
 
   await apiFetch(options, `/branches/${created.branch.slug}`, token, { method: 'DELETE' });
   options.untrackBranch(created.branch.slug);

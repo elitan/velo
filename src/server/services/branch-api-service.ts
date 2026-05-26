@@ -26,7 +26,7 @@ export interface BranchApiRecord {
   } | null;
   createdAt: string | null;
   expiresAt: string | null;
-  connectionUri: string | null;
+  connectionString: string | null;
 }
 
 export async function listBranchesApi(): Promise<{ branches: BranchApiRecord[] }> {
@@ -57,7 +57,7 @@ export async function getBranchApi(slug: string): Promise<{ branch: BranchApiRec
 
 export async function createBranchApi(input: CreateBranchApiInput): Promise<{
   branch: BranchApiRecord;
-  connectionUri: string;
+  connectionString: string;
   replicaWarning: string | null;
 }> {
   const branchSlug = normalizeBranchSlug(input.name);
@@ -76,13 +76,13 @@ export async function createBranchApi(input: CreateBranchApiInput): Promise<{
 
   const branch = mapDevelopmentBranchRow(await getBranchRecord(branchSlug));
 
-  if (!branch.connectionUri) {
-    throw new Error('Branch connection URI is missing');
+  if (!branch.connectionString) {
+    throw new Error('Branch connection string is missing');
   }
 
   return {
     branch,
-    connectionUri: branch.connectionUri,
+    connectionString: branch.connectionString,
     replicaWarning: replicaPolicy.status === 'warn' ? formatReplicaWarning(replicaPolicy) : null,
   };
 }
@@ -111,7 +111,7 @@ export async function deleteBranchApi(slug: string): Promise<{
 
 export async function resetBranchApi(slug: string): Promise<{
   branch: BranchApiRecord;
-  connectionUri: string;
+  connectionString: string;
 }> {
   const normalized = normalizeDevelopmentBranchLookup(slug);
   const branch = await getBranchRecord(normalized);
@@ -119,13 +119,13 @@ export async function resetBranchApi(slug: string): Promise<{
 
   const updated = mapDevelopmentBranchRow(await getBranchRecord(normalized));
 
-  if (!updated.connectionUri) {
-    throw new Error('Branch connection URI is missing');
+  if (!updated.connectionString) {
+    throw new Error('Branch connection string is missing');
   }
 
   return {
     branch: updated,
-    connectionUri: updated.connectionUri,
+    connectionString: updated.connectionString,
   };
 }
 
@@ -147,18 +147,18 @@ export async function updateBranchExpiryApi(input: {
 }
 
 async function getProductionBranchApiRecord(): Promise<BranchApiRecord> {
-  const connectionUri = await getSetting('prod.connectionUrl');
+  const connectionString = await getSetting('prod.connectionUrl');
 
   return {
     id: 'production',
     slug: 'production',
     name: 'production',
     type: 'production',
-    status: connectionUri ? 'ready' : 'pending',
+    status: connectionString ? 'ready' : 'pending',
     parent: null,
     createdAt: null,
     expiresAt: null,
-    connectionUri,
+    connectionString,
   };
 }
 
@@ -211,7 +211,7 @@ function mapDevelopmentBranchRow(row: BranchRecord): BranchApiRecord {
     },
     createdAt: row.createdAt,
     expiresAt: row.expiresAt,
-    connectionUri: row.connectionUrl,
+    connectionString: row.connectionUrl,
   };
 }
 

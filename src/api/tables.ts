@@ -21,7 +21,7 @@ const tableRowsInput = z.object({
   database: z.string().min(1),
   schema: z.string().min(1),
   table: z.string().min(1),
-  offset: z.number().int().min(0).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
 });
 
 const tableRowValues = z.record(z.string(), z.string().nullable());
@@ -46,16 +46,19 @@ const tableDeleteInput = tableRowsInput.extend({
 
 export const tablesRouter = {
   browse: publicProcedure
+    .route({ method: 'GET', path: '/branches/{branchId}/tables', summary: 'Browse branch tables' })
     .input(tableBrowserInput)
     .handler(async function browseTables({ input }) {
       return getTableBrowserMetadata(input);
     }),
   rows: publicProcedure
+    .route({ method: 'GET', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows', summary: 'List table rows' })
     .input(tableRowsInput)
     .handler(async function browseRows({ input }) {
       return getTableRows(input);
     }),
   insert: publicProcedure
+    .route({ method: 'POST', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows', successStatus: 201, summary: 'Insert table row' })
     .input(tableInsertInput)
     .handler(async function insertRow({ input }) {
       try {
@@ -65,6 +68,7 @@ export const tablesRouter = {
       }
     }),
   update: publicProcedure
+    .route({ method: 'PATCH', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}', summary: 'Update table row' })
     .input(tableUpdateInput)
     .handler(async function updateRow({ input }) {
       try {
@@ -74,6 +78,7 @@ export const tablesRouter = {
       }
     }),
   delete: publicProcedure
+    .route({ method: 'DELETE', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}', summary: 'Delete table row' })
     .input(tableDeleteInput)
     .handler(async function deleteRow({ input }) {
       try {
