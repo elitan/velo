@@ -26,13 +26,13 @@ function ApiReferencePage() {
   useEffect(function loadApiReference() {
     let active = true;
 
-    void Promise.all([import('@scalar/api-reference-react'), import('@scalar/api-reference-react/style.css')]).then(function setLoadedApiReference([module]) {
+    void loadApiReferenceComponent().then(function setLoadedApiReference(Component) {
       if (!active) {
         return;
       }
 
       setApiReference(function storeApiReference() {
-        return module.ApiReferenceReact;
+        return Component;
       });
     });
 
@@ -46,6 +46,15 @@ function ApiReferencePage() {
   }
 
   return <ApiReference configuration={API_REFERENCE_CONFIG} />;
+}
+
+async function loadApiReferenceComponent(): Promise<ApiReferenceComponent> {
+  const [module] = await Promise.all([
+    import('@scalar/api-reference-react'),
+    import('@scalar/api-reference-react/style.css'),
+  ]);
+
+  return module.ApiReferenceReact;
 }
 
 function ApiReferenceLoading() {

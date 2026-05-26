@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { OPEN_API_TAGS } from '../api/openapi-tags';
+import { OPEN_API_TAG_DEFINITIONS, OPEN_API_TAGS } from '../api/openapi-tags';
 import { handleApiRequest } from '../web/routes/api/v1/$';
 import { setPassword } from './auth';
 import { createApiToken } from './services/api-token-service';
@@ -47,17 +47,9 @@ const EXPECTED_REST_PATHS = [
   '/updates/result',
 ];
 
-const EXPECTED_OPEN_API_TAGS = [
-  OPEN_API_TAGS.branches,
-  OPEN_API_TAGS.recovery,
-  OPEN_API_TAGS.data,
-  OPEN_API_TAGS.apiKeys,
-  OPEN_API_TAGS.dashboard,
-  OPEN_API_TAGS.jobs,
-  OPEN_API_TAGS.servers,
-  OPEN_API_TAGS.backup,
-  OPEN_API_TAGS.updates,
-];
+const EXPECTED_OPEN_API_TAGS = OPEN_API_TAG_DEFINITIONS.map(function mapTagDefinition(tag) {
+  return tag.name;
+});
 
 useTestDatabase('velo-api-routes-');
 
@@ -121,11 +113,7 @@ describe('REST API routes', function restApiRoutes() {
         return Boolean(spec.paths[path]);
       }),
     ).toBe(true);
-    expect(
-      spec.tags?.map(function mapTag(tag) {
-        return tag.name;
-      }),
-    ).toEqual(EXPECTED_OPEN_API_TAGS);
+    expect(getOpenApiTagNames(spec)).toEqual(EXPECTED_OPEN_API_TAGS);
     expect(getUntaggedOperations(spec)).toEqual([]);
     expect(spec.paths['/branches']?.get?.tags).toEqual([OPEN_API_TAGS.branches]);
     expect(spec.paths['/branches/{targetBranch}/restore']?.post?.tags).toEqual([OPEN_API_TAGS.recovery]);
@@ -143,6 +131,12 @@ function apiRequest(path: string, token?: string): Promise<Response> {
     },
     { startDevJobWorker: false },
   );
+}
+
+function getOpenApiTagNames(spec: OpenApiDocument): string[] | undefined {
+  return spec.tags?.map(function mapTag(tag) {
+    return tag.name;
+  });
 }
 
 function getUntaggedOperations(spec: OpenApiDocument): string[] {
