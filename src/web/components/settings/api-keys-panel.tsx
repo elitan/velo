@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
-import { Copy, Loader2, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, Copy, Loader2, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -75,9 +76,17 @@ export function ApiKeysPanel() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>API Keys</CardTitle>
-        <CardDescription>Bearer keys for `/api/v1`</CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <div>
+          <CardTitle>API Keys</CardTitle>
+          <CardDescription>Bearer keys for `/api/v1`</CardDescription>
+        </div>
+        <Button asChild type="button" variant="outline" size="sm">
+          <Link to="/api-reference">
+            <BookOpen />
+            API reference
+          </Link>
+        </Button>
       </CardHeader>
       <CardContent className="grid gap-4">
         <form className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" onSubmit={handleCreate}>

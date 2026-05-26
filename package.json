@@ -95,6 +95,7 @@
     "@orpc/server": "^1.14.0",
     "@orpc/tanstack-query": "^1.14.0",
     "@orpc/zod": "1.14.0",
+    "@scalar/api-reference-react": "0.8.20",
     "@tailwindcss/vite": "^4.2.4",
     "@tanstack/react-query": "^5.100.6",
     "@tanstack/react-router": "^1.169.0",
