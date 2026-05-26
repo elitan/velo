@@ -9,6 +9,17 @@ export interface SettingsTable {
   updatedAt: Timestamp;
 }
 
+export interface ApiTokensTable {
+  id: Generated<number>;
+  name: string;
+  tokenHash: string;
+  tokenPrefix: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 export interface ServersTable {
   id: Generated<number>;
   role: 'prod' | 'dev';
@@ -89,6 +100,7 @@ export interface JobLogsTable {
 }
 
 export interface DB {
+  apiTokens: ApiTokensTable;
   settings: SettingsTable;
   servers: ServersTable;
   setupSteps: SetupStepsTable;
@@ -97,6 +109,10 @@ export interface DB {
   jobs: JobsTable;
   jobLogs: JobLogsTable;
 }
+
+export type ApiToken = Selectable<ApiTokensTable>;
+export type NewApiToken = Insertable<ApiTokensTable>;
+export type ApiTokenUpdate = Updateable<ApiTokensTable>;
 
 export type Setting = Selectable<SettingsTable>;
 export type NewSetting = Insertable<SettingsTable>;

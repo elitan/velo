@@ -1,29 +1,22 @@
 import { z } from 'zod';
-import { ORPCError } from '@orpc/server';
-import { getDb } from '#db/client';
+import { ORPCError, implement } from '@orpc/server';
+import { branchesContract } from './branch-contract';
 import { publicProcedure } from './context';
 import { userFacingError } from './errors';
 import { createJob } from '#server/services/job-service';
-import { createPreviewBranch, normalizeBranchSlug, updateBranchExpiry } from '#server/services/branch-service';
-import { getReplicaFreshness } from '#server/services/replica-service';
+import { createPreviewBranch, deleteBranch } from '#server/services/branch-service';
 import { runBranchSql } from '#server/services/sql-editor-service';
-import { getReplicaBranchCreatePolicy, type ReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
-
-const branchInput = z.object({
-  name: z.string().min(1),
-  parentBranchId: z.number().int().positive().nullable().optional(),
-  ttlHours: z.number().positive().nullable().optional(),
-  expiresAt: z.string().nullable().optional(),
-  forceReplicaStale: z.boolean().optional(),
-});
+import {
+  createBranchApi,
+  deleteBranchApi,
+  getBranchApi,
+  listBranchesApi,
+  resetBranchApi,
+  updateBranchExpiryApi,
+} from '#server/services/branch-api-service';
 
 const branchIdInput = z.object({
   id: z.number().int().positive(),
-});
-
-const branchExpiryInput = z.object({
-  id: z.number().int().positive(),
-  expiresAt: z.string().nullable(),
 });
 
 const previewBranchInput = z.object({
@@ -44,32 +37,48 @@ const runSqlInput = z.object({
   productionWriteConfirmation: z.string().optional(),
 });
 
+const branchContractRouter = implement(branchesContract);
+
 export const branchesRouter = {
-  create: publicProcedure
-    .input(branchInput)
-    .handler(async function createBranch({ input }) {
-      const branchSlug = normalizeBranchSlug(input.name);
-      await assertBranchSlugAvailable(branchSlug);
-      const replicaPolicy = await assertReplicaCreateAllowed(input);
-      const job = await createJob('create-branch', input);
-      return {
-        ...job,
-        branchSlug,
-        replicaWarning: replicaPolicy.status === 'warn' ? formatReplicaWarning(replicaPolicy) : null,
-      };
-    }),
-  delete: publicProcedure
-    .input(branchIdInput)
-    .handler(async function deleteBranchById({ input }) {
-      const job = await createJob('delete-branch', input);
-      return job;
-    }),
+  list: branchContractRouter.list.handler(async function listBranches() {
+    return listBranchesApi();
+  }),
+  retrieve: branchContractRouter.retrieve.handler(async function retrieveBranch({ input }) {
+    try {
+      return await getBranchApi(input.slug);
+    } catch (error) {
+      throw userFacingError(error, 'Could not load branch');
+    }
+  }),
+  create: branchContractRouter.create.handler(async function createBranch({ input }) {
+    try {
+      return await createBranchApi(input);
+    } catch (error) {
+      throw userFacingError(error, 'Could not create branch');
+    }
+  }),
+  delete: branchContractRouter.delete.handler(async function deleteBranchBySlug({ input }) {
+    try {
+      return await deleteBranchApi(input.slug);
+    } catch (error) {
+      throw userFacingError(error, 'Could not delete branch');
+    }
+  }),
+  reset: branchContractRouter.reset.handler(async function resetBranch({ input }) {
+    try {
+      return await resetBranchApi(input.slug);
+    } catch (error) {
+      throw userFacingError(error, 'Could not reset branch');
+    }
+  }),
   expiry: {
-    update: publicProcedure
-      .input(branchExpiryInput)
-      .handler(async function updateExpiry({ input }) {
-        return updateBranchExpiry(input);
-      }),
+    update: branchContractRouter.expiry.update.handler(async function updateExpiry({ input }) {
+      try {
+        return await updateBranchExpiryApi(input);
+      } catch (error) {
+        throw userFacingError(error, 'Could not update expiry');
+      }
+    }),
   },
   preview: {
     create: publicProcedure
@@ -80,7 +89,11 @@ export const branchesRouter = {
     delete: publicProcedure
       .input(branchIdInput)
       .handler(async function deleteBranchPreview({ input }) {
-        return createJob('delete-branch', input);
+        try {
+          return await deleteBranch(input);
+        } catch (error) {
+          throw userFacingError(error, 'Could not delete preview branch');
+        }
       }),
   },
   sql: {
@@ -105,105 +118,7 @@ export const branchesRouter = {
       });
       return job;
     }),
-  reset: publicProcedure
-    .input(branchIdInput)
-    .handler(async function resetBranch({ input }) {
-      const job = await createJob('reset-branch', input);
-      return job;
-    }),
 };
-
-async function assertBranchSlugAvailable(branchSlug: string): Promise<void> {
-  const db = getDb();
-  const existingBranch = await db
-    .selectFrom('branches')
-    .select('id')
-    .where('slug', '=', branchSlug)
-    .executeTakeFirst();
-
-  if (existingBranch) {
-    throwDuplicateBranch(branchSlug);
-  }
-
-  const activeCreateJobs = await db
-    .selectFrom('jobs')
-    .select(['inputJson'])
-    .where('type', '=', 'create-branch')
-    .where('status', 'in', ['queued', 'running'])
-    .execute();
-
-  const hasActiveCreate = activeCreateJobs.some(function hasMatchingCreateJob(job) {
-    return getCreateBranchSlug(job.inputJson) === branchSlug;
-  });
-
-  if (hasActiveCreate) {
-    throwDuplicateBranch(branchSlug);
-  }
-}
-
-async function assertReplicaCreateAllowed(input: z.infer<typeof branchInput>): Promise<ReplicaBranchCreatePolicy> {
-  if (input.parentBranchId) {
-    return { status: 'allow', lagMs: null };
-  }
-
-  const policy = getReplicaBranchCreatePolicy(await getReplicaFreshness());
-
-  if (policy.status === 'block' && !input.forceReplicaStale) {
-    throw new ORPCError('BAD_REQUEST', {
-      message: formatReplicaBlock(policy),
-    });
-  }
-
-  return policy;
-}
-
-function formatReplicaWarning(policy: ReplicaBranchCreatePolicy): string {
-  return `Dev replica is ${formatDuration(policy.lagMs ?? 0)} behind production. Branch may start stale.`;
-}
-
-function formatReplicaBlock(policy: ReplicaBranchCreatePolicy): string {
-  if (policy.lagMs === null) {
-    return 'Dev replica freshness is unknown. Refresh the replica or force branch creation.';
-  }
-
-  return `Dev replica is ${formatDuration(policy.lagMs)} behind production. Force branch creation to use stale production state.`;
-}
-
-function formatDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000);
-
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-
-  const minutes = Math.round(seconds / 60);
-
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-
-  const hours = Math.round(minutes / 60);
-
-  return `${hours}h`;
-}
-
-function getCreateBranchSlug(inputJson: string | null): string | null {
-  if (!inputJson) {
-    return null;
-  }
-
-  try {
-    const input = JSON.parse(inputJson) as { name?: unknown };
-
-    if (typeof input.name !== 'string') {
-      return null;
-    }
-
-    return normalizeBranchSlug(input.name);
-  } catch {
-    return null;
-  }
-}
 
 function assertProductionRestoreConfirmed(targetBranch: string, confirmation: string | undefined): void {
   if (!isProductionRestoreTarget(targetBranch)) {
@@ -222,10 +137,4 @@ function assertProductionRestoreConfirmed(targetBranch: string, confirmation: st
 function isProductionRestoreTarget(targetBranch: string): boolean {
   const normalized = targetBranch.trim().toLowerCase();
   return normalized === 'production' || normalized === 'prod';
-}
-
-function throwDuplicateBranch(branchSlug: string): never {
-  throw new ORPCError('BAD_REQUEST', {
-    message: `Branch already exists: ${branchSlug}`,
-  });
 }

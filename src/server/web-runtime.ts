@@ -3,7 +3,7 @@ import { join, normalize, relative } from 'node:path';
 import { Database } from 'bun:sqlite';
 import { getMigrationsDirectory, migrateDatabase } from '#db/migrate';
 import { getDatabasePath } from '#db/paths';
-import { getAuthState } from '#server/auth';
+import { getRequestAuthState } from '#server/auth';
 import { getControlPlaneState } from '#server/services/setup-state-service';
 import { persistUpdateResult } from '#server/services/update-service';
 import { startUpdateScheduler } from '#server/services/update-scheduler';
@@ -153,9 +153,9 @@ async function requireAppAuth(request: Request): Promise<Response | null> {
     return null;
   }
 
-  const auth = await getAuthState(request);
+  const auth = await getRequestAuthState(request);
 
-  if (!auth.configured) {
+  if (!auth.passwordConfigured && !auth.bearerAuthenticated) {
     if (url.pathname.startsWith('/api/')) {
       return Response.json({ error: 'Auth setup required.' }, { status: 401 });
     }

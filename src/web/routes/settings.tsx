@@ -43,6 +43,7 @@ import {
   StatusBadge,
   type ServerRole,
 } from '#web/components/control-plane';
+import { ApiKeysPanel } from '#web/components/settings/api-keys-panel';
 
 const JOB_PAGE_SIZE = 20;
 type JobStatusFilter = 'all' | 'queued' | 'running' | 'done' | 'error' | 'cancelled';
@@ -326,7 +327,7 @@ function SettingsPage() {
               </TabsContent>
 
               <TabsContent value="security" className="min-w-0">
-                <PasswordPanel />
+                <SecurityPanel />
               </TabsContent>
 
               <TabsContent value="jobs" className="min-w-0">
@@ -493,6 +494,15 @@ function OverviewRow(props: Readonly<{ icon: ReactNode; label: string; value: st
         <p className="mt-1 truncate text-xs text-muted-foreground">{props.value}</p>
       </div>
       <StatusBadge status={props.status} />
+    </div>
+  );
+}
+
+function SecurityPanel() {
+  return (
+    <div className="grid gap-6">
+      <PasswordPanel />
+      <ApiKeysPanel />
     </div>
   );
 }

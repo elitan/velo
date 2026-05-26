@@ -10,6 +10,7 @@ import { runExpiredBranchCleanup } from '#server/services/branch-service';
 import { TABLE_ROW_ID_COLUMN } from '#server/services/table-browser-service';
 import { getContainerName, getDatasetName } from '#utils/naming';
 import { isProductionBranchId, isReadOnlySql, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
+import { testHttpBranchApi } from './http-branch-api';
 
 const api = createApiClient();
 const PROJECT_NAME = 'prod';
@@ -34,6 +35,7 @@ async function main() {
     { name: 'dashboard and web smoke', run: testDashboardAndWebSmoke },
     { name: 'replica base', run: testReplicaBase },
     { name: 'branch lifecycle', run: testBranchLifecycle },
+    { name: 'http branch api', run: runHttpBranchApiTest },
     { name: 'branch proxy scale to zero', run: testBranchProxyScaleToZero },
     { name: 'branch data, sql, table browser, reset', run: testBranchDataSqlTablesAndReset },
     { name: 'branch delete guard and ttl cleanup', run: testBranchDeleteGuardAndTtlCleanup },
@@ -57,6 +59,13 @@ async function runTest(test: TestCase): Promise<void> {
   console.log(`e2e start: ${test.name}`);
   await test.run();
   console.log(`e2e ok: ${test.name} (${Math.round(performance.now() - startedAt)}ms)`);
+}
+
+function trackBranch(slug: string): void {
+  trackedBranches.add(slug);
+}
+function untrackBranch(slug: string): void {
+  trackedBranches.delete(slug);
 }
 
 async function testDashboardAndWebSmoke(): Promise<void> {
@@ -100,6 +109,17 @@ async function testBranchLifecycle(): Promise<void> {
   await assertZfsDatasetMissing(branch.dataset);
 }
 
+async function runHttpBranchApiTest(): Promise<void> {
+  await testHttpBranchApi({
+    runId: RUN_ID,
+    port: PORT,
+    trackBranch: trackBranch,
+    untrackBranch: untrackBranch,
+    assertBranchConnects,
+    assertBranchMissing,
+  });
+}
+
 async function testBranchProxyScaleToZero(): Promise<void> {
   const idleSeconds = getProxyE2EIdleSeconds();
   assert(idleSeconds > 0 && idleSeconds <= 30, `Hetzner proxy e2e needs a short VELO_PROXY_IDLE_SECONDS, got ${idleSeconds}`);
@@ -139,7 +159,7 @@ async function testBranchDataSqlTablesAndReset(): Promise<void> {
   const parentRows = await runBranchSql(parent.slug, `select note from ${table} order by id`);
   assertSingleValue(parentRows, 'note', 'parent');
 
-  const child = await createBranch(`e2e_child_${RUN_ID}`, parent.id);
+  const child = await createBranch(`e2e_child_${RUN_ID}`, parent.slug);
   const childRows = await runBranchSql(child.slug, `select note from ${table} order by id`);
   assertSingleValue(childRows, 'note', 'parent');
 
@@ -227,7 +247,7 @@ async function testBranchDataSqlTablesAndReset(): Promise<void> {
   });
   assert(rows.rowCount === 1, 'delete should leave one row');
 
-  await waitForJob((await api.branches.reset({ id: child.id })).id, JOB_TIMEOUT_MS);
+  await api.branches.reset({ slug: child.slug });
   const resetRows = await runBranchSql(child.slug, `select note from ${table} order by id`);
   assertSingleValue(resetRows, 'note', 'parent');
   await assertSqlError(child.slug, `select * from ${browserTable}`);
@@ -235,10 +255,9 @@ async function testBranchDataSqlTablesAndReset(): Promise<void> {
 
 async function testBranchDeleteGuardAndTtlCleanup(): Promise<void> {
   const parent = await createBranch(`e2e_guard_parent_${RUN_ID}`);
-  const child = await createBranch(`e2e_guard_child_${RUN_ID}`, parent.id);
+  const child = await createBranch(`e2e_guard_child_${RUN_ID}`, parent.slug);
 
-  const deleteJob = await api.branches.delete({ id: parent.id });
-  await assertJobFails(deleteJob.id, 'Branch has child branches');
+  await assertBranchDeleteFails(parent.slug, 'Branch has child branches');
   await assertBranchConnects(parent.slug);
   await assertBranchConnects(child.slug);
 
@@ -307,7 +326,7 @@ async function testBranchPitrFlows(): Promise<void> {
     return row.label;
   }).join(',') === 'before', `PITR preview should restore before row only: ${JSON.stringify(previewRows.rows)}`);
   await assertSqlError(preview.slug, `create table ${previewWriteTable} (id integer primary key)`);
-  await waitForJob((await api.branches.preview.delete({ id: preview.id })).id, JOB_TIMEOUT_MS);
+  await api.branches.preview.delete({ id: preview.id });
   trackedBranches.delete(preview.slug);
   await assertBranchMissing(preview.slug);
   await assertZfsDatasetMissing(getDatasetName(PROJECT_NAME, preview.slug));
@@ -400,11 +419,10 @@ async function preparePitrFixture(table: string): Promise<string> {
   return new Date(String(target)).toISOString();
 }
 
-async function createBranch(name: string, parentBranchId?: number | null, expiresAt?: string | null): Promise<Branch> {
-  const result = await api.branches.create({ name, parentBranchId, expiresAt });
-  trackedBranches.add(result.branchSlug);
-  await waitForJob(result.id, JOB_TIMEOUT_MS);
-  const branch = await getBranch(result.branchSlug);
+async function createBranch(name: string, parent?: string | null, expiresAt?: string | null): Promise<Branch> {
+  const result = await api.branches.create({ name, parent, expiresAt });
+  trackedBranches.add(result.branch.slug);
+  const branch = await getBranch(result.branch.slug);
   await waitForBranchSqlValue(branch.slug, 'select 1 as ok', 'ok', 1, 20_000);
   return branch;
 }
@@ -417,8 +435,7 @@ async function deleteBranchBySlug(slug: string): Promise<void> {
     return;
   }
 
-  const job = await api.branches.delete({ id: branch.id });
-  await waitForJob(job.id, JOB_TIMEOUT_MS);
+  await api.branches.delete({ slug: branch.slug });
   trackedBranches.delete(slug);
 }
 
@@ -898,16 +915,25 @@ function getJobInputBranchId(input: unknown): number | null {
 }
 
 async function assertBranchCreateFails(name: string, expectedMessage: string): Promise<void> {
-  const job = await api.branches.create({ name });
-
   try {
-    await waitForJob(job.id, JOB_TIMEOUT_MS);
+    await api.branches.create({ name });
   } catch (error: any) {
     assert(String(error?.message || error).includes(expectedMessage), `expected branch create to fail with ${expectedMessage}`);
     return;
   }
 
   throw new Error(`expected branch create to fail: ${name}`);
+}
+
+async function assertBranchDeleteFails(slug: string, expectedMessage: string): Promise<void> {
+  try {
+    await api.branches.delete({ slug });
+  } catch (error: any) {
+    assert(String(error?.message || error).includes(expectedMessage), `expected branch delete to fail with ${expectedMessage}`);
+    return;
+  }
+
+  throw new Error(`expected branch delete to fail: ${slug}`);
 }
 
 function assert(value: unknown, message: string): asserts value {

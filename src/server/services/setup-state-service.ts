@@ -8,6 +8,7 @@ import { getBackupSettings, getSetting, type BackupSettings } from './settings-s
 import { checkLocalDocker, isLocalDockerMode } from './local-docker-service';
 import { getProdAllowedCidr, saveProdAllowedCidr } from './prod-network-service';
 import { getReplicaFreshness, type ReplicaFreshness } from './replica-service';
+import { listBranchRecords, type BranchRecord } from './branch-read-service';
 
 export interface ServerInput {
   role: 'prod' | 'dev';
@@ -27,19 +28,7 @@ export interface ControlPlaneState {
     failedJobId: number | null;
     updatedAt: string;
   }>;
-  branches: Array<{
-    id: number;
-    slug: string;
-    displayName: string;
-    status: string;
-    parentBranchId: number | null;
-    parentName: string | null;
-    parentSlug: string | null;
-    port: number | null;
-    connectionUrl: string | null;
-    expiresAt: string | null;
-    createdAt: string;
-  }>;
+  branches: BranchRecord[];
   jobs: JobRecord[];
   backup: BackupSettings;
   backupAvailability: BackupAvailability;
@@ -59,25 +48,7 @@ export async function getControlPlaneState(): Promise<ControlPlaneState> {
       .select(['key', 'label', 'status', 'message', 'failedJobId', 'updatedAt'])
       .orderBy('id')
       .execute(),
-    db
-      .selectFrom('branches')
-      .leftJoin('branches as parent', 'parent.id', 'branches.parentBranchId')
-      .select([
-        'branches.id',
-        'branches.slug',
-        'branches.displayName',
-        'branches.status',
-        'branches.parentBranchId',
-        'parent.displayName as parentName',
-        'parent.slug as parentSlug',
-        'branches.port',
-        'branches.connectionUrl',
-        'branches.expiresAt',
-        'branches.createdAt',
-      ])
-      .where('branches.slug', 'not like', 'preview-%')
-      .orderBy('branches.createdAt', 'desc')
-      .execute(),
+    listBranchRecords(),
     listJobs(10),
     getBackupSettings(),
     getBackupAvailability(),

@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getSetting, setSetting } from './services/settings-service';
+import { verifyApiToken } from './services/api-token-service';
 
 const PASSWORD_HASH_KEY = 'auth.passwordHash';
 const SESSION_SECRET_KEY = 'auth.sessionSecret';
@@ -12,6 +13,13 @@ export interface AuthState {
   authenticated: boolean;
 }
 
+export interface RequestAuthState {
+  passwordConfigured: boolean;
+  sessionAuthenticated: boolean;
+  bearerAuthenticated: boolean;
+  authenticated: boolean;
+}
+
 interface SessionPayload {
   exp: number;
 }
@@ -21,15 +29,35 @@ export async function getAuthState(request: Request): Promise<AuthState> {
     return { configured: true, authenticated: true };
   }
 
-  const configured = await isAuthConfigured();
+  const [configured, authenticated] = await Promise.all([
+    isAuthConfigured(),
+    isSessionAuthenticated(request),
+  ]);
 
-  if (!configured) {
-    return { configured, authenticated: false };
+  return { configured, authenticated };
+}
+
+export async function getRequestAuthState(request: Request): Promise<RequestAuthState> {
+  if (isLocalAuthBypass(request)) {
+    return {
+      passwordConfigured: true,
+      sessionAuthenticated: true,
+      bearerAuthenticated: false,
+      authenticated: true,
+    };
   }
 
+  const [passwordConfigured, sessionAuthenticated, bearerAuthenticated] = await Promise.all([
+    isAuthConfigured(),
+    isSessionAuthenticated(request),
+    isBearerAuthenticated(request),
+  ]);
+
   return {
-    configured,
-    authenticated: await isAuthenticated(request),
+    passwordConfigured,
+    sessionAuthenticated,
+    bearerAuthenticated,
+    authenticated: sessionAuthenticated || bearerAuthenticated,
   };
 }
 
@@ -42,6 +70,10 @@ export async function isAuthenticated(request: Request): Promise<boolean> {
     return true;
   }
 
+  return isSessionAuthenticated(request);
+}
+
+async function isSessionAuthenticated(request: Request): Promise<boolean> {
   const token = getCookie(request, SESSION_COOKIE);
 
   if (!token) {
@@ -55,6 +87,16 @@ export async function isAuthenticated(request: Request): Promise<boolean> {
   }
 
   return verifySessionToken(token, secret);
+}
+
+async function isBearerAuthenticated(request: Request): Promise<boolean> {
+  const token = getBearerToken(request);
+
+  if (!token) {
+    return false;
+  }
+
+  return verifyApiToken(token);
 }
 
 export async function setupPassword(password: string): Promise<string> {
@@ -229,6 +271,17 @@ function getCookie(request: Request, name: string): string | null {
   }
 
   return null;
+}
+
+function getBearerToken(request: Request): string | null {
+  const authorization = request.headers.get('authorization') || '';
+  const [scheme, token] = authorization.split(/\s+/, 2);
+
+  if (scheme?.toLowerCase() !== 'bearer' || !token) {
+    return null;
+  }
+
+  return token;
 }
 
 interface CookieOptions {
