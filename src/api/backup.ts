@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicProcedure } from './context';
+import { OPEN_API_TAGS } from './openapi-tags';
 import { saveBackupSettings } from '#server/services/settings-service';
 
 const backupInput = z.object({
@@ -14,13 +15,17 @@ const backupInput = z.object({
   fullBackupRetentionDays: z.number().int().positive().optional(),
 });
 
-export const backupRouter = {
+export const backupRouter = publicProcedure.tag(OPEN_API_TAGS.backup).router({
   settings: {
     update: publicProcedure
-      .route({ method: 'PUT', path: '/backup/settings', summary: 'Update backup settings' })
+      .route({
+        method: 'PUT',
+        path: '/backup/settings',
+        summary: 'Update backup settings',
+      })
       .input(backupInput)
       .handler(async function updateBackupSettings({ input }) {
         return saveBackupSettings(input);
       }),
   },
-};
+});

@@ -6,6 +6,7 @@ import { onError } from '@orpc/server';
 import { createFileRoute } from '@tanstack/react-router';
 import { appRouter } from '#api/router';
 import { createOrpcContext } from '#api/context';
+import { OPEN_API_TAG_DEFINITIONS } from '#api/openapi-tags';
 import { getRequestAuthState } from '#server/auth';
 import { jobHandlers } from '#server/services/job-handlers';
 import { startJobWorker, type JobWorker } from '#server/services/job-service';
@@ -85,6 +86,7 @@ async function getOpenApiDocument() {
       title: 'Velo API',
       version: '1.0.0',
     },
+    tags: OPEN_API_TAG_DEFINITIONS,
     servers: [{ url: '/api/v1' }],
     components: {
       securitySchemes: {

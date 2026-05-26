@@ -47,7 +47,7 @@
     "linux"
   ],
   "scripts": {
-    "test": "bun test src/server/control-plane.test.ts src/server/services/update-service.test.ts src/server/services/branch-network-service.test.ts src/managers/docker.test.ts src/utils/prod-write-guard.test.ts",
+    "test": "bun test src/server/control-plane.test.ts src/server/api-routes.test.ts src/server/services/update-service.test.ts src/server/services/branch-network-service.test.ts src/managers/docker.test.ts src/utils/prod-write-guard.test.ts",
     "build": "bun run web:build",
     "dev": "bun run web",
     "web": "bun --bun vite dev --host 0.0.0.0 --port 3000",
@@ -95,6 +95,7 @@
     "@orpc/server": "^1.14.0",
     "@orpc/tanstack-query": "^1.14.0",
     "@orpc/zod": "1.14.0",
+    "@scalar/api-reference-react": "0.8.20",
     "@tailwindcss/vite": "^4.2.4",
     "@tanstack/react-query": "^5.100.6",
     "@tanstack/react-router": "^1.169.0",

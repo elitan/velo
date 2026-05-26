@@ -3,17 +3,11 @@ import { ORPCError, implement } from '@orpc/server';
 import { branchesContract } from './branch-contract';
 import { publicProcedure } from './context';
 import { userFacingError } from './errors';
+import { OPEN_API_TAGS } from './openapi-tags';
 import { createJob } from '#server/services/job-service';
 import { createPreviewBranch, deleteBranch } from '#server/services/branch-service';
 import { runBranchSql } from '#server/services/sql-editor-service';
-import {
-  createBranchApi,
-  deleteBranchApi,
-  getBranchApi,
-  listBranchesApi,
-  resetBranchApi,
-  updateBranchExpiryApi,
-} from '#server/services/branch-api-service';
+import { createBranchApi, deleteBranchApi, getBranchApi, listBranchesApi, resetBranchApi, updateBranchExpiryApi } from '#server/services/branch-api-service';
 
 const branchIdInput = z.object({
   id: z.coerce.number().int().positive(),
@@ -38,6 +32,70 @@ const runSqlInput = z.object({
 });
 
 const branchContractRouter = implement(branchesContract);
+const recoveryBranchRoutes = publicProcedure.tag(OPEN_API_TAGS.recovery).router({
+  preview: {
+    create: publicProcedure
+      .route({
+        method: 'POST',
+        path: '/branches/{sourceBranch}/previews',
+        successStatus: 201,
+        summary: 'Create preview branch',
+      })
+      .input(previewBranchInput)
+      .handler(async function createBranchPreview({ input }) {
+        return createPreviewBranch(input);
+      }),
+    delete: publicProcedure
+      .route({
+        method: 'DELETE',
+        path: '/branch-previews/{id}',
+        summary: 'Delete preview branch',
+      })
+      .input(branchIdInput)
+      .handler(async function deleteBranchPreview({ input }) {
+        try {
+          return await deleteBranch(input);
+        } catch (error) {
+          throw userFacingError(error, 'Could not delete preview branch');
+        }
+      }),
+  },
+  restore: publicProcedure
+    .route({
+      method: 'POST',
+      path: '/branches/{targetBranch}/restore',
+      summary: 'Restore branch',
+    })
+    .input(restoreBranchInput)
+    .handler(async function restoreBranch({ input }) {
+      assertProductionRestoreConfirmed(input.targetBranch, input.productionRestoreConfirmation);
+      const job = await createJob('restore-branch', {
+        targetBranch: input.targetBranch,
+        sourceBranch: input.sourceBranch,
+        restoreTime: input.restoreTime,
+      });
+      return job;
+    }),
+});
+
+const dataBranchRoutes = publicProcedure.tag(OPEN_API_TAGS.data).router({
+  sql: {
+    run: publicProcedure
+      .route({
+        method: 'POST',
+        path: '/branches/{branchId}/sql',
+        summary: 'Run branch SQL',
+      })
+      .input(runSqlInput)
+      .handler(async function runSql({ input }) {
+        try {
+          return await runBranchSql(input);
+        } catch (error) {
+          throw userFacingError(error, 'SQL failed');
+        }
+      }),
+  },
+});
 
 export const branchesRouter = {
   list: branchContractRouter.list.handler(async function listBranches() {
@@ -80,48 +138,8 @@ export const branchesRouter = {
       }
     }),
   },
-  preview: {
-    create: publicProcedure
-      .route({ method: 'POST', path: '/branches/{sourceBranch}/previews', successStatus: 201, summary: 'Create preview branch' })
-      .input(previewBranchInput)
-      .handler(async function createBranchPreview({ input }) {
-        return createPreviewBranch(input);
-      }),
-    delete: publicProcedure
-      .route({ method: 'DELETE', path: '/branch-previews/{id}', summary: 'Delete preview branch' })
-      .input(branchIdInput)
-      .handler(async function deleteBranchPreview({ input }) {
-        try {
-          return await deleteBranch(input);
-        } catch (error) {
-          throw userFacingError(error, 'Could not delete preview branch');
-        }
-      }),
-  },
-  sql: {
-    run: publicProcedure
-      .route({ method: 'POST', path: '/branches/{branchId}/sql', summary: 'Run branch SQL' })
-      .input(runSqlInput)
-      .handler(async function runSql({ input }) {
-        try {
-          return await runBranchSql(input);
-        } catch (error) {
-          throw userFacingError(error, 'SQL failed');
-        }
-      }),
-  },
-  restore: publicProcedure
-    .route({ method: 'POST', path: '/branches/{targetBranch}/restore', summary: 'Restore branch' })
-    .input(restoreBranchInput)
-    .handler(async function restoreBranch({ input }) {
-      assertProductionRestoreConfirmed(input.targetBranch, input.productionRestoreConfirmation);
-      const job = await createJob('restore-branch', {
-        targetBranch: input.targetBranch,
-        sourceBranch: input.sourceBranch,
-        restoreTime: input.restoreTime,
-      });
-      return job;
-    }),
+  ...recoveryBranchRoutes,
+  ...dataBranchRoutes,
 };
 
 function assertProductionRestoreConfirmed(targetBranch: string, confirmation: string | undefined): void {

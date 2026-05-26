@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicProcedure } from './context';
+import { OPEN_API_TAGS } from './openapi-tags';
 import { checkServer, saveServer } from '#server/services/setup-state-service';
 
 const serverInput = z.object({
@@ -10,7 +11,7 @@ const serverInput = z.object({
   allowedCidr: z.string().optional(),
 });
 
-export const serversRouter = {
+export const serversRouter = publicProcedure.tag(OPEN_API_TAGS.servers).router({
   update: publicProcedure
     .route({ method: 'PUT', path: '/servers/{role}', summary: 'Update server' })
     .input(serverInput)
@@ -18,9 +19,13 @@ export const serversRouter = {
       return saveServer(input);
     }),
   check: publicProcedure
-    .route({ method: 'POST', path: '/servers/{role}/check', summary: 'Check server' })
+    .route({
+      method: 'POST',
+      path: '/servers/{role}/check',
+      summary: 'Check server',
+    })
     .input(z.object({ role: z.enum(['prod', 'dev']) }))
     .handler(async function checkServerHealth({ input }) {
       return checkServer(input.role);
     }),
-};
+});

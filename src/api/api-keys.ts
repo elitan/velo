@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { publicProcedure } from './context';
 import { userFacingError } from './errors';
+import { OPEN_API_TAGS } from './openapi-tags';
 import { createApiToken, listApiTokens, revokeApiToken } from '#server/services/api-token-service';
 
 const createTokenInput = z.object({
@@ -11,14 +12,17 @@ const tokenIdInput = z.object({
   id: z.coerce.number().int().positive(),
 });
 
-export const apiKeysRouter = {
-  list: publicProcedure
-    .route({ method: 'GET', path: '/api-keys', summary: 'List API keys' })
-    .handler(async function listTokens() {
-      return listApiTokens();
-    }),
+export const apiKeysRouter = publicProcedure.tag(OPEN_API_TAGS.apiKeys).router({
+  list: publicProcedure.route({ method: 'GET', path: '/api-keys', summary: 'List API keys' }).handler(async function listTokens() {
+    return listApiTokens();
+  }),
   create: publicProcedure
-    .route({ method: 'POST', path: '/api-keys', successStatus: 201, summary: 'Create API key' })
+    .route({
+      method: 'POST',
+      path: '/api-keys',
+      successStatus: 201,
+      summary: 'Create API key',
+    })
     .input(createTokenInput)
     .handler(async function createToken({ input }) {
       try {
@@ -28,7 +32,11 @@ export const apiKeysRouter = {
       }
     }),
   revoke: publicProcedure
-    .route({ method: 'DELETE', path: '/api-keys/{id}', summary: 'Revoke API key' })
+    .route({
+      method: 'DELETE',
+      path: '/api-keys/{id}',
+      summary: 'Revoke API key',
+    })
     .input(tokenIdInput)
     .handler(async function revokeToken({ input }) {
       try {
@@ -37,4 +45,4 @@ export const apiKeysRouter = {
         throw userFacingError(error, 'Could not revoke API key');
       }
     }),
-};
+});
