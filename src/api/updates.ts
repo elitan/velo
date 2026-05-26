@@ -19,58 +19,76 @@ const autoUpdateInput = z.object({
   hour: z.number().min(0).max(23).optional(),
 });
 
-export const updatesRouter = {
-  get: publicProcedure
-    .route({ method: 'GET', path: '/updates', summary: 'Get update status', tags: [OPEN_API_TAGS.updates] })
-    .handler(async function getUpdates() {
-      return formatUpdateInfo(await getUpdateStatus());
-    }),
+export const updatesRouter = publicProcedure.tag(OPEN_API_TAGS.updates).router({
+  get: publicProcedure.route({ method: 'GET', path: '/updates', summary: 'Get update status' }).handler(async function getUpdates() {
+    return formatUpdateInfo(await getUpdateStatus());
+  }),
   check: publicProcedure
-    .route({ method: 'POST', path: '/updates/check', summary: 'Check for updates', tags: [OPEN_API_TAGS.updates] })
+    .route({
+      method: 'POST',
+      path: '/updates/check',
+      summary: 'Check for updates',
+    })
     .handler(async function checkUpdates() {
       return formatUpdateInfo(await checkForUpdate(true));
     }),
-  apply: publicProcedure
-    .route({ method: 'POST', path: '/updates/apply', summary: 'Apply update', tags: [OPEN_API_TAGS.updates] })
-    .handler(async function applyAvailableUpdate() {
-      const result = await applyUpdate();
+  apply: publicProcedure.route({ method: 'POST', path: '/updates/apply', summary: 'Apply update' }).handler(async function applyAvailableUpdate() {
+    const result = await applyUpdate();
 
-      if (!result.success) {
-        throw new Error(result.error || 'Could not apply update.');
-      }
+    if (!result.success) {
+      throw new Error(result.error || 'Could not apply update.');
+    }
 
-      return { success: true };
-    }),
+    return { success: true };
+  }),
   result: publicProcedure
-    .route({ method: 'GET', path: '/updates/result', summary: 'Get update result', tags: [OPEN_API_TAGS.updates] })
+    .route({
+      method: 'GET',
+      path: '/updates/result',
+      summary: 'Get update result',
+    })
     .handler(async function getUpdateResult() {
-      return (await getPersistedUpdateResult()) || {
-        completed: false,
-        success: false,
-        newVersion: null,
-        log: null,
-      };
+      return (
+        (await getPersistedUpdateResult()) || {
+          completed: false,
+          success: false,
+          newVersion: null,
+          log: null,
+        }
+      );
     }),
   clearResult: publicProcedure
-    .route({ method: 'DELETE', path: '/updates/result', summary: 'Clear update result', tags: [OPEN_API_TAGS.updates] })
+    .route({
+      method: 'DELETE',
+      path: '/updates/result',
+      summary: 'Clear update result',
+    })
     .handler(async function clearUpdateResult() {
       await clearPersistedUpdateResult();
       return { success: true };
     }),
   auto: {
     get: publicProcedure
-      .route({ method: 'GET', path: '/updates/auto', summary: 'Get auto-update settings', tags: [OPEN_API_TAGS.updates] })
+      .route({
+        method: 'GET',
+        path: '/updates/auto',
+        summary: 'Get auto-update settings',
+      })
       .handler(async function getAutoUpdates() {
         return getAutoUpdateSettings();
       }),
     update: publicProcedure
-      .route({ method: 'PATCH', path: '/updates/auto', summary: 'Update auto-update settings', tags: [OPEN_API_TAGS.updates] })
+      .route({
+        method: 'PATCH',
+        path: '/updates/auto',
+        summary: 'Update auto-update settings',
+      })
       .input(autoUpdateInput)
       .handler(async function updateAutoUpdates({ input }) {
         return saveAutoUpdateSettings(input);
       }),
   },
-};
+});
 
 function formatUpdateInfo(info: Awaited<ReturnType<typeof getUpdateStatus>>) {
   return {

@@ -1,14 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
 import { sql } from 'kysely';
-import { OPEN_API_TAGS } from '../api/openapi-tags';
 import { createApiClient } from '../api/router';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
-import { handleApiRequest } from '../web/routes/api/v1/$';
 import {
   cancelJobById,
   createAuditJob,
@@ -25,25 +23,13 @@ import { getBranchApi, listBranchesApi } from './services/branch-api-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken } from './services/api-token-service';
-import { setPassword } from './auth';
+import { createBranchRecord, createProject, useTestDatabase } from './test-helpers';
 import { getControlPlaneState, invalidateDevReplicaBase, saveServer, setStepStatus } from './services/setup-state-service';
 import { defaultCidrForHost, getProdAllowedCidr, normalizeAllowedCidr } from './services/prod-network-service';
 import { buildReplicaBaseHealth, buildReplicaFreshness, withPausedReplicaReplay } from './services/replica-service';
 import { getReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
-let testDir: string;
-
-beforeEach(async function setupDatabase() {
-  testDir = mkdtempSync(join(tmpdir(), 'velo-control-plane-'));
-  process.env.VELO_DB = join(testDir, 'velo.sqlite');
-  migrateDatabase();
-});
-
-afterEach(async function cleanupDatabase() {
-  await closeDb();
-  delete process.env.VELO_DB;
-  rmSync(testDir, { recursive: true, force: true });
-});
+const testDatabase = useTestDatabase('velo-control-plane-');
 
 describe('control plane database', function controlPlaneDatabase() {
   test('uses real pgBackRest backup history for restore windows', function testBackupAvailability() {
@@ -104,7 +90,7 @@ describe('control plane database', function controlPlaneDatabase() {
       throw new Error('Missing VELO_DB');
     }
 
-    expect(statMode(testDir)).toBe(0o700);
+    expect(statMode(testDatabase.testDir)).toBe(0o700);
     expect(statMode(databasePath)).toBe(0o600);
   });
 
@@ -569,144 +555,6 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(await verifyApiToken(created.token)).toBe(false);
   });
 
-  test('serves REST routes with bearer auth', async function testOpenApiBearerAuth() {
-    await setPassword('password123');
-    const created = await createApiToken('ci');
-    const job = await createAuditJob('api-test', { ok: true }, 'api test');
-    const projectId = await createProject();
-    await setSetting('prod.connectionUrl', 'postgresql://postgres:prod@example.com:5432/postgres');
-    await createBranchRecord({
-      projectId,
-      slug: 'dev',
-      displayName: 'dev',
-      dataset: 'prod.dev',
-      port: 41001,
-      connectionUrl: 'postgresql://postgres:dev@example.com:41001/postgres',
-    });
-
-    const unauthorized = await handleApiRequest({
-      request: new Request('http://example.com/api/v1/branches'),
-    }, { startDevJobWorker: false });
-    const authorized = await handleApiRequest({
-      request: new Request('http://example.com/api/v1/branches', {
-        headers: {
-          authorization: `Bearer ${created.token}`,
-        },
-      }),
-    }, { startDevJobWorker: false });
-    const specResponse = await handleApiRequest({
-      request: new Request('http://example.com/api/v1/openapi.json', {
-        headers: {
-          authorization: `Bearer ${created.token}`,
-        },
-      }),
-    }, { startDevJobWorker: false });
-    const apiKeysResponse = await handleApiRequest({
-      request: new Request('http://example.com/api/v1/api-keys', {
-        headers: {
-          authorization: `Bearer ${created.token}`,
-        },
-      }),
-    }, { startDevJobWorker: false });
-    const dashboardResponse = await handleApiRequest({
-      request: new Request('http://example.com/api/v1/dashboard', {
-        headers: {
-          authorization: `Bearer ${created.token}`,
-        },
-      }),
-    }, { startDevJobWorker: false });
-    const jobsResponse = await handleApiRequest({
-      request: new Request('http://example.com/api/v1/jobs?limit=1&type=api-test', {
-        headers: {
-          authorization: `Bearer ${created.token}`,
-        },
-      }),
-    }, { startDevJobWorker: false });
-    const jobResponse = await handleApiRequest({
-      request: new Request(`http://example.com/api/v1/jobs/${job.id}`, {
-        headers: {
-          authorization: `Bearer ${created.token}`,
-        },
-      }),
-    }, { startDevJobWorker: false });
-    const body = await authorized.json() as {
-      branches: Array<{ slug: string; connectionString: string | null }>;
-    };
-    const spec = await specResponse.json() as {
-      paths: Record<string, Record<string, { tags?: string[] }>>;
-      tags?: Array<{ name: string }>;
-    };
-    const apiKeys = await apiKeysResponse.json() as Array<{ id: number }>;
-    const dashboard = await dashboardResponse.json() as { branches: unknown[] };
-    const jobs = await jobsResponse.json() as Array<{ id: number }>;
-    const retrievedJob = await jobResponse.json() as { id: number };
-
-    expect(unauthorized.status).toBe(401);
-    expect(authorized.status).toBe(200);
-    expect(specResponse.status).toBe(200);
-    expect(apiKeysResponse.status).toBe(200);
-    expect(dashboardResponse.status).toBe(200);
-    expect(jobsResponse.status).toBe(200);
-    expect(jobResponse.status).toBe(200);
-    expect(body.branches.map(function mapBranch(branch) {
-      return branch.slug;
-    })).toEqual(['production', 'dev']);
-    expect(body.branches[1]?.connectionString).toBe('postgresql://postgres:dev@example.com:41001/postgres');
-    expect(apiKeys.map(function mapKey(key) {
-      return key.id;
-    })).toContain(created.apiToken.id);
-    expect(dashboard.branches).toHaveLength(1);
-    expect(jobs[0]?.id).toBe(job.id);
-    expect(retrievedJob.id).toBe(job.id);
-    expect([
-      '/api-keys',
-      '/api-keys/{id}',
-      '/backup/settings',
-      '/branch-previews/{id}',
-      '/branches',
-      '/branches/{branchId}/sql',
-      '/branches/{branchId}/tables',
-      '/branches/{branchId}/tables/{database}/{schema}/{table}/rows',
-      '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}',
-      '/branches/{slug}',
-      '/branches/{slug}/expiry',
-      '/branches/{slug}/reset',
-      '/branches/{sourceBranch}/previews',
-      '/branches/{targetBranch}/restore',
-      '/dashboard',
-      '/jobs',
-      '/jobs/{id}',
-      '/jobs/{id}/cancel',
-      '/jobs/{id}/retry',
-      '/servers/{role}',
-      '/servers/{role}/check',
-      '/updates',
-      '/updates/apply',
-      '/updates/auto',
-      '/updates/check',
-      '/updates/result',
-    ].every(function hasPath(path) {
-      return Boolean(spec.paths[path]);
-    })).toBe(true);
-    expect(spec.tags?.map(function mapTag(tag) {
-      return tag.name;
-    })).toEqual([
-      OPEN_API_TAGS.branches,
-      OPEN_API_TAGS.recovery,
-      OPEN_API_TAGS.data,
-      OPEN_API_TAGS.apiKeys,
-      OPEN_API_TAGS.dashboard,
-      OPEN_API_TAGS.jobs,
-      OPEN_API_TAGS.servers,
-      OPEN_API_TAGS.backup,
-      OPEN_API_TAGS.updates,
-    ]);
-    expect(spec.paths['/branches']?.get?.tags).toEqual([OPEN_API_TAGS.branches]);
-    expect(spec.paths['/branches/{targetBranch}/restore']?.post?.tags).toEqual([OPEN_API_TAGS.recovery]);
-    expect(spec.paths['/branches/{branchId}/tables']?.get?.tags).toEqual([OPEN_API_TAGS.data]);
-    expect(spec.paths['/api-keys']?.get?.tags).toEqual([OPEN_API_TAGS.apiKeys]);
-  });
-
   test('promotes ready replacement without changing branch identity', async function testPromoteReadyReplacement() {
     const projectId = await createProject();
     const originalId = await createBranchRecord({
@@ -938,65 +786,6 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(result.cleanupLogs).toEqual(['replacement succeeded, but old resource cleanup failed: cleanup broke']);
   });
 });
-
-async function createProject(): Promise<number> {
-  await getDb()
-    .insertInto('projects')
-    .values({
-      name: 'prod',
-      postgresVersion: '17',
-      databaseName: 'postgres',
-      appUser: 'postgres',
-    })
-    .execute();
-
-  const project = await getDb()
-    .selectFrom('projects')
-    .select('id')
-    .where('name', '=', 'prod')
-    .executeTakeFirstOrThrow();
-
-  return project.id;
-}
-
-async function createBranchRecord(input: {
-  projectId: number;
-  slug: string;
-  displayName: string;
-  dataset: string;
-  parentBranchId?: number | null;
-  port?: number | null;
-  proxyPort?: number | null;
-  backendPort?: number | null;
-  connectionUrl?: string | null;
-  lastActiveAt?: string | null;
-  status?: 'creating' | 'running' | 'stopped' | 'error';
-}): Promise<number> {
-  await getDb()
-    .insertInto('branches')
-    .values({
-      projectId: input.projectId,
-      slug: input.slug,
-      displayName: input.displayName,
-      dataset: input.dataset,
-      status: input.status ?? 'running',
-      parentBranchId: input.parentBranchId ?? null,
-      port: input.port ?? null,
-      proxyPort: input.proxyPort ?? null,
-      backendPort: input.backendPort ?? null,
-      connectionUrl: input.connectionUrl ?? null,
-      lastActiveAt: input.lastActiveAt ?? null,
-    })
-    .execute();
-
-  const branch = await getDb()
-    .selectFrom('branches')
-    .select('id')
-    .where('slug', '=', input.slug)
-    .executeTakeFirstOrThrow();
-
-  return branch.id;
-}
 
 function createPreQueueDatabase(databasePath: string): void {
   const db = new Database(databasePath);

@@ -2,13 +2,7 @@ import { z } from 'zod';
 import { publicProcedure } from './context';
 import { userFacingError } from './errors';
 import { OPEN_API_TAGS } from './openapi-tags';
-import {
-  deleteTableRow,
-  getTableBrowserMetadata,
-  getTableRows,
-  insertTableRow,
-  updateTableRow,
-} from '#server/services/table-browser-service';
+import { deleteTableRow, getTableBrowserMetadata, getTableRows, insertTableRow, updateTableRow } from '#server/services/table-browser-service';
 
 const tableBrowserInput = z.object({
   branchId: z.string().min(1),
@@ -45,21 +39,34 @@ const tableDeleteInput = tableRowsInput.extend({
   productionWriteConfirmation: z.string().optional(),
 });
 
-export const tablesRouter = {
+export const tablesRouter = publicProcedure.tag(OPEN_API_TAGS.data).router({
   browse: publicProcedure
-    .route({ method: 'GET', path: '/branches/{branchId}/tables', summary: 'Browse branch tables', tags: [OPEN_API_TAGS.data] })
+    .route({
+      method: 'GET',
+      path: '/branches/{branchId}/tables',
+      summary: 'Browse branch tables',
+    })
     .input(tableBrowserInput)
     .handler(async function browseTables({ input }) {
       return getTableBrowserMetadata(input);
     }),
   rows: publicProcedure
-    .route({ method: 'GET', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows', summary: 'List table rows', tags: [OPEN_API_TAGS.data] })
+    .route({
+      method: 'GET',
+      path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows',
+      summary: 'List table rows',
+    })
     .input(tableRowsInput)
     .handler(async function browseRows({ input }) {
       return getTableRows(input);
     }),
   insert: publicProcedure
-    .route({ method: 'POST', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows', successStatus: 201, summary: 'Insert table row', tags: [OPEN_API_TAGS.data] })
+    .route({
+      method: 'POST',
+      path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows',
+      successStatus: 201,
+      summary: 'Insert table row',
+    })
     .input(tableInsertInput)
     .handler(async function insertRow({ input }) {
       try {
@@ -69,7 +76,11 @@ export const tablesRouter = {
       }
     }),
   update: publicProcedure
-    .route({ method: 'PATCH', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}', summary: 'Update table row', tags: [OPEN_API_TAGS.data] })
+    .route({
+      method: 'PATCH',
+      path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}',
+      summary: 'Update table row',
+    })
     .input(tableUpdateInput)
     .handler(async function updateRow({ input }) {
       try {
@@ -79,7 +90,11 @@ export const tablesRouter = {
       }
     }),
   delete: publicProcedure
-    .route({ method: 'DELETE', path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}', summary: 'Delete table row', tags: [OPEN_API_TAGS.data] })
+    .route({
+      method: 'DELETE',
+      path: '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}',
+      summary: 'Delete table row',
+    })
     .input(tableDeleteInput)
     .handler(async function deleteRow({ input }) {
       try {
@@ -88,4 +103,4 @@ export const tablesRouter = {
         throw userFacingError(error, 'Could not delete row');
       }
     }),
-};
+});

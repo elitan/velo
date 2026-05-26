@@ -11,17 +11,21 @@ const serverInput = z.object({
   allowedCidr: z.string().optional(),
 });
 
-export const serversRouter = {
+export const serversRouter = publicProcedure.tag(OPEN_API_TAGS.servers).router({
   update: publicProcedure
-    .route({ method: 'PUT', path: '/servers/{role}', summary: 'Update server', tags: [OPEN_API_TAGS.servers] })
+    .route({ method: 'PUT', path: '/servers/{role}', summary: 'Update server' })
     .input(serverInput)
     .handler(async function updateServer({ input }) {
       return saveServer(input);
     }),
   check: publicProcedure
-    .route({ method: 'POST', path: '/servers/{role}/check', summary: 'Check server', tags: [OPEN_API_TAGS.servers] })
+    .route({
+      method: 'POST',
+      path: '/servers/{role}/check',
+      summary: 'Check server',
+    })
     .input(z.object({ role: z.enum(['prod', 'dev']) }))
     .handler(async function checkServerHealth({ input }) {
       return checkServer(input.role);
     }),
-};
+});

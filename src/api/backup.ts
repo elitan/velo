@@ -15,13 +15,17 @@ const backupInput = z.object({
   fullBackupRetentionDays: z.number().int().positive().optional(),
 });
 
-export const backupRouter = {
+export const backupRouter = publicProcedure.tag(OPEN_API_TAGS.backup).router({
   settings: {
     update: publicProcedure
-      .route({ method: 'PUT', path: '/backup/settings', summary: 'Update backup settings', tags: [OPEN_API_TAGS.backup] })
+      .route({
+        method: 'PUT',
+        path: '/backup/settings',
+        summary: 'Update backup settings',
+      })
       .input(backupInput)
       .handler(async function updateBackupSettings({ input }) {
         return saveBackupSettings(input);
       }),
   },
-};
+});

@@ -1,11 +1,20 @@
-import type { ComponentType } from 'react';
 import { useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { Loader2 } from 'lucide-react';
+import type { AnyApiReferenceConfiguration } from '@scalar/api-reference-react';
 
-type ApiReferenceComponent = ComponentType<{
-  configuration: Record<string, unknown>;
-}>;
+type ApiReferenceComponent = (typeof import('@scalar/api-reference-react'))['ApiReferenceReact'];
+
+const API_REFERENCE_CONFIG: AnyApiReferenceConfiguration = {
+  url: '/api/v1/openapi.json',
+  theme: 'kepler',
+  hideModels: false,
+  hideDownloadButton: false,
+  defaultHttpClient: {
+    targetKey: 'js',
+    clientKey: 'fetch',
+  },
+};
 
 export const Route = createFileRoute('/api-reference')({
   component: ApiReferencePage,
@@ -17,16 +26,13 @@ function ApiReferencePage() {
   useEffect(function loadApiReference() {
     let active = true;
 
-    void Promise.all([
-      import('@scalar/api-reference-react'),
-      import('@scalar/api-reference-react/style.css'),
-    ]).then(function setLoadedApiReference([module]) {
+    void Promise.all([import('@scalar/api-reference-react'), import('@scalar/api-reference-react/style.css')]).then(function setLoadedApiReference([module]) {
       if (!active) {
         return;
       }
 
       setApiReference(function storeApiReference() {
-        return module.ApiReferenceReact as ApiReferenceComponent;
+        return module.ApiReferenceReact;
       });
     });
 
@@ -39,20 +45,7 @@ function ApiReferencePage() {
     return <ApiReferenceLoading />;
   }
 
-  return (
-    <ApiReference
-      configuration={{
-        url: '/api/v1/openapi.json',
-        theme: 'kepler',
-        hideModels: false,
-        hideDownloadButton: false,
-        defaultHttpClient: {
-          targetKey: 'js',
-          clientKey: 'fetch',
-        },
-      }}
-    />
-  );
+  return <ApiReference configuration={API_REFERENCE_CONFIG} />;
 }
 
 function ApiReferenceLoading() {
