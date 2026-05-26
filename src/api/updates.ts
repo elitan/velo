@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { publicProcedure } from './context';
+import { OPEN_API_TAGS } from './openapi-tags';
 import {
   applyUpdate,
   checkForUpdate,
@@ -20,17 +21,17 @@ const autoUpdateInput = z.object({
 
 export const updatesRouter = {
   get: publicProcedure
-    .route({ method: 'GET', path: '/updates', summary: 'Get update status' })
+    .route({ method: 'GET', path: '/updates', summary: 'Get update status', tags: [OPEN_API_TAGS.updates] })
     .handler(async function getUpdates() {
       return formatUpdateInfo(await getUpdateStatus());
     }),
   check: publicProcedure
-    .route({ method: 'POST', path: '/updates/check', summary: 'Check for updates' })
+    .route({ method: 'POST', path: '/updates/check', summary: 'Check for updates', tags: [OPEN_API_TAGS.updates] })
     .handler(async function checkUpdates() {
       return formatUpdateInfo(await checkForUpdate(true));
     }),
   apply: publicProcedure
-    .route({ method: 'POST', path: '/updates/apply', summary: 'Apply update' })
+    .route({ method: 'POST', path: '/updates/apply', summary: 'Apply update', tags: [OPEN_API_TAGS.updates] })
     .handler(async function applyAvailableUpdate() {
       const result = await applyUpdate();
 
@@ -41,7 +42,7 @@ export const updatesRouter = {
       return { success: true };
     }),
   result: publicProcedure
-    .route({ method: 'GET', path: '/updates/result', summary: 'Get update result' })
+    .route({ method: 'GET', path: '/updates/result', summary: 'Get update result', tags: [OPEN_API_TAGS.updates] })
     .handler(async function getUpdateResult() {
       return (await getPersistedUpdateResult()) || {
         completed: false,
@@ -51,19 +52,19 @@ export const updatesRouter = {
       };
     }),
   clearResult: publicProcedure
-    .route({ method: 'DELETE', path: '/updates/result', summary: 'Clear update result' })
+    .route({ method: 'DELETE', path: '/updates/result', summary: 'Clear update result', tags: [OPEN_API_TAGS.updates] })
     .handler(async function clearUpdateResult() {
       await clearPersistedUpdateResult();
       return { success: true };
     }),
   auto: {
     get: publicProcedure
-      .route({ method: 'GET', path: '/updates/auto', summary: 'Get auto-update settings' })
+      .route({ method: 'GET', path: '/updates/auto', summary: 'Get auto-update settings', tags: [OPEN_API_TAGS.updates] })
       .handler(async function getAutoUpdates() {
         return getAutoUpdateSettings();
       }),
     update: publicProcedure
-      .route({ method: 'PATCH', path: '/updates/auto', summary: 'Update auto-update settings' })
+      .route({ method: 'PATCH', path: '/updates/auto', summary: 'Update auto-update settings', tags: [OPEN_API_TAGS.updates] })
       .input(autoUpdateInput)
       .handler(async function updateAutoUpdates({ input }) {
         return saveAutoUpdateSettings(input);

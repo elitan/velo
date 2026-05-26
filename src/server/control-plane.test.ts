@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
 import { sql } from 'kysely';
+import { OPEN_API_TAGS } from '../api/openapi-tags';
 import { createApiClient } from '../api/router';
 import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
@@ -631,7 +632,10 @@ describe('control plane database', function controlPlaneDatabase() {
     const body = await authorized.json() as {
       branches: Array<{ slug: string; connectionString: string | null }>;
     };
-    const spec = await specResponse.json() as { paths: Record<string, unknown> };
+    const spec = await specResponse.json() as {
+      paths: Record<string, Record<string, { tags?: string[] }>>;
+      tags?: Array<{ name: string }>;
+    };
     const apiKeys = await apiKeysResponse.json() as Array<{ id: number }>;
     const dashboard = await dashboardResponse.json() as { branches: unknown[] };
     const jobs = await jobsResponse.json() as Array<{ id: number }>;
@@ -684,6 +688,23 @@ describe('control plane database', function controlPlaneDatabase() {
     ].every(function hasPath(path) {
       return Boolean(spec.paths[path]);
     })).toBe(true);
+    expect(spec.tags?.map(function mapTag(tag) {
+      return tag.name;
+    })).toEqual([
+      OPEN_API_TAGS.branches,
+      OPEN_API_TAGS.recovery,
+      OPEN_API_TAGS.data,
+      OPEN_API_TAGS.apiKeys,
+      OPEN_API_TAGS.dashboard,
+      OPEN_API_TAGS.jobs,
+      OPEN_API_TAGS.servers,
+      OPEN_API_TAGS.backup,
+      OPEN_API_TAGS.updates,
+    ]);
+    expect(spec.paths['/branches']?.get?.tags).toEqual([OPEN_API_TAGS.branches]);
+    expect(spec.paths['/branches/{targetBranch}/restore']?.post?.tags).toEqual([OPEN_API_TAGS.recovery]);
+    expect(spec.paths['/branches/{branchId}/tables']?.get?.tags).toEqual([OPEN_API_TAGS.data]);
+    expect(spec.paths['/api-keys']?.get?.tags).toEqual([OPEN_API_TAGS.apiKeys]);
   });
 
   test('promotes ready replacement without changing branch identity', async function testPromoteReadyReplacement() {

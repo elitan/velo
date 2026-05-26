@@ -1,5 +1,6 @@
 import { oc } from '@orpc/contract';
 import { z } from 'zod';
+import { OPEN_API_TAGS } from './openapi-tags';
 
 export const branchSchema = z.object({
   id: z.string(),
@@ -34,14 +35,14 @@ export const branchExpiryInput = branchSlugInput.extend({
 
 export const branchesContract = {
   list: oc
-    .route({ method: 'GET', path: '/branches', summary: 'List branches' })
+    .route({ method: 'GET', path: '/branches', summary: 'List branches', tags: [OPEN_API_TAGS.branches] })
     .output(z.object({ branches: z.array(branchSchema) })),
   retrieve: oc
-    .route({ method: 'GET', path: '/branches/{slug}', summary: 'Get branch' })
+    .route({ method: 'GET', path: '/branches/{slug}', summary: 'Get branch', tags: [OPEN_API_TAGS.branches] })
     .input(branchSlugInput)
     .output(z.object({ branch: branchSchema })),
   create: oc
-    .route({ method: 'POST', path: '/branches', successStatus: 201, summary: 'Create branch' })
+    .route({ method: 'POST', path: '/branches', successStatus: 201, summary: 'Create branch', tags: [OPEN_API_TAGS.branches] })
     .input(branchCreateInput)
     .output(z.object({
       branch: branchSchema,
@@ -49,7 +50,7 @@ export const branchesContract = {
       replicaWarning: z.string().nullable(),
     })),
   delete: oc
-    .route({ method: 'DELETE', path: '/branches/{slug}', summary: 'Delete branch' })
+    .route({ method: 'DELETE', path: '/branches/{slug}', summary: 'Delete branch', tags: [OPEN_API_TAGS.branches] })
     .input(branchSlugInput)
     .output(z.object({
       deleted: z.literal(true),
@@ -60,7 +61,7 @@ export const branchesContract = {
       }),
     })),
   reset: oc
-    .route({ method: 'POST', path: '/branches/{slug}/reset', summary: 'Reset branch from parent' })
+    .route({ method: 'POST', path: '/branches/{slug}/reset', summary: 'Reset branch from parent', tags: [OPEN_API_TAGS.branches] })
     .input(branchSlugInput)
     .output(z.object({
       branch: branchSchema,
@@ -68,7 +69,7 @@ export const branchesContract = {
     })),
   expiry: {
     update: oc
-      .route({ method: 'PATCH', path: '/branches/{slug}/expiry', summary: 'Update branch expiry' })
+      .route({ method: 'PATCH', path: '/branches/{slug}/expiry', summary: 'Update branch expiry', tags: [OPEN_API_TAGS.branches] })
       .input(branchExpiryInput)
       .output(z.object({ branch: branchSchema })),
   },

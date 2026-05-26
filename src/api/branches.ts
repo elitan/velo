@@ -3,6 +3,7 @@ import { ORPCError, implement } from '@orpc/server';
 import { branchesContract } from './branch-contract';
 import { publicProcedure } from './context';
 import { userFacingError } from './errors';
+import { OPEN_API_TAGS } from './openapi-tags';
 import { createJob } from '#server/services/job-service';
 import { createPreviewBranch, deleteBranch } from '#server/services/branch-service';
 import { runBranchSql } from '#server/services/sql-editor-service';
@@ -82,13 +83,13 @@ export const branchesRouter = {
   },
   preview: {
     create: publicProcedure
-      .route({ method: 'POST', path: '/branches/{sourceBranch}/previews', successStatus: 201, summary: 'Create preview branch' })
+      .route({ method: 'POST', path: '/branches/{sourceBranch}/previews', successStatus: 201, summary: 'Create preview branch', tags: [OPEN_API_TAGS.recovery] })
       .input(previewBranchInput)
       .handler(async function createBranchPreview({ input }) {
         return createPreviewBranch(input);
       }),
     delete: publicProcedure
-      .route({ method: 'DELETE', path: '/branch-previews/{id}', summary: 'Delete preview branch' })
+      .route({ method: 'DELETE', path: '/branch-previews/{id}', summary: 'Delete preview branch', tags: [OPEN_API_TAGS.recovery] })
       .input(branchIdInput)
       .handler(async function deleteBranchPreview({ input }) {
         try {
@@ -100,7 +101,7 @@ export const branchesRouter = {
   },
   sql: {
     run: publicProcedure
-      .route({ method: 'POST', path: '/branches/{branchId}/sql', summary: 'Run branch SQL' })
+      .route({ method: 'POST', path: '/branches/{branchId}/sql', summary: 'Run branch SQL', tags: [OPEN_API_TAGS.data] })
       .input(runSqlInput)
       .handler(async function runSql({ input }) {
         try {
@@ -111,7 +112,7 @@ export const branchesRouter = {
       }),
   },
   restore: publicProcedure
-    .route({ method: 'POST', path: '/branches/{targetBranch}/restore', summary: 'Restore branch' })
+    .route({ method: 'POST', path: '/branches/{targetBranch}/restore', summary: 'Restore branch', tags: [OPEN_API_TAGS.recovery] })
     .input(restoreBranchInput)
     .handler(async function restoreBranch({ input }) {
       assertProductionRestoreConfirmed(input.targetBranch, input.productionRestoreConfirmation);
