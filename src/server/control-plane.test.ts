@@ -545,12 +545,12 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(list.branches.map(function mapBranch(branch) {
       return branch.slug;
     })).toEqual(['production', 'dev']);
-    expect(list.branches[0]?.connectionUri).toBe('postgresql://postgres:prod@example.com:5432/postgres');
+    expect(list.branches[0]?.connectionString).toBe('postgresql://postgres:prod@example.com:5432/postgres');
     expect(retrieved.branch).toMatchObject({
       slug: 'dev',
       name: 'dev',
       type: 'development',
-      connectionUri: 'postgresql://postgres:dev@example.com:41001/postgres',
+      connectionString: 'postgresql://postgres:dev@example.com:41001/postgres',
     });
   });
 
@@ -568,9 +568,10 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(await verifyApiToken(created.token)).toBe(false);
   });
 
-  test('serves OpenAPI branch routes with bearer auth', async function testOpenApiBranchBearerAuth() {
+  test('serves REST routes with bearer auth', async function testOpenApiBearerAuth() {
     await setPassword('password123');
     const created = await createApiToken('ci');
+    const job = await createAuditJob('api-test', { ok: true }, 'api test');
     const projectId = await createProject();
     await setSetting('prod.connectionUrl', 'postgresql://postgres:prod@example.com:5432/postgres');
     await createBranchRecord({
@@ -599,19 +600,90 @@ describe('control plane database', function controlPlaneDatabase() {
         },
       }),
     }, { startDevJobWorker: false });
+    const apiKeysResponse = await handleApiRequest({
+      request: new Request('http://example.com/api/v1/api-keys', {
+        headers: {
+          authorization: `Bearer ${created.token}`,
+        },
+      }),
+    }, { startDevJobWorker: false });
+    const dashboardResponse = await handleApiRequest({
+      request: new Request('http://example.com/api/v1/dashboard', {
+        headers: {
+          authorization: `Bearer ${created.token}`,
+        },
+      }),
+    }, { startDevJobWorker: false });
+    const jobsResponse = await handleApiRequest({
+      request: new Request('http://example.com/api/v1/jobs?limit=1&type=api-test', {
+        headers: {
+          authorization: `Bearer ${created.token}`,
+        },
+      }),
+    }, { startDevJobWorker: false });
+    const jobResponse = await handleApiRequest({
+      request: new Request(`http://example.com/api/v1/jobs/${job.id}`, {
+        headers: {
+          authorization: `Bearer ${created.token}`,
+        },
+      }),
+    }, { startDevJobWorker: false });
     const body = await authorized.json() as {
-      branches: Array<{ slug: string; connectionUri: string | null }>;
+      branches: Array<{ slug: string; connectionString: string | null }>;
     };
     const spec = await specResponse.json() as { paths: Record<string, unknown> };
+    const apiKeys = await apiKeysResponse.json() as Array<{ id: number }>;
+    const dashboard = await dashboardResponse.json() as { branches: unknown[] };
+    const jobs = await jobsResponse.json() as Array<{ id: number }>;
+    const retrievedJob = await jobResponse.json() as { id: number };
 
     expect(unauthorized.status).toBe(401);
     expect(authorized.status).toBe(200);
     expect(specResponse.status).toBe(200);
+    expect(apiKeysResponse.status).toBe(200);
+    expect(dashboardResponse.status).toBe(200);
+    expect(jobsResponse.status).toBe(200);
+    expect(jobResponse.status).toBe(200);
     expect(body.branches.map(function mapBranch(branch) {
       return branch.slug;
     })).toEqual(['production', 'dev']);
-    expect(body.branches[1]?.connectionUri).toBe('postgresql://postgres:dev@example.com:41001/postgres');
-    expect(spec.paths['/branches']).toBeTruthy();
+    expect(body.branches[1]?.connectionString).toBe('postgresql://postgres:dev@example.com:41001/postgres');
+    expect(apiKeys.map(function mapKey(key) {
+      return key.id;
+    })).toContain(created.apiToken.id);
+    expect(dashboard.branches).toHaveLength(1);
+    expect(jobs[0]?.id).toBe(job.id);
+    expect(retrievedJob.id).toBe(job.id);
+    expect([
+      '/api-keys',
+      '/api-keys/{id}',
+      '/backup/settings',
+      '/branch-previews/{id}',
+      '/branches',
+      '/branches/{branchId}/sql',
+      '/branches/{branchId}/tables',
+      '/branches/{branchId}/tables/{database}/{schema}/{table}/rows',
+      '/branches/{branchId}/tables/{database}/{schema}/{table}/rows/{rowId}',
+      '/branches/{slug}',
+      '/branches/{slug}/expiry',
+      '/branches/{slug}/reset',
+      '/branches/{sourceBranch}/previews',
+      '/branches/{targetBranch}/restore',
+      '/dashboard',
+      '/jobs',
+      '/jobs/{id}',
+      '/jobs/{id}/cancel',
+      '/jobs/{id}/retry',
+      '/servers/{role}',
+      '/servers/{role}/check',
+      '/updates',
+      '/updates/apply',
+      '/updates/auto',
+      '/updates/check',
+      '/updates/result',
+    ].every(function hasPath(path) {
+      return Boolean(spec.paths[path]);
+    })).toBe(true);
   });
 
   test('promotes ready replacement without changing branch identity', async function testPromoteReadyReplacement() {

@@ -16,8 +16,11 @@ const backupInput = z.object({
 
 export const backupRouter = {
   settings: {
-    update: publicProcedure.input(backupInput).handler(async function updateBackupSettings({ input }) {
-      return saveBackupSettings(input);
-    }),
+    update: publicProcedure
+      .route({ method: 'PUT', path: '/backup/settings', summary: 'Update backup settings' })
+      .input(backupInput)
+      .handler(async function updateBackupSettings({ input }) {
+        return saveBackupSettings(input);
+      }),
   },
 };

@@ -11,14 +11,14 @@ const tokenIdInput = z.object({
   id: z.coerce.number().int().positive(),
 });
 
-export const apiTokensRouter = {
+export const apiKeysRouter = {
   list: publicProcedure
-    .route({ method: 'GET', path: '/api-tokens', summary: 'List API keys' })
+    .route({ method: 'GET', path: '/api-keys', summary: 'List API keys' })
     .handler(async function listTokens() {
       return listApiTokens();
     }),
   create: publicProcedure
-    .route({ method: 'POST', path: '/api-tokens', successStatus: 201, summary: 'Create API key' })
+    .route({ method: 'POST', path: '/api-keys', successStatus: 201, summary: 'Create API key' })
     .input(createTokenInput)
     .handler(async function createToken({ input }) {
       try {
@@ -28,7 +28,7 @@ export const apiTokensRouter = {
       }
     }),
   revoke: publicProcedure
-    .route({ method: 'DELETE', path: '/api-tokens/{id}', summary: 'Revoke API key' })
+    .route({ method: 'DELETE', path: '/api-keys/{id}', summary: 'Revoke API key' })
     .input(tokenIdInput)
     .handler(async function revokeToken({ input }) {
       try {

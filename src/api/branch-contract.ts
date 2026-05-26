@@ -13,7 +13,7 @@ export const branchSchema = z.object({
   }).nullable(),
   createdAt: z.string().nullable(),
   expiresAt: z.string().nullable(),
-  connectionUri: z.string().nullable(),
+  connectionString: z.string().nullable(),
 });
 
 export const branchCreateInput = z.object({
@@ -45,7 +45,7 @@ export const branchesContract = {
     .input(branchCreateInput)
     .output(z.object({
       branch: branchSchema,
-      connectionUri: z.string(),
+      connectionString: z.string(),
       replicaWarning: z.string().nullable(),
     })),
   delete: oc
@@ -64,7 +64,7 @@ export const branchesContract = {
     .input(branchSlugInput)
     .output(z.object({
       branch: branchSchema,
-      connectionUri: z.string(),
+      connectionString: z.string(),
     })),
   expiry: {
     update: oc
