@@ -3,19 +3,16 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import type { FormEvent, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import {
-  Database,
   Loader2,
   Play,
   ShieldAlert,
-  Terminal,
 } from 'lucide-react';
 import { Button } from '#web/components/ui/button';
-import { Input } from '#web/components/ui/input';
 import { orpc, type ControlPlaneState } from '#web/lib/api-client';
 import {
   AppSidebar,
 } from '#web/components/control-plane';
-import { isConfirmedProductionWrite, isProductionBranchId, isReadOnlySql, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
+import { isProductionBranchId } from '#utils/prod-write-guard';
 
 export const Route = createFileRoute('/branch/$branchId/sql')({
   component: SqlEditorPage,
@@ -31,7 +28,6 @@ function SqlEditorPage() {
   const [sql, setSql] = useState(function getInitialSql() {
     return readSavedSql(params.branchId);
   });
-  const [productionWriteConfirmation, setProductionWriteConfirmation] = useState('');
   const [result, setResult] = useState<SqlResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +35,6 @@ function SqlEditorPage() {
     currentBranchIdRef.current = params.branchId;
     skipNextSaveRef.current = true;
     setSql(readSavedSql(params.branchId));
-    setProductionWriteConfirmation('');
     setResult(null);
     setError(null);
   }, [params.branchId]);
@@ -61,18 +56,12 @@ function SqlEditorPage() {
 
   const branch = getBranchView(state, params.branchId);
   const isProduction = isProductionBranchId(params.branchId);
-  const isProductionWrite = isProduction && Boolean(sql.trim()) && !isReadOnlySql(sql);
-  const productionWriteUnlocked = isConfirmedProductionWrite(productionWriteConfirmation);
   const runDisabled = runSql.isPending
     || !sql.trim()
-    || branch.status === 'missing'
-    || (isProductionWrite && !productionWriteUnlocked);
+    || branch.status === 'missing';
 
   async function runCurrentSql() {
     if (runDisabled) {
-      if (isProductionWrite && !productionWriteUnlocked) {
-        setError(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to run write SQL on production.`);
-      }
       return;
     }
 
@@ -83,7 +72,6 @@ function SqlEditorPage() {
       const nextResult = await runSql.mutateAsync({
         branchId,
         sql,
-        productionWriteConfirmation: isProduction ? productionWriteConfirmation : undefined,
       });
 
       if (currentBranchIdRef.current !== branchId) {
@@ -112,43 +100,16 @@ function SqlEditorPage() {
         <AppSidebar branches={state.branches} activeBranchPage="sql" selectedBranch={branch.id} />
 
         <section className="min-w-0 bg-background">
-          <div className="grid min-h-screen grid-rows-[minmax(280px,42vh)_1fr]">
-            <form className="min-h-0 border-b border-border" onSubmit={handleRunSql}>
-              <div className="flex h-12 items-center justify-between gap-3 border-b border-border px-4">
-                <div className="flex items-center gap-3">
-                  <div className="grid size-7 place-items-center rounded-sm border border-border bg-muted text-muted-foreground">
-                    <Terminal className="size-4" />
-                  </div>
-                  <div className="font-mono text-sm font-medium">query.sql</div>
-                </div>
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="h-8"
-                  disabled={runDisabled}
-                >
-                  {runSql.isPending ? <Loader2 className="animate-spin" /> : <Play />}
-                  Run
-                </Button>
-              </div>
-
+          <div className="grid min-h-screen grid-rows-[minmax(280px,44vh)_1fr]">
+            <form className="flex min-h-0 flex-col border-b border-border" onSubmit={handleRunSql}>
               {isProduction ? (
                 <div className="flex flex-wrap items-center gap-2 border-b border-border bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
                   <ShieldAlert className="size-4" />
-                  <span className="font-medium">{isProductionWrite ? 'production writes locked' : 'production read-only'}</span>
-                  <Input
-                    value={productionWriteConfirmation}
-                    onChange={function updateProductionWriteConfirmation(event) {
-                      setProductionWriteConfirmation(event.target.value);
-                    }}
-                    className="h-8 w-48 bg-background font-mono text-xs text-foreground"
-                    placeholder={PRODUCTION_WRITE_CONFIRMATION}
-                    aria-label="Production write confirmation"
-                  />
+                  <span className="font-medium">production database</span>
                 </div>
               ) : null}
 
-              <div className={isProduction ? 'relative h-[calc(100%-6.25rem)] min-h-0 bg-background' : 'relative h-[calc(100%-3rem)] min-h-0 bg-background'}>
+              <div className="relative min-h-0 flex-1 bg-background">
                 <pre
                   ref={highlightRef}
                   aria-hidden="true"
@@ -181,22 +142,26 @@ function SqlEditorPage() {
                   }}
                 />
               </div>
+
+              <div className="flex h-12 items-center border-t border-border px-4">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-8"
+                  disabled={runDisabled}
+                >
+                  {runSql.isPending ? <Loader2 className="animate-spin" /> : <Play />}
+                  Run
+                </Button>
+              </div>
             </form>
 
             <section className="min-h-0">
-              <div className="flex h-12 items-center justify-between gap-3 border-b border-border px-4">
-                <div className="flex items-center gap-3">
-                  <div className="grid size-7 place-items-center rounded-sm border border-border bg-muted text-muted-foreground">
-                    <Database className="size-4" />
-                  </div>
-                  <div className="font-mono text-sm font-medium">stdout</div>
+              {result ? (
+                <div className="flex h-10 items-center border-b border-border px-4 font-mono text-xs text-muted-foreground">
+                  {result.command} · {result.rowCount} rows · {formatDuration(result.durationMs)}
                 </div>
-                {result ? (
-                  <div className="font-mono text-xs text-muted-foreground">
-                    {result.command} · {result.rowCount} rows · {formatDuration(result.durationMs)}
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
               <div className="min-h-0">
                 {error ? (
                   <div className="m-4 border border-destructive/30 bg-destructive/10 px-3 py-2 font-mono text-sm text-destructive">
@@ -204,11 +169,6 @@ function SqlEditorPage() {
                   </div>
                 ) : null}
                 {!error && result ? <SqlResultTable result={result} /> : null}
-                {!error && !result ? (
-                  <div className="px-4 py-10 font-mono text-sm text-muted-foreground">
-                    <span className="text-foreground">$</span> run query to print rows
-                  </div>
-                ) : null}
               </div>
             </section>
           </div>

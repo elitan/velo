@@ -1,6 +1,6 @@
 import { SQL } from 'bun';
 import { getDb } from '#db/client';
-import { isConfirmedProductionWrite, isProductionBranchId, isReadOnlySql } from '#utils/prod-write-guard';
+import { isProductionBranchId, isReadOnlySql } from '#utils/prod-write-guard';
 import { getSetting } from './settings-service';
 import { getActiveJobs } from './job-service';
 import { auditProdWriteAttempt } from './prod-write-audit-service';
@@ -10,7 +10,6 @@ const STATEMENT_TIMEOUT_MS = 30_000;
 export interface RunBranchSqlInput {
   branchId: string;
   sql: string;
-  productionWriteConfirmation?: string | undefined;
 }
 
 export interface RunBranchSqlResult {
@@ -30,7 +29,7 @@ export async function runBranchSql(input: RunBranchSqlInput): Promise<RunBranchS
   }
 
   await assertBranchNotRestoring(input.branchId);
-  await assertProductionSqlWriteAllowed(input);
+  await auditProductionSqlWrite(input);
 
   const connectionUrl = await getBranchConnectionUrl(input.branchId);
   const client = new SQL({ url: connectionUrl, max: 1 });
@@ -102,23 +101,18 @@ async function assertBranchNotRestoring(branchId: string): Promise<void> {
   }
 }
 
-async function assertProductionSqlWriteAllowed(input: RunBranchSqlInput): Promise<void> {
+async function auditProductionSqlWrite(input: RunBranchSqlInput): Promise<void> {
   if (!isProductionBranchId(input.branchId) || isReadOnlySql(input.sql)) {
     return;
   }
 
-  const allowed = isConfirmedProductionWrite(input.productionWriteConfirmation);
   await auditProdWriteAttempt({
     area: 'sql',
     action: 'run',
     branchId: input.branchId,
-    allowed,
+    allowed: true,
     target: summarizeSql(input.sql),
   });
-
-  if (!allowed) {
-    throw new Error('Type "write production" to run write SQL on production.');
-  }
 }
 
 function summarizeSql(sql: string): string {
