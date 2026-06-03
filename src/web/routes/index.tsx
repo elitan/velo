@@ -28,6 +28,7 @@ import {
   BranchTreePanel,
 } from '#web/components/control-plane';
 import { orpc } from '#web/lib/api-client';
+import { getMutationErrorMessage } from '#web/lib/errors';
 import { getReplicaBranchCreatePolicy, type ReplicaBranchCreatePolicy } from '#utils/replica-freshness-policy';
 
 export const Route = createFileRoute('/')({
@@ -106,7 +107,7 @@ function HomePage() {
       }
       setCreateModalOpen(false);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not create branch.');
+      toast.error(getMutationErrorMessage(error, 'Could not create branch.'));
       return;
     }
 

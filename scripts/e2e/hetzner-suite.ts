@@ -8,7 +8,7 @@ import { runCommand, runSshCommand } from '#server/services/command-service';
 import { createReplicaBase } from '#server/services/replica-service';
 import { runExpiredBranchCleanup } from '#server/services/branch-service';
 import { TABLE_ROW_ID_COLUMN } from '#server/services/table-browser-service';
-import { getContainerName, getDatasetName } from '#utils/naming';
+import { getContainerName } from '#utils/naming';
 import { isProductionBranchId } from '#utils/prod-write-guard';
 import { testHttpBranchApi } from './http-branch-api';
 
@@ -39,7 +39,7 @@ async function main() {
     { name: 'branch proxy scale to zero', run: testBranchProxyScaleToZero },
     { name: 'branch data, sql, table browser, reset', run: testBranchDataSqlTablesAndReset },
     { name: 'branch delete guard and ttl cleanup', run: testBranchDeleteGuardAndTtlCleanup },
-    { name: 'pgBackRest branch, preview, replacement PITR', run: testBranchPitrFlows },
+    { name: 'pgBackRest branch and replacement PITR', run: testBranchPitrFlows },
     { name: 'production PITR restore', run: testProductionPitrRestore },
     { name: 'ready health check', run: testReadyHealthCheck },
   ];
@@ -274,7 +274,6 @@ async function testBranchDeleteGuardAndTtlCleanup(): Promise<void> {
 async function testBranchPitrFlows(): Promise<void> {
   const table = `e2e_pitr_${RUN_ID}`;
   const branchName = `e2e_pitr_${RUN_ID}`;
-  const previewWriteTable = `e2e_preview_write_${RUN_ID}`;
   const replaceName = `e2e_replace_${RUN_ID}`;
   const targetTime = await preparePitrFixture(table);
 
@@ -297,22 +296,6 @@ async function testBranchPitrFlows(): Promise<void> {
   assert(rows.rows.map(function getLabel(row) {
     return row.label;
   }).join(',') === 'before', `PITR branch should restore before row only: ${JSON.stringify(rows.rows)}`);
-
-  const preview = await api.branches.preview.create({
-    sourceBranch: 'production',
-    restoreTime: targetTime,
-  });
-  trackedBranches.add(preview.slug);
-  await assertBranchConnects(preview.slug);
-  const previewRows = await runBranchSql(preview.slug, `select label from ${table} order by id`);
-  assert(previewRows.rows.map(function getLabel(row) {
-    return row.label;
-  }).join(',') === 'before', `PITR preview should restore before row only: ${JSON.stringify(previewRows.rows)}`);
-  await assertSqlError(preview.slug, `create table ${previewWriteTable} (id integer primary key)`);
-  await api.branches.preview.delete({ id: preview.id });
-  trackedBranches.delete(preview.slug);
-  await assertBranchMissing(preview.slug);
-  await assertZfsDatasetMissing(getDatasetName(PROJECT_NAME, preview.slug));
 
   const replacement = await createBranch(replaceName);
   const oldId = replacement.id;

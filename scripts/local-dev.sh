@@ -335,7 +335,7 @@ where not exists (select 1 from velo_local_accounts);
 insert into velo_local_events (account_key, event_name, event_index, score, payload, happened_at)
 select
   'acct-' || ((item % 12) + 1),
-  case when item % 5 = 0 then 'branch.created' when item % 5 = 1 then 'query.run' when item % 5 = 2 then 'backup.completed' when item % 5 = 3 then 'restore.previewed' else 'user.invited' end,
+  case when item % 5 = 0 then 'branch.created' when item % 5 = 1 then 'query.run' when item % 5 = 2 then 'backup.completed' when item % 5 = 3 then 'restore.completed' else 'user.invited' end,
   item,
   round((random() * 100)::numeric, 3)::double precision,
   jsonb_build_object('index', item, 'ok', item % 7 <> 0, 'batch', item / 100),

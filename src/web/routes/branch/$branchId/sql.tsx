@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '#web/components/ui/button';
 import { orpc, type ControlPlaneState } from '#web/lib/api-client';
+import { getMutationErrorMessage } from '#web/lib/errors';
 import {
   AppSidebar,
 } from '#web/components/control-plane';
@@ -84,7 +85,7 @@ function SqlEditorPage() {
         return;
       }
 
-      setError(getErrorMessage(caught, 'SQL failed'));
+      setError(getMutationErrorMessage(caught, 'SQL failed'));
       setResult(null);
     }
   }
@@ -350,10 +351,6 @@ function formatDuration(durationMs: number): string {
   }
 
   return `${(durationMs / 1000).toFixed(2)} s`;
-}
-
-function getErrorMessage(error: any, fallback: string): string {
-  return error?.data?.message || error?.json?.data?.message || error?.message || fallback;
 }
 
 function SqlLoadingPage(props: { message: string }) {

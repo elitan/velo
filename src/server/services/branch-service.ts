@@ -10,7 +10,6 @@ import { getContainerName, getDatasetName } from '../../utils/naming';
 import { getDb } from '../../db/client';
 import { runCommand } from './command-service';
 import { setStepStatus } from './setup-state-service';
-import { createBranchFromPgBackRest } from './pgbackrest-restore-service';
 import { cleanupOldReplicaBases, getReplicaBaseDataset, getReplicaFreshness, withPausedReplicaReplay } from './replica-service';
 import { createLocalDockerBranch, deleteLocalDockerBranch, deleteLocalDockerBranchResources, isLocalDockerMode, startLocalDockerBranchContainer, stopLocalDockerBranchContainer } from './local-docker-service';
 import { createJob, getActiveJobs } from './job-service';
@@ -29,11 +28,6 @@ export interface CreateBranchInput {
   branchPassword?: string | null;
   preferredPort?: number | null;
   forceReplicaStale?: boolean;
-}
-
-export interface CreatePreviewBranchInput {
-  sourceBranch: string;
-  restoreTime: string;
 }
 
 export interface CreateBranchResult {
@@ -122,7 +116,6 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
       parentBranchId: source.id,
       expiresAt,
       publicAccess: false,
-      readOnly: false,
       branchPassword: input.branchPassword,
       preferredPort: input.preferredPort,
     });
@@ -131,24 +124,6 @@ export async function createBranchFromBase(input: CreateBranchInput): Promise<Cr
   } catch (error: any) {
     throw error;
   }
-}
-
-export async function createPreviewBranch(input: CreatePreviewBranchInput): Promise<CreateBranchResult> {
-  const sourceBranch = normalizeSourceBranch(input.sourceBranch);
-  const restoreTime = parseRestoreTime(input.restoreTime);
-  const branchSlug = buildPreviewBranchName(sourceBranch);
-
-  if (sourceBranch !== 'production') {
-    throw new Error('PITR preview currently supports production as the source branch');
-  }
-
-  return createBranchFromPgBackRest({
-    targetBranch: branchSlug,
-    sourceBranch,
-    restoreTime: restoreTime.toISOString(),
-    publicAccess: false,
-    readOnly: true,
-  });
 }
 
 async function createBranchClone(options: {
@@ -160,7 +135,6 @@ async function createBranchClone(options: {
   parentBranchId: number | null;
   expiresAt: string | null;
   publicAccess: boolean;
-  readOnly: boolean;
   branchPassword?: string | null;
   preferredPort?: number | null;
 }): Promise<CreateBranchResult> {
@@ -235,7 +209,6 @@ async function createBranchClone(options: {
       username: 'postgres',
       database: 'postgres',
       publicAccess: options.publicAccess,
-      readOnly: options.readOnly,
     });
 
     await docker.startContainer(containerId);
@@ -912,35 +885,10 @@ function normalizeDisplayName(name: string): string {
   return normalized;
 }
 
-function normalizeSourceBranch(name: string): string {
-  const normalized = name.trim().toLowerCase();
-
-  if (normalized === 'production') {
-    return normalized;
-  }
-
-  return normalizeBranchSlug(normalized);
-}
-
-function buildPreviewBranchName(sourceBranch: string): string {
-  const safeSource = sourceBranch.replace(/[^a-z0-9_-]/g, '-').slice(0, 28);
-  return normalizeBranchSlug(`preview-${safeSource}-${formatTimestamp(new Date())}`.slice(0, 63));
-}
-
 function buildReplacementBranchSlug(slug: string): string {
   const suffix = formatTimestamp(new Date()).toLowerCase();
   const prefix = slug.slice(0, Math.max(1, 63 - suffix.length - 5));
   return normalizeBranchSlug(`${prefix}-tmp-${suffix}`);
-}
-
-function parseRestoreTime(value: string): Date {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    throw new Error('Restore time is invalid');
-  }
-
-  return date;
 }
 
 function resolveExpiresAt(input: CreateBranchInput): string | null {

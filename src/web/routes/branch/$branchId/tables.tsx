@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from '#web/components/ui/select';
 import { orpc } from '#web/lib/api-client';
+import { getMutationErrorMessage } from '#web/lib/errors';
 import { cn } from '#lib/utils';
 import { isConfirmedProductionWrite, isProductionBranchId, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
 
@@ -274,7 +275,7 @@ function BranchTablesPage() {
       setRowToDelete(null);
       toast.success('Row deleted.');
     } catch (caught: any) {
-      toast.error(caught?.message || 'Could not delete row');
+      toast.error(getMutationErrorMessage(caught, 'Could not delete row'));
     }
   }
 
@@ -339,7 +340,7 @@ function BranchTablesPage() {
       setEditor(null);
       toast.success(editor.mode === 'insert' ? 'Row added.' : 'Row saved.');
     } catch (caught: any) {
-      toast.error(caught?.message || 'Could not save row');
+      toast.error(getMutationErrorMessage(caught, 'Could not save row'));
     }
   }
 

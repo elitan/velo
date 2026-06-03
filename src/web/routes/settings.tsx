@@ -35,6 +35,7 @@ import {
 } from '#web/components/ui/tabs';
 import { api, orpc } from '#web/lib/api-client';
 import { changePassword } from '#web/lib/auth-client';
+import { getMutationErrorMessage } from '#web/lib/errors';
 import {
   AppSidebar,
   BackupPanel,
@@ -185,7 +186,7 @@ function SettingsPage() {
       });
       toast.success(`${role === 'prod' ? 'Production' : 'Development'} server saved.`);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not save server.');
+      toast.error(getMutationErrorMessage(error, 'Could not save server.'));
     }
   }
 
@@ -194,7 +195,7 @@ function SettingsPage() {
       await checkServer.mutateAsync({ role });
       toast.success(`${role === 'prod' ? 'Production' : 'Development'} server checked.`);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not check server.');
+      toast.error(getMutationErrorMessage(error, 'Could not check server.'));
     }
   }
 
@@ -213,7 +214,7 @@ function SettingsPage() {
       });
       toast.success('Backup settings saved.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not save backup settings.');
+      toast.error(getMutationErrorMessage(error, 'Could not save backup settings.'));
     }
   }
 
@@ -236,7 +237,7 @@ function SettingsPage() {
       await retryJob.mutateAsync(jobId);
       toast.success('Job queued.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not retry job.');
+      toast.error(getMutationErrorMessage(error, 'Could not retry job.'));
     }
   }
 
@@ -245,7 +246,7 @@ function SettingsPage() {
       await cancelJob.mutateAsync(jobId);
       toast.success('Job cancelled.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not cancel job.');
+      toast.error(getMutationErrorMessage(error, 'Could not cancel job.'));
     }
   }
 
@@ -530,7 +531,7 @@ function PasswordPanel() {
       setConfirmPassword('');
       toast.success('Password changed.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not change password.');
+      toast.error(getMutationErrorMessage(error, 'Could not change password.'));
     } finally {
       setBusy(false);
     }
@@ -607,8 +608,8 @@ function UpdatePanel() {
 
   const check = useMutation(orpc.updates.check.mutationOptions({
     onSuccess: refreshUpdates,
-    onError: function handleCheckError() {
-      toast.error('Could not check for updates.');
+    onError: function handleCheckError(error) {
+      toast.error(getMutationErrorMessage(error, 'Could not check for updates.'));
     },
   }));
 
@@ -617,7 +618,7 @@ function UpdatePanel() {
       setState('restarting');
     },
     onError: function handleApplyError(cause) {
-      toast.error(cause instanceof Error ? cause.message : 'Could not apply update.');
+      toast.error(getMutationErrorMessage(cause, 'Could not apply update.'));
       setState('idle');
     },
   }));

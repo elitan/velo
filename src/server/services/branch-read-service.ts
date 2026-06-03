@@ -16,7 +16,6 @@ export interface BranchRecord {
 
 export async function listBranchRecords(): Promise<BranchRecord[]> {
   return selectBranchRecords()
-    .where('branches.slug', 'not like', 'preview-%')
     .orderBy('branches.createdAt', 'desc')
     .execute();
 }

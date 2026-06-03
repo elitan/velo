@@ -199,8 +199,9 @@ function SidebarContent(props: SidebarContentProps) {
   const overviewHref = `/branch/${selectedBranchParam}/overview`;
   const sqlHref = `/branch/${selectedBranchParam}/sql`;
   const tablesHref = `/branch/${selectedBranchParam}/tables`;
-  const backupHref = `/branch/${selectedBranchParam}/backup-restore`;
+  const restoreHref = `/branch/${selectedBranchParam}/backup-restore`;
   const selectedBranchIsPending = selectedBranch !== 'production' && !branchExists(selectedBranch, props.branches);
+  const showRestoreNav = selectedBranch === 'production';
 
   useEffect(function saveSelectedBranch() {
     if (!props.selectedBranch) {
@@ -267,7 +268,9 @@ function SidebarContent(props: SidebarContentProps) {
           <NavItem icon={LayoutDashboard} label="Overview" href={overviewHref} active={props.activeBranchPage === 'overview'} onNavigate={props.onNavigate} />
           <NavItem icon={Code2} label="SQL editor" href={sqlHref} active={props.activeBranchPage === 'sql'} onNavigate={props.onNavigate} />
           <NavItem icon={Table2} label="Tables" href={tablesHref} active={props.activeBranchPage === 'tables'} onNavigate={props.onNavigate} />
-          <NavItem icon={ArchiveRestore} label="Backup & Restore" href={backupHref} active={props.activeBranchPage === 'backup'} onNavigate={props.onNavigate} />
+          {showRestoreNav ? (
+            <NavItem icon={ArchiveRestore} label="Restore" href={restoreHref} active={props.activeBranchPage === 'backup'} onNavigate={props.onNavigate} />
+          ) : null}
         </div>
       </SidebarSection>
 

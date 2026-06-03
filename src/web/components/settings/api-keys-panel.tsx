@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#web/
 import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
 import { orpc } from '#web/lib/api-client';
+import { getMutationErrorMessage } from '#web/lib/errors';
 
 export function ApiKeysPanel() {
   const queryClient = useQueryClient();
@@ -43,7 +44,7 @@ export function ApiKeysPanel() {
       setName('');
       toast.success('API key created.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not create API key.');
+      toast.error(getMutationErrorMessage(error, 'Could not create API key.'));
     }
   }
 
@@ -68,7 +69,7 @@ export function ApiKeysPanel() {
       await revokeToken.mutateAsync({ id });
       toast.success('API key revoked.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not revoke API key.');
+      toast.error(getMutationErrorMessage(error, 'Could not revoke API key.'));
     }
   }
 

@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#web/
 import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
 import { login } from '#web/lib/auth-client';
+import { getMutationErrorMessage } from '#web/lib/errors';
 
 export const Route = createFileRoute('/login')({
   component: LoginPage,
@@ -26,7 +27,7 @@ function LoginPage() {
       await login(password);
       window.location.assign(safeNextPath(search.next));
     } catch (error: any) {
-      toast.error(error?.message || 'Could not sign in.');
+      toast.error(getMutationErrorMessage(error, 'Could not sign in.'));
       setBusy(false);
     }
   }

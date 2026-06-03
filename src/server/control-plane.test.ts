@@ -483,9 +483,9 @@ describe('control plane database', function controlPlaneDatabase() {
       .insertInto('branches')
       .values({
         projectId: project.id,
-        slug: 'preview-1',
-        displayName: 'preview-1',
-        dataset: 'prod_preview_1',
+        slug: 'expired-1',
+        displayName: 'expired-1',
+        dataset: 'prod_expired_1',
         status: 'running',
         expiresAt: '2026-05-01T00:00:00.000Z',
       })
@@ -494,7 +494,7 @@ describe('control plane database', function controlPlaneDatabase() {
     const branch = await db
       .selectFrom('branches')
       .select(['id'])
-      .where('slug', '=', 'preview-1')
+      .where('slug', '=', 'expired-1')
       .executeTakeFirstOrThrow();
     const activeJob = await createJob('reset-branch', { id: branch.id });
 
@@ -865,7 +865,7 @@ function statMode(path: string): number {
 
 describe('control plane jobs', function controlPlaneJobs() {
   test('runs jobs, stores logs, and sanitizes secrets', async function testSuccessfulJob() {
-    const job = await createJob('test-job', { branch: 'preview-1' });
+    const job = await createJob('test-job', { branch: 'branch-1' });
     const worker = startTestWorker({
       'test-job': async function handleJob(_input, context) {
         await context.log('using password=secret-value and secret access key abc');
@@ -905,19 +905,19 @@ describe('control plane jobs', function controlPlaneJobs() {
 
   test('redacts job input returned to API callers', async function testRedactedJobInput() {
     const job = await createJob('test-job', {
-      branch: 'preview-1',
+      branch: 'branch-1',
       password: 'secret-value',
       connectionUrl: 'postgresql://postgres:bad@localhost:5432/postgres',
     });
     const record = await getJob(job.id);
 
-    expect(JSON.stringify(record.input)).toContain('preview-1');
+    expect(JSON.stringify(record.input)).toContain('branch-1');
     expect(JSON.stringify(record.input)).not.toContain('secret-value');
     expect(JSON.stringify(record.input)).not.toContain('bad@localhost');
   });
 
   test('cancels queued jobs', async function testCancelQueuedJob() {
-    const job = await createJob('create-branch', { name: 'preview-1' });
+    const job = await createJob('create-branch', { name: 'branch-1' });
     const record = await cancelJobById(job.id);
 
     expect(record.status).toBe('cancelled');
@@ -926,7 +926,7 @@ describe('control plane jobs', function controlPlaneJobs() {
   });
 
   test('requeues only safe failed jobs', async function testManualRetryRules() {
-    const safe = await createJob('create-branch', { name: 'preview-1' });
+    const safe = await createJob('create-branch', { name: 'branch-1' });
     const unsafe = await createJob('restore-branch', {
       targetBranch: 'production',
       sourceBranch: 'production',
