@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeDb } from '#db/client';
 import { migrateDatabase } from '#db/migrate';
-import { checkForUpdate, getUpdateStatus } from './update-service';
+import { checkForUpdate, getCurrentVersion, getUpdateStatus } from './update-service';
 
 let testDir: string;
 let originalFetch: typeof fetch;
@@ -25,45 +25,52 @@ afterEach(async function cleanupDatabase() {
 
 describe('update service', function updateService() {
   test('stores latest release and available update details', async function testAvailableUpdate() {
+    const currentVersion = getCurrentVersion();
+    const latestVersion = incrementPatchVersion(currentVersion);
+
     globalThis.fetch = createFetchMock({
       latestStatus: 200,
-      latestBody: releaseBody('1.0.1'),
+      latestBody: releaseBody(latestVersion),
       migrationFiles: [],
     });
 
     const update = await checkForUpdate(true);
 
-    expect(update.currentVersion).toBe('1.0.0');
-    expect(update.latestVersion).toBe('1.0.1');
-    expect(update.availableVersion).toBe('1.0.1');
-    expect(update.htmlUrl).toBe('https://github.com/elitan/velo/releases/tag/v1.0.1');
+    expect(update.currentVersion).toBe(currentVersion);
+    expect(update.latestVersion).toBe(latestVersion);
+    expect(update.availableVersion).toBe(latestVersion);
+    expect(update.htmlUrl).toBe(`https://github.com/elitan/velo/releases/tag/v${latestVersion}`);
     expect(update.checkStatus).toBe('ok');
 
     const status = await getUpdateStatus();
-    expect(status.latestVersion).toBe('1.0.1');
-    expect(status.availableVersion).toBe('1.0.1');
-    expect(status.releaseNotes).toContain('Release notes for 1.0.1');
+    expect(status.latestVersion).toBe(latestVersion);
+    expect(status.availableVersion).toBe(latestVersion);
+    expect(status.releaseNotes).toContain(`Release notes for ${latestVersion}`);
   });
 
   test('keeps latest release link when already current', async function testCurrentRelease() {
+    const currentVersion = getCurrentVersion();
+
     globalThis.fetch = createFetchMock({
       latestStatus: 200,
-      latestBody: releaseBody('1.0.0'),
+      latestBody: releaseBody(currentVersion),
       migrationFiles: [],
     });
 
     const update = await checkForUpdate(true);
 
-    expect(update.latestVersion).toBe('1.0.0');
+    expect(update.latestVersion).toBe(currentVersion);
     expect(update.availableVersion).toBeNull();
-    expect(update.htmlUrl).toBe('https://github.com/elitan/velo/releases/tag/v1.0.0');
+    expect(update.htmlUrl).toBe(`https://github.com/elitan/velo/releases/tag/v${currentVersion}`);
     expect(update.checkStatus).toBe('ok');
   });
 
   test('keeps cached release data when GitHub rate limits a check', async function testRateLimitState() {
+    const latestVersion = incrementPatchVersion(getCurrentVersion());
+
     globalThis.fetch = createFetchMock({
       latestStatus: 200,
-      latestBody: releaseBody('1.0.1'),
+      latestBody: releaseBody(latestVersion),
       migrationFiles: [],
     });
 
@@ -78,8 +85,8 @@ describe('update service', function updateService() {
 
     const update = await checkForUpdate(true);
 
-    expect(update.latestVersion).toBe('1.0.1');
-    expect(update.availableVersion).toBe('1.0.1');
+    expect(update.latestVersion).toBe(latestVersion);
+    expect(update.availableVersion).toBe(latestVersion);
     expect(update.checkStatus).toBe('rate_limited');
     expect(update.checkMessage).toContain('rate limit');
   });
@@ -122,6 +129,15 @@ function releaseBody(version: string) {
     draft: false,
     prerelease: false,
   };
+}
+
+function incrementPatchVersion(version: string): string {
+  const [major, minor, patch] = version.split('.').map(Number);
+  if (major === undefined || minor === undefined || patch === undefined) {
+    throw new Error(`Invalid version: ${version}`);
+  }
+
+  return `${major}.${minor}.${patch + 1}`;
 }
 
 function jsonResponse(body: unknown, status: number, headers: Headers): Response {
