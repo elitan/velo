@@ -17,7 +17,18 @@ tmp="$(mktemp)"
 notes="$(mktemp)"
 trap 'rm -f "$tmp" "$notes"' EXIT
 
-git log --pretty=format:'%h%x1f%s' --no-merges "$RANGE" > "$tmp"
+is_release_mechanics() {
+  local subject="$1"
+  printf '%s\n' "$subject" | grep -Eq '^chore\(release\): (bump version to|revert .*version bump|revert .*release bump)'
+}
+
+git log --pretty=format:'%h%x1f%s' --no-merges "$RANGE" | while IFS=$'\x1f' read -r hash subject || [ -n "$hash$subject" ]; do
+  [ -n "$subject" ] || continue
+  if is_release_mechanics "$subject"; then
+    continue
+  fi
+  printf '%s\x1f%s\n' "$hash" "$subject"
+done > "$tmp"
 
 append_section() {
   local title="$1"
