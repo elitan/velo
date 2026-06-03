@@ -6,7 +6,15 @@ import { userFacingError } from './errors';
 import { OPEN_API_TAGS } from './openapi-tags';
 import { createJob } from '#server/services/job-service';
 import { runBranchSql } from '#server/services/sql-editor-service';
-import { createBranchApi, deleteBranchApi, getBranchApi, listBranchesApi, resetBranchApi, updateBranchExpiryApi } from '#server/services/branch-api-service';
+import {
+  createBranchApi,
+  deleteBranchApi,
+  getBranchApi,
+  listBranchesApi,
+  resetBranchApi,
+  stopBranchApi,
+  updateBranchExpiryApi,
+} from '#server/services/branch-api-service';
 
 const restoreBranchInput = z.object({
   targetBranch: z.string().min(1),
@@ -89,6 +97,13 @@ export const branchesRouter = {
       return await resetBranchApi(input.slug);
     } catch (error) {
       throw userFacingError(error, 'Could not reset branch');
+    }
+  }),
+  stop: branchContractRouter.stop.handler(async function stopBranch({ input }) {
+    try {
+      return await stopBranchApi(input.slug);
+    } catch (error) {
+      throw userFacingError(error, 'Could not stop branch');
     }
   }),
   expiry: {

@@ -8,6 +8,7 @@ import {
   GitBranch,
   Loader2,
   Pencil,
+  Power,
   RotateCcw,
   ShieldCheck,
   Trash2,
@@ -66,6 +67,8 @@ export const Route = createFileRoute('/branch/$branchId/overview')({
   component: BranchOverviewPage,
 });
 
+type BusyKey = 'create-child' | 'delete' | 'reset' | 'stop' | null;
+
 function BranchOverviewPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -73,6 +76,7 @@ function BranchOverviewPage() {
   const createBranch = useMutation(orpc.branches.create.mutationOptions({ onSuccess: refreshDashboard }));
   const deleteBranch = useMutation(orpc.branches.delete.mutationOptions({ onSuccess: refreshDashboard }));
   const resetBranch = useMutation(orpc.branches.reset.mutationOptions({ onSuccess: refreshDashboard }));
+  const stopBranch = useMutation(orpc.branches.stop.mutationOptions({ onSuccess: refreshDashboard }));
   const updateExpiry = useMutation(orpc.branches.expiry.update.mutationOptions({ onSuccess: refreshDashboard }));
   const params = Route.useParams();
   const busy = getBusyKey();
@@ -93,8 +97,10 @@ function BranchOverviewPage() {
   const state = dashboard.data;
 
   const branch = getBranchView(state, params.branchId);
+  const branchIsStopped = branch.status === 'stopped';
+  const canStopBranch = branch.rowId !== null && !branchIsStopped;
 
-  function getBusyKey(): string | null {
+  function getBusyKey(): BusyKey {
     if (createBranch.isPending) {
       return 'create-child';
     }
@@ -105,6 +111,10 @@ function BranchOverviewPage() {
 
     if (deleteBranch.isPending) {
       return 'delete';
+    }
+
+    if (stopBranch.isPending) {
+      return 'stop';
     }
 
     return null;
@@ -171,6 +181,19 @@ function BranchOverviewPage() {
     }
 
     await navigate({ to: '/branch/$branchId/overview', params: { branchId: branch.parentSlug || 'production' } });
+  }
+
+  async function handleStop() {
+    if (!branch.rowId) {
+      return;
+    }
+
+    try {
+      const result = await stopBranch.mutateAsync({ slug: branch.slug });
+      toast.success(result.branch.status === 'stopped' ? `Stopped ${branch.name}.` : `${branch.name} is still running.`);
+    } catch (error: any) {
+      toast.error(getMutationErrorMessage(error, 'Could not stop branch.'));
+    }
   }
 
   function handleConfirmAction() {
@@ -264,6 +287,15 @@ function BranchOverviewPage() {
                     >
                       <RotateCcw />
                       Reset from parent
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!canStopBranch || busy === 'stop'}
+                      onSelect={function selectStop() {
+                        void handleStop();
+                      }}
+                    >
+                      {busy === 'stop' ? <Loader2 className="animate-spin" /> : <Power />}
+                      {branchIsStopped ? 'Already stopped' : 'Stop branch'}
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled>
                       <Pencil />

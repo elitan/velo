@@ -86,6 +86,14 @@ export const branchesContract = oc.tag(OPEN_API_TAGS.branches).router({
         connectionString: z.string(),
       }),
     ),
+  stop: oc
+    .route({
+      method: 'POST',
+      path: '/branches/{slug}/stop',
+      summary: 'Stop branch',
+    })
+    .input(branchSlugInput)
+    .output(z.object({ branch: branchSchema })),
   expiry: {
     update: oc
       .route({
