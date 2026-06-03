@@ -2,7 +2,7 @@
   "name": "@elitan/velo",
   "displayName": "Velo",
   "containerPrefix": "velo",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Web-first PostgreSQL branching with ZFS snapshots",
   "author": "Johan Eliasson <johan@eliasson.me> (https://github.com/elitan)",
   "license": "MIT",
