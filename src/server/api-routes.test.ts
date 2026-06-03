@@ -30,6 +30,7 @@ const EXPECTED_REST_PATHS = [
   '/branches/{slug}',
   '/branches/{slug}/expiry',
   '/branches/{slug}/reset',
+  '/branches/{slug}/stop',
   '/branches/{targetBranch}/restore',
   '/dashboard',
   '/jobs',

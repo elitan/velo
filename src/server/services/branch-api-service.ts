@@ -4,6 +4,7 @@ import {
   deleteBranch,
   normalizeBranchSlug,
   resetBranchFromParent,
+  stopBranchForProxy,
   updateBranchExpiry,
 } from './branch-service';
 import { getReplicaFreshness } from './replica-service';
@@ -126,6 +127,17 @@ export async function resetBranchApi(slug: string): Promise<{
   return {
     branch: updated,
     connectionString: updated.connectionString,
+  };
+}
+
+export async function stopBranchApi(slug: string): Promise<{ branch: BranchApiRecord }> {
+  const normalized = normalizeDevelopmentBranchLookup(slug);
+  const branch = await getBranchRecord(normalized);
+
+  await stopBranchForProxy(branch.id);
+
+  return {
+    branch: mapDevelopmentBranchRow(await getBranchRecord(normalized)),
   };
 }
 
