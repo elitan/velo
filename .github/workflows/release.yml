@@ -48,7 +48,9 @@ jobs:
             range="HEAD"
           fi
 
-          git log --pretty=format:'%s' --no-merges "$range" > commits.txt
+          git log --pretty=format:'%s' --no-merges "$range" \
+            | grep -Ev '^chore\(release\): (bump version to|revert .*version bump|revert .*release bump)' \
+            > commits.txt || true
           if [ ! -s commits.txt ]; then
             echo "No commits since last release."
             exit 1
@@ -104,30 +106,32 @@ jobs:
           esac
           echo "value=$major.$minor.$patch" >> "$GITHUB_OUTPUT"
 
+      - name: Validate release target
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.value }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
+            echo "Tag v$version already exists."
+            exit 1
+          fi
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "Release v$version already exists."
+            exit 1
+          fi
+
       - name: Bump package version
         run: |
           set -euo pipefail
           jq '.version = "${{ steps.version.outputs.value }}"' package.json > package.tmp
           mv package.tmp package.json
 
-      - name: Commit version bump
-        run: |
-          set -euo pipefail
-          git add package.json
-          git commit -m "chore(release): bump version to ${{ steps.version.outputs.value }}"
-          git push
-
-      - name: Tag release
-        run: |
-          set -euo pipefail
-          git tag "v${{ steps.version.outputs.value }}"
-          git push origin "v${{ steps.version.outputs.value }}"
-
       - name: Generate release notes
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.value }}"
-          VELO_LAST_TAG="${{ steps.policy.outputs.last_tag }}" scripts/generate-release-notes.sh "$version" release_notes.md HEAD^
+          VELO_LAST_TAG="${{ steps.policy.outputs.last_tag }}" scripts/generate-release-notes.sh "$version" release_notes.md HEAD
           cat release_notes.md
 
       - name: Setup Bun
@@ -139,6 +143,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Check
+        env:
+          VELO_UPGRADE_TARGET_VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
           bun run typecheck
@@ -176,6 +182,19 @@ jobs:
           path: |
             velo-v${{ steps.version.outputs.value }}.tar.gz
             release_notes.md
+
+      - name: Commit version bump
+        run: |
+          set -euo pipefail
+          git add package.json
+          git commit -m "chore(release): bump version to ${{ steps.version.outputs.value }}"
+          git push
+
+      - name: Tag release
+        run: |
+          set -euo pipefail
+          git tag "v${{ steps.version.outputs.value }}"
+          git push origin "v${{ steps.version.outputs.value }}"
 
       - name: Create GitHub release
         env:
