@@ -143,7 +143,7 @@ export function AppSidebar(props: AppSidebarProps) {
             </Button>
           </DialogTrigger>
           <DialogContent
-            className="top-0 left-0 h-dvh max-w-72 translate-x-0 translate-y-0 rounded-none border-r border-sidebar-border bg-sidebar p-0 text-sidebar-foreground sm:max-w-72"
+            className="top-0 left-0 flex h-dvh max-w-72 translate-x-0 translate-y-0 flex-col rounded-none border-r border-sidebar-border bg-sidebar p-0 text-sidebar-foreground sm:max-w-72"
             showCloseButton={false}
           >
             <DialogTitle className="sr-only">Navigation</DialogTitle>
@@ -158,13 +158,13 @@ export function AppSidebar(props: AppSidebarProps) {
                 </Button>
               </DialogClose>
             </div>
-            <SidebarContent {...props} onNavigate={closeMobileMenu} className="px-5 py-5" />
+            <SidebarContent {...props} onNavigate={closeMobileMenu} className="flex-1 px-5 py-5" />
           </DialogContent>
         </Dialog>
       </div>
 
-      <aside className="hidden bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
-        <SidebarContent {...props} />
+      <aside className="hidden min-h-screen bg-sidebar px-5 py-5 text-sidebar-foreground lg:block lg:border-r">
+        <SidebarContent {...props} className="h-full" />
       </aside>
     </>
   );
@@ -232,14 +232,13 @@ function SidebarContent(props: SidebarContentProps) {
   }
 
   return (
-    <div className={props.className}>
+    <div className={cn('flex flex-col', props.className)}>
       <div className="hidden lg:block">
         <AppBrand />
       </div>
 
       <SidebarSection label="Project" className="mt-8">
         <NavItem icon={LayoutDashboard} label="Dashboard" href="/" active={props.activeProject === 'dashboard'} onNavigate={props.onNavigate} />
-        <NavItem icon={Settings2} label="Settings" href="/settings" active={props.activeProject === 'settings'} onNavigate={props.onNavigate} />
       </SidebarSection>
 
       <SidebarSection label="Branch" className="mt-8">
@@ -272,9 +271,15 @@ function SidebarContent(props: SidebarContentProps) {
         </div>
       </SidebarSection>
 
-      <div className="mt-8">
-        <Button type="button" variant="outline" className="w-full justify-start" onClick={handleLogout}>
-          <LogOut />
+      <div className="mt-auto grid gap-1 pt-8">
+        <NavItem icon={Settings2} label="Settings" href="/settings" active={props.activeProject === 'settings'} onNavigate={props.onNavigate} />
+        <Button
+          type="button"
+          variant="ghost"
+          className="h-9 w-full justify-start gap-2 px-3 text-sm font-normal text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          onClick={handleLogout}
+        >
+          <LogOut className="size-4" />
           Sign out
         </Button>
       </div>

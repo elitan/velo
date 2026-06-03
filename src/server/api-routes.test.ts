@@ -3,7 +3,7 @@ import { OPEN_API_TAG_DEFINITIONS, OPEN_API_TAGS } from '../api/openapi-tags';
 import { handleApiRequest } from '../web/routes/api/v1/$';
 import { setPassword } from './auth';
 import { createApiToken } from './services/api-token-service';
-import { createAuditJob } from './services/job-service';
+import { createJob } from './services/job-service';
 import { setSetting } from './services/settings-service';
 import { createBranchRecord, createProject, useTestDatabase } from './test-helpers';
 
@@ -57,7 +57,7 @@ describe('REST API routes', function restApiRoutes() {
   test('serves REST routes with bearer auth and grouped OpenAPI docs', async function testOpenApiBearerAuth() {
     await setPassword('password123');
     const created = await createApiToken('ci');
-    const job = await createAuditJob('api-test', { ok: true }, 'api test');
+    const job = await createJob('api-test', { ok: true });
     const projectId = await createProject();
     await setSetting('prod.connectionUrl', 'postgresql://postgres:prod@example.com:5432/postgres');
     await createBranchRecord({

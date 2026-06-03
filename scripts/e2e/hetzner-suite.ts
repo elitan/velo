@@ -9,7 +9,7 @@ import { createReplicaBase } from '#server/services/replica-service';
 import { runExpiredBranchCleanup } from '#server/services/branch-service';
 import { TABLE_ROW_ID_COLUMN } from '#server/services/table-browser-service';
 import { getContainerName, getDatasetName } from '#utils/naming';
-import { isProductionBranchId, isReadOnlySql, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
+import { isProductionBranchId } from '#utils/prod-write-guard';
 import { testHttpBranchApi } from './http-branch-api';
 
 const api = createApiClient();
@@ -39,7 +39,6 @@ async function main() {
     { name: 'branch proxy scale to zero', run: testBranchProxyScaleToZero },
     { name: 'branch data, sql, table browser, reset', run: testBranchDataSqlTablesAndReset },
     { name: 'branch delete guard and ttl cleanup', run: testBranchDeleteGuardAndTtlCleanup },
-    { name: 'production write guard', run: testProductionWriteGuard },
     { name: 'pgBackRest branch, preview, replacement PITR', run: testBranchPitrFlows },
     { name: 'production PITR restore', run: testProductionPitrRestore },
     { name: 'ready health check', run: testReadyHealthCheck },
@@ -272,22 +271,6 @@ async function testBranchDeleteGuardAndTtlCleanup(): Promise<void> {
   await assertZfsDatasetMissing(expired.dataset);
 }
 
-async function testProductionWriteGuard(): Promise<void> {
-  const table = `e2e_prod_guard_${RUN_ID}`;
-
-  const read = await runBranchSqlRaw('production', 'select 1 as ok');
-  assertSingleValue(read, 'ok', 1);
-  await assertSqlErrorRaw('production', `create table ${table} (id integer primary key)`);
-  await assertProdWriteAudit(false, `create table ${table}`);
-
-  await runBranchSqlRaw(
-    'production',
-    `create table ${table} (id integer primary key); drop table ${table}`,
-    PRODUCTION_WRITE_CONFIRMATION
-  );
-  await assertProdWriteAudit(true, `create table ${table}`);
-}
-
 async function testBranchPitrFlows(): Promise<void> {
   const table = `e2e_pitr_${RUN_ID}`;
   const branchName = `e2e_pitr_${RUN_ID}`;
@@ -513,20 +496,13 @@ async function waitForBranchCleanup(branchId: number, timeoutMs: number): Promis
 }
 
 async function runBranchSql(branchId: string, sql: string): Promise<QueryResult> {
-  return runBranchSqlRaw(
-    branchId,
-    sql,
-    isProductionBranchId(branchId) && !isReadOnlySql(sql)
-      ? PRODUCTION_WRITE_CONFIRMATION
-      : undefined
-  );
+  return runBranchSqlRaw(branchId, sql);
 }
 
-async function runBranchSqlRaw(branchId: string, sql: string, productionWriteConfirmation?: string): Promise<QueryResult> {
+async function runBranchSqlRaw(branchId: string, sql: string): Promise<QueryResult> {
   return api.branches.sql.run({
     branchId,
     sql,
-    productionWriteConfirmation,
   });
 }
 
@@ -538,18 +514,6 @@ async function assertSqlErrorRaw(branchId: string, sql: string): Promise<void> {
   }
 
   throw new Error(`expected SQL to fail: ${sql}`);
-}
-
-async function assertProdWriteAudit(allowed: boolean, targetPrefix: string): Promise<void> {
-  const jobs = await api.jobs.list({ limit: 20, type: 'prod-write-attempt' });
-  const audit = jobs.find(function isMatchingAudit(job) {
-    const input = job.input as Record<string, unknown> | null;
-    return input?.allowed === allowed
-      && typeof input.target === 'string'
-      && input.target.startsWith(targetPrefix);
-  });
-
-  assert(audit, `expected production write audit allowed=${String(allowed)} target=${targetPrefix}`);
 }
 
 async function assertSqlError(branchId: string, sql: string): Promise<void> {
