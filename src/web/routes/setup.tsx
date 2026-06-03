@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#web/
 import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
 import { setupAuth } from '#web/lib/auth-client';
+import { getMutationErrorMessage } from '#web/lib/errors';
 
 export const Route = createFileRoute('/setup')({
   component: SetupPage,
@@ -32,7 +33,7 @@ function SetupPage() {
       await setupAuth(password);
       window.location.assign('/');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not set password.');
+      toast.error(getMutationErrorMessage(error, 'Could not set password.'));
       setBusy(false);
     }
   }

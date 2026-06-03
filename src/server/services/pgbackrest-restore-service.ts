@@ -26,7 +26,6 @@ export interface RestoreBranchInput {
   targetBranch: string;
   sourceBranch: string;
   restoreTime: string;
-  readOnly?: boolean;
   publicAccess?: boolean;
   branchPassword?: string | null;
   preferredPort?: number | null;
@@ -47,7 +46,6 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     return createLocalDockerPitrBranch({
       targetBranch: input.targetBranch,
       restoreTime: restoreTime.toISOString(),
-      readOnly: input.readOnly,
       publicAccess: input.publicAccess,
       branchPassword: input.branchPassword,
       preferredPort: input.preferredPort,
@@ -122,7 +120,6 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
       username: 'postgres',
       database: 'postgres',
       publicAccess: input.publicAccess === true,
-      readOnly: false,
       restoreCommand: null,
       pgBackRestRepoPath: backup.enabled ? null : '/var/lib/pgbackrest',
     });
@@ -131,9 +128,6 @@ export async function createBranchFromPgBackRest(input: RestoreBranchInput): Pro
     await docker.waitForHealthy(containerId, 10 * 60 * 1000);
     await waitForPromotion(docker, containerId, 10 * 60 * 1000);
     await setBranchPassword(docker, containerId, branchPassword);
-    if (input.readOnly === true) {
-      await enableDefaultReadOnly(docker, containerId);
-    }
 
     const backendPort = await docker.getContainerPort(containerId);
     const proxyPort = await getAvailableTcpPort(input.preferredPort);
@@ -202,7 +196,6 @@ export async function restoreDevelopmentBranchFromPgBackRest(input: RestoreBranc
   return createBranchFromPgBackRest({
     ...input,
     targetBranch,
-    readOnly: false,
     publicAccess: false,
   });
 }
@@ -393,11 +386,6 @@ async function setPostgresDataOwner(pgdata: string, postgresOwner: PostgresOwner
 
 async function setBranchPassword(docker: DockerManager, containerId: string, password: string): Promise<void> {
   await docker.execSQL(containerId, `alter role postgres with password ${sqlStringLiteral(password)}`);
-}
-
-async function enableDefaultReadOnly(docker: DockerManager, containerId: string): Promise<void> {
-  await docker.execSQL(containerId, 'alter system set default_transaction_read_only = on');
-  await docker.execSQL(containerId, 'select pg_reload_conf()');
 }
 
 async function waitForPromotion(docker: DockerManager, containerId: string, timeoutMs: number): Promise<void> {

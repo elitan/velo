@@ -60,6 +60,7 @@ import {
   formatExpiry,
   StatusBadge,
 } from '#web/components/control-plane';
+import { getMutationErrorMessage } from '#web/lib/errors';
 
 export const Route = createFileRoute('/branch/$branchId/overview')({
   component: BranchOverviewPage,
@@ -136,7 +137,7 @@ function BranchOverviewPage() {
       toast.success(`Created branch ${result.branch.name}.`);
       setCreateModalOpen(false);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not create branch.');
+      toast.error(getMutationErrorMessage(error, 'Could not create branch.'));
       return;
     }
 
@@ -152,7 +153,7 @@ function BranchOverviewPage() {
       await resetBranch.mutateAsync({ slug: branch.slug });
       toast.success(`Reset ${branch.name}.`);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not reset branch.');
+      toast.error(getMutationErrorMessage(error, 'Could not reset branch.'));
     }
   }
 
@@ -165,7 +166,7 @@ function BranchOverviewPage() {
       await deleteBranch.mutateAsync({ slug: branch.slug });
       toast.success(`Deleted ${branch.name}.`);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not delete branch.');
+      toast.error(getMutationErrorMessage(error, 'Could not delete branch.'));
       return;
     }
 
@@ -196,7 +197,7 @@ function BranchOverviewPage() {
       await updateExpiry.mutateAsync({ slug: branch.slug, expiresAt });
       toast.success(expiresAt ? `Expiry set for ${branch.name}.` : `Expiry disabled for ${branch.name}.`);
     } catch (error: any) {
-      toast.error(error?.message || 'Could not update expiry.');
+      toast.error(getMutationErrorMessage(error, 'Could not update expiry.'));
     }
   }
 

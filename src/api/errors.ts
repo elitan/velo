@@ -2,12 +2,23 @@ import { ORPCError } from '@orpc/server';
 
 export function userFacingError(error: unknown, fallback: string): ORPCError<'BAD_REQUEST', undefined> {
   return new ORPCError('BAD_REQUEST', {
-    message: getErrorMessage(error, fallback),
+    message: getFullErrorMessage(error, fallback),
     cause: error,
   });
 }
 
-function getErrorMessage(error: unknown, fallback: string): string {
+export function internalError(error: unknown, fallback: string): ORPCError<'INTERNAL_SERVER_ERROR', undefined> {
+  if (error instanceof ORPCError) {
+    return error as ORPCError<'INTERNAL_SERVER_ERROR', undefined>;
+  }
+
+  return new ORPCError('INTERNAL_SERVER_ERROR', {
+    message: getFullErrorMessage(error, fallback),
+    cause: error,
+  });
+}
+
+export function getFullErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) {
     return formatErrorMessage(error);
   }
@@ -23,6 +34,7 @@ function formatErrorMessage(error: Error): string {
   const parts = [error.message];
   const detail = getStringProperty(error, 'detail');
   const hint = getStringProperty(error, 'hint');
+  const cause = formatCause(error.cause);
 
   if (detail) {
     parts.push(detail);
@@ -32,7 +44,27 @@ function formatErrorMessage(error: Error): string {
     parts.push(`Hint: ${hint}`);
   }
 
+  if (cause && cause !== error.message) {
+    parts.push(`Caused by: ${cause}`);
+  }
+
   return parts.join('\n');
+}
+
+function formatCause(cause: unknown): string | null {
+  if (!cause) {
+    return null;
+  }
+
+  if (cause instanceof Error && cause.message.trim()) {
+    return formatErrorMessage(cause);
+  }
+
+  if (typeof cause === 'string' && cause.trim()) {
+    return cause;
+  }
+
+  return null;
 }
 
 function getStringProperty(value: unknown, key: string): string | null {

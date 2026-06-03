@@ -33,7 +33,6 @@ export interface LocalDockerBranchResult {
 export interface LocalDockerRestoreInput {
   targetBranch: string;
   restoreTime: string;
-  readOnly?: boolean;
   publicAccess?: boolean;
   branchPassword?: string | null;
   preferredPort?: number | null;
@@ -279,7 +278,6 @@ export async function createLocalDockerPitrBranch(input: LocalDockerRestoreInput
       containerName,
       volumeName,
       password,
-      readOnly: input.readOnly === true,
       publicAccess: input.publicAccess === true,
     });
 
@@ -513,12 +511,10 @@ async function startRestoreContainer(options: {
   volumeName: string;
   password: string;
   port?: number | null;
-  readOnly: boolean;
   publicAccess: boolean;
 }): Promise<void> {
   const hostIp = options.publicAccess ? '0.0.0.0' : '127.0.0.1';
   const hostPort = options.port ? String(options.port) : '';
-  const readonlyArgs = options.readOnly ? '-c default_transaction_read_only=on' : '';
 
   await runLocalCommand([
     'docker run -d',
@@ -531,7 +527,6 @@ async function startRestoreContainer(options: {
     shellQuote(LOCAL_PGBACKREST_IMAGE),
     'postgres',
     '-c listen_addresses=*',
-    readonlyArgs,
   ].filter(Boolean).join(' '), 60_000);
 
   await waitForContainer(options.containerName);

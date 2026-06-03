@@ -1,22 +1,12 @@
 import { z } from 'zod';
 import { ORPCError, implement } from '@orpc/server';
 import { branchesContract } from './branch-contract';
-import { publicProcedure } from './context';
+import { publicProcedure, surfaceFullErrorMiddleware } from './context';
 import { userFacingError } from './errors';
 import { OPEN_API_TAGS } from './openapi-tags';
 import { createJob } from '#server/services/job-service';
-import { createPreviewBranch, deleteBranch } from '#server/services/branch-service';
 import { runBranchSql } from '#server/services/sql-editor-service';
 import { createBranchApi, deleteBranchApi, getBranchApi, listBranchesApi, resetBranchApi, updateBranchExpiryApi } from '#server/services/branch-api-service';
-
-const branchIdInput = z.object({
-  id: z.coerce.number().int().positive(),
-});
-
-const previewBranchInput = z.object({
-  sourceBranch: z.string().min(1),
-  restoreTime: z.string().min(1),
-});
 
 const restoreBranchInput = z.object({
   targetBranch: z.string().min(1),
@@ -30,35 +20,8 @@ const runSqlInput = z.object({
   sql: z.string().min(1).max(100_000),
 });
 
-const branchContractRouter = implement(branchesContract);
+const branchContractRouter = implement(branchesContract).use(surfaceFullErrorMiddleware);
 const recoveryBranchRoutes = publicProcedure.tag(OPEN_API_TAGS.recovery).router({
-  preview: {
-    create: publicProcedure
-      .route({
-        method: 'POST',
-        path: '/branches/{sourceBranch}/previews',
-        successStatus: 201,
-        summary: 'Create preview branch',
-      })
-      .input(previewBranchInput)
-      .handler(async function createBranchPreview({ input }) {
-        return createPreviewBranch(input);
-      }),
-    delete: publicProcedure
-      .route({
-        method: 'DELETE',
-        path: '/branch-previews/{id}',
-        summary: 'Delete preview branch',
-      })
-      .input(branchIdInput)
-      .handler(async function deleteBranchPreview({ input }) {
-        try {
-          return await deleteBranch(input);
-        } catch (error) {
-          throw userFacingError(error, 'Could not delete preview branch');
-        }
-      }),
-  },
   restore: publicProcedure
     .route({
       method: 'POST',
