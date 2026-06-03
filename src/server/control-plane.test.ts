@@ -9,7 +9,6 @@ import { closeDb, getDb } from '../db/client';
 import { migrateDatabase } from '../db/migrate';
 import {
   cancelJobById,
-  createAuditJob,
   createJob,
   getActiveJob,
   getJob,
@@ -883,19 +882,6 @@ describe('control plane jobs', function controlPlaneJobs() {
     })).toBe(true);
     expect(JSON.stringify(record)).not.toContain('secret-value');
     expect(JSON.stringify(record)).not.toContain('abc');
-  });
-
-  test('stores audit jobs without queueing work', async function testAuditJob() {
-    const job = await createAuditJob('prod-write-attempt', {
-      area: 'sql',
-      allowed: false,
-    }, 'blocked production sql write');
-
-    const record = await getJob(job.id);
-    expect(record.status).toBe('done');
-    expect(record.attempts).toBe(1);
-    expect(record.logs[0]?.message).toBe('blocked production sql write');
-    expect(await getActiveJob('prod-write-attempt')).toBeUndefined();
   });
 
   test('stores sanitized job failures', async function testFailedJob() {

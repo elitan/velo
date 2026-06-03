@@ -39,7 +39,6 @@ async function main() {
     { name: 'branch proxy scale to zero', run: testBranchProxyScaleToZero },
     { name: 'branch data, sql, table browser, reset', run: testBranchDataSqlTablesAndReset },
     { name: 'branch delete guard and ttl cleanup', run: testBranchDeleteGuardAndTtlCleanup },
-    { name: 'production write audit', run: testProductionWriteAudit },
     { name: 'pgBackRest branch, preview, replacement PITR', run: testBranchPitrFlows },
     { name: 'production PITR restore', run: testProductionPitrRestore },
     { name: 'ready health check', run: testReadyHealthCheck },
@@ -270,16 +269,6 @@ async function testBranchDeleteGuardAndTtlCleanup(): Promise<void> {
   trackedBranches.delete(expired.slug);
   await assertDockerContainerMissing(getContainerName(PROJECT_NAME, expired.slug));
   await assertZfsDatasetMissing(expired.dataset);
-}
-
-async function testProductionWriteAudit(): Promise<void> {
-  const table = `e2e_prod_guard_${RUN_ID}`;
-
-  const read = await runBranchSqlRaw('production', 'select 1 as ok');
-  assertSingleValue(read, 'ok', 1);
-
-  await runBranchSqlRaw('production', `create table ${table} (id integer primary key); drop table ${table}`);
-  await assertProdWriteAudit(true, `create table ${table}`);
 }
 
 async function testBranchPitrFlows(): Promise<void> {
@@ -525,18 +514,6 @@ async function assertSqlErrorRaw(branchId: string, sql: string): Promise<void> {
   }
 
   throw new Error(`expected SQL to fail: ${sql}`);
-}
-
-async function assertProdWriteAudit(allowed: boolean, targetPrefix: string): Promise<void> {
-  const jobs = await api.jobs.list({ limit: 20, type: 'prod-write-attempt' });
-  const audit = jobs.find(function isMatchingAudit(job) {
-    const input = job.input as Record<string, unknown> | null;
-    return input?.allowed === allowed
-      && typeof input.target === 'string'
-      && input.target.startsWith(targetPrefix);
-  });
-
-  assert(audit, `expected production write audit allowed=${String(allowed)} target=${targetPrefix}`);
 }
 
 async function assertSqlError(branchId: string, sql: string): Promise<void> {

@@ -1,9 +1,8 @@
 import { SQL } from 'bun';
 import { getDb } from '#db/client';
-import { isProductionBranchId, isReadOnlySql } from '#utils/prod-write-guard';
+import { isProductionBranchId } from '#utils/prod-write-guard';
 import { getSetting } from './settings-service';
 import { getActiveJobs } from './job-service';
-import { auditProdWriteAttempt } from './prod-write-audit-service';
 
 const STATEMENT_TIMEOUT_MS = 30_000;
 
@@ -29,7 +28,6 @@ export async function runBranchSql(input: RunBranchSqlInput): Promise<RunBranchS
   }
 
   await assertBranchNotRestoring(input.branchId);
-  await auditProductionSqlWrite(input);
 
   const connectionUrl = await getBranchConnectionUrl(input.branchId);
   const client = new SQL({ url: connectionUrl, max: 1 });
@@ -99,30 +97,6 @@ async function assertBranchNotRestoring(branchId: string): Promise<void> {
   if (activeRestore) {
     throw new Error(`Branch ${normalizedBranchId} is being restored. Try again after restore completes.`);
   }
-}
-
-async function auditProductionSqlWrite(input: RunBranchSqlInput): Promise<void> {
-  if (!isProductionBranchId(input.branchId) || isReadOnlySql(input.sql)) {
-    return;
-  }
-
-  await auditProdWriteAttempt({
-    area: 'sql',
-    action: 'run',
-    branchId: input.branchId,
-    allowed: true,
-    target: summarizeSql(input.sql),
-  });
-}
-
-function summarizeSql(sql: string): string {
-  const singleLine = sql.trim().replace(/\s+/g, ' ');
-
-  if (singleLine.length <= 120) {
-    return singleLine;
-  }
-
-  return `${singleLine.slice(0, 117)}...`;
 }
 
 function getColumns(rows: Array<Record<string, string | number | boolean | null>>): string[] {
