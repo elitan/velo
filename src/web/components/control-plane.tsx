@@ -239,7 +239,6 @@ function SidebarContent(props: SidebarContentProps) {
 
       <SidebarSection label="Project" className="mt-8">
         <NavItem icon={LayoutDashboard} label="Dashboard" href="/" active={props.activeProject === 'dashboard'} onNavigate={props.onNavigate} />
-        <NavItem icon={Settings2} label="Settings" href="/settings" active={props.activeProject === 'settings'} onNavigate={props.onNavigate} />
       </SidebarSection>
 
       <SidebarSection label="Branch" className="mt-8">
@@ -272,7 +271,8 @@ function SidebarContent(props: SidebarContentProps) {
         </div>
       </SidebarSection>
 
-      <div className="mt-auto pt-8">
+      <div className="mt-auto grid gap-1 pt-8">
+        <NavItem icon={Settings2} label="Settings" href="/settings" active={props.activeProject === 'settings'} onNavigate={props.onNavigate} />
         <Button
           type="button"
           variant="ghost"
