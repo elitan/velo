@@ -2,12 +2,9 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import {
-  AlertTriangle,
-  Calendar,
   GitBranch,
   Loader2,
   RotateCcw,
-  Zap,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -30,6 +27,13 @@ import {
   CardHeader,
   CardTitle,
 } from '#web/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#web/components/ui/dialog';
 import { Input } from '#web/components/ui/input';
 import { Label } from '#web/components/ui/label';
 import { orpc, type ControlPlaneState } from '#web/lib/api-client';
@@ -40,7 +44,6 @@ import {
 import { getMutationErrorMessage } from '#web/lib/errors';
 
 const LOCAL_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
-const TIME_FORMAT_LABEL = `Times are local to ${LOCAL_TIME_ZONE}.`;
 const PRODUCTION_RESTORE_CONFIRMATION = 'restore production';
 
 export const Route = createFileRoute('/branch/$branchId/backup-restore')({
@@ -221,9 +224,6 @@ function BackupRestorePage() {
                 <GitBranch className="size-4" />
                 <span>{selectedBranchLabel}</span>
               </div>
-              <p className="mt-6 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Choose a time to restore production.
-              </p>
             </header>
 
             {restoreJob ? (
@@ -236,40 +236,23 @@ function BackupRestorePage() {
             ) : null}
 
             <Card>
-              <CardHeader>
-                <div className="flex gap-4">
-                  <div className="mt-1 grid size-10 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground">
-                    <Calendar className="size-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <CardTitle>Restore to</CardTitle>
-                    <CardDescription className="mt-2 max-w-xl">
-                      Pick the date and time to go back to.
-                    </CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-
               <CardContent className="grid gap-5">
-                <div className="grid gap-2 border-t border-border pt-4">
+                <div className="grid gap-2">
                   <Label htmlFor="restore-time">Date and time</Label>
                   <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-                    <div className="relative">
-                      <Calendar className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        id="restore-time"
-                        className="h-10 pl-9 font-mono"
-                        type="datetime-local"
-                        step={1}
-                        min={restoreWindow.min || undefined}
-                        max={restoreWindow.max || undefined}
-                        value={restoreTime}
-                        disabled={!pitrAvailable}
-                        onChange={function changeRestoreTime(event) {
-                          updateRestoreTime(event.target.value);
-                        }}
-                      />
-                    </div>
+                    <Input
+                      id="restore-time"
+                      className="h-10 font-mono"
+                      type="datetime-local"
+                      step={1}
+                      min={restoreWindow.min || undefined}
+                      max={restoreWindow.max || undefined}
+                      value={restoreTime}
+                      disabled={!pitrAvailable}
+                      onChange={function changeRestoreTime(event) {
+                        updateRestoreTime(event.target.value);
+                      }}
+                    />
                     <Button
                       type="button"
                       variant="outline"
@@ -288,13 +271,9 @@ function BackupRestorePage() {
                   />
                 </div>
 
-                <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="max-w-xl text-xs leading-5 text-muted-foreground">
-                    Production restore requires confirmation.
-                  </p>
+                <div className="flex justify-end border-t border-border pt-5">
                   <Button
                     type="button"
-                    variant="destructive"
                     disabled={!restoreTimeValid || restoreLocked}
                     onClick={function restoreClick() {
                       handleOpenRestorePrompt();
@@ -312,20 +291,19 @@ function BackupRestorePage() {
         </section>
       </div>
 
-      {restorePromptOpen ? (
-        <RestorePromptModal
-          restoreTime={restoreTime}
-          confirmation={productionRestoreConfirmation}
-          restoreBusy={restoreBusy}
-          onClose={function closeRestorePrompt() {
-            setRestorePromptOpen(false);
-          }}
-          onConfirmationChange={setProductionRestoreConfirmation}
-          onRestore={function confirmRestore() {
-            void handleRestore();
-          }}
-        />
-      ) : null}
+      <RestorePromptModal
+        open={restorePromptOpen}
+        restoreTime={restoreTime}
+        confirmation={productionRestoreConfirmation}
+        restoreBusy={restoreBusy}
+        onOpenChange={function changeRestorePromptOpen(open) {
+          setRestorePromptOpen(open);
+        }}
+        onConfirmationChange={setProductionRestoreConfirmation}
+        onRestore={function confirmRestore() {
+          void handleRestore();
+        }}
+      />
     </main>
   );
 }
@@ -491,14 +469,20 @@ function RestoreAvailability(props: {
   return (
     <div className="grid gap-1 text-xs text-muted-foreground">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={props.restoreTimeValid ? 'success' : 'warning'}>
-          {props.restoreTimeValid ? 'Exact restore available' : 'Outside available range'}
-        </Badge>
+        {!props.restoreTimeValid ? <Badge variant="warning">Exact restore not available</Badge> : null}
         <span>
-          Available from {formatDisplayDateTime(props.restoreWindow.min)} to {formatDisplayDateTime(props.restoreWindow.max)}.
+          Valid from {formatDisplayDateTime(props.restoreWindow.min)} to {formatDisplayDateTime(props.restoreWindow.max)}.
         </span>
       </div>
-      <div>{TIME_FORMAT_LABEL}</div>
+      <LocalTimeZoneLabel />
+    </div>
+  );
+}
+
+function LocalTimeZoneLabel() {
+  return (
+    <div>
+      Times are local to <span className="font-medium text-foreground">{LOCAL_TIME_ZONE}</span>.
     </div>
   );
 }
@@ -555,10 +539,11 @@ function SummaryItem(props: {
 }
 
 function RestorePromptModal(props: {
+  open: boolean;
   restoreTime: string;
   confirmation: string;
   restoreBusy: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
   onConfirmationChange: (value: string) => void;
   onRestore: () => void;
 }) {
@@ -566,29 +551,20 @@ function RestorePromptModal(props: {
     || props.confirmation !== PRODUCTION_RESTORE_CONFIRMATION;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-md border border-border bg-card p-5 text-card-foreground shadow-xl">
-        <div className="flex gap-3">
-          <div className="grid size-10 shrink-0 place-items-center rounded-md bg-amber-500/10 text-amber-300">
-            <AlertTriangle className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-normal">Restore branch</h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              You are about to restore production from production at {formatDisplayDateTime(props.restoreTime)}.
-              This replaces the current branch data with the selected point in time.
-            </p>
-          </div>
-        </div>
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Confirm restore production</DialogTitle>
+        </DialogHeader>
 
-        <div className="mt-5 grid gap-3 rounded-md border border-border bg-muted/20 p-4 text-sm">
-          <SummaryItem label="Target" value="production" />
-          <SummaryItem label="Source" value="production" />
+        <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-4 text-sm">
           <SummaryItem label="Selected time" value={`${formatDisplayDateTime(props.restoreTime)} (${LOCAL_TIME_ZONE})`} />
         </div>
 
-        <div className="mt-5 grid gap-2">
-          <Label htmlFor="production-restore-confirmation">Type {PRODUCTION_RESTORE_CONFIRMATION}</Label>
+        <div className="grid gap-2">
+          <Label htmlFor="production-restore-confirmation">
+            Type <ConfirmationCode value={PRODUCTION_RESTORE_CONFIRMATION} />
+          </Label>
           <Input
             id="production-restore-confirmation"
             aria-label="Production restore confirmation"
@@ -600,8 +576,10 @@ function RestorePromptModal(props: {
           />
         </div>
 
-        <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={props.onClose}>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={function closeRestorePrompt() {
+            props.onOpenChange(false);
+          }}>
             Cancel
           </Button>
           <Button
@@ -611,13 +589,17 @@ function RestorePromptModal(props: {
             disabled={restoreDisabled}
             onClick={props.onRestore}
           >
-            {props.restoreBusy ? <Loader2 className="animate-spin" /> : <Zap />}
-            Restore now
+            {props.restoreBusy ? <Loader2 className="animate-spin" /> : null}
+            Restore production
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
+}
+
+function ConfirmationCode(props: { value: string }) {
+  return <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">{props.value}</code>;
 }
 
 type RestoreJob = ControlPlaneState['jobs'][number];
