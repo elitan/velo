@@ -101,7 +101,7 @@ export class ZFSManager {
   }
 
   async destroyDatasetWithSnapshots(name: string): Promise<void> {
-    await $`zfs destroy -r ${this.getFullPath(name)}`;
+    await $`zfs destroy -r ${this.getFullPath(name)}`.quiet();
   }
 
   async datasetExists(name: string): Promise<boolean> {

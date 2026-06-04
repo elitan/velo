@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { getDb } from '#db/client';
 import { createBranchFromBase, deleteBranch, normalizeBranchSlug, replaceBranchWithReadyBranch, resetBranchFromParent } from '#server/services/branch-service';
 import { restoreDevelopmentBranchFromPgBackRest, restoreProductionFromPgBackRest } from '#server/services/pgbackrest-restore-service';
-import { runDevBootstrap, runProdBootstrap, type BootstrapResult } from '#server/services/bootstrap-service';
+import { reconfigureProdBackups, runDevBootstrap, runProdBootstrap, type BootstrapResult } from '#server/services/bootstrap-service';
 import { createReplicaBase, type ReplicaResult } from '#server/services/replica-service';
 import { checkServer } from '#server/services/setup-state-service';
 import type { JobContext, JobHandlers } from './job-service';
@@ -132,6 +132,10 @@ export const jobHandlers: JobHandlers = {
   'prod-bootstrap': async function prodBootstrapJob(_input, context) {
     await context.log('installing prod Postgres and backups');
     assertOk(await runProdBootstrap());
+  },
+  'backup-reconfigure': async function backupReconfigureJob(_input, context) {
+    await context.log('applying backup settings to prod');
+    assertOk(await reconfigureProdBackups());
   },
   setup: async function setupJob(_input, context) {
     await runSetupJob(context);

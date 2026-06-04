@@ -19,6 +19,7 @@ import {
 } from './services/job-service';
 import { createBranchFromBase, listProxyBranches, replaceBranchWithReadyBranch, runExpiredBranchCleanup, updateBranchExpiry } from './services/branch-service';
 import { getBranchApi, listBranchesApi } from './services/branch-api-service';
+import { buildPgBackRestConfig } from './services/bootstrap-service';
 import { parsePgBackRestInfo } from './services/backup-availability-service';
 import { getBackupSettings, saveBackupSettings, setSetting } from './services/settings-service';
 import { createApiToken, listApiTokens, revokeApiToken, verifyApiToken } from './services/api-token-service';
@@ -50,14 +51,35 @@ describe('control plane database', function controlPlaneDatabase() {
           timestamp: { start: 1777688102, stop: 1777688267 },
         },
       ],
-    }]), 90, new Date('2026-05-02T12:00:00.000Z'));
+    }]), 90, new Date('2026-05-02T12:00:00.000Z'), {
+      lastArchivedAt: '2026-05-02T11:58:30.000Z',
+      failedCount: 0,
+      lastFailedAt: null,
+    });
 
     expect(availability.status).toBe('ok');
     expect(availability.pitr.from).toBe('2026-04-30T19:39:02.000Z');
-    expect(availability.pitr.to).toBe('2026-05-02T12:00:00.000Z');
+    expect(availability.pitr.to).toBe('2026-05-02T11:58:30.000Z');
     expect(availability.backups.map(function mapBackup(backup) {
       return backup.label;
     })).toEqual(['20260502-021502F', '20260430-193902F']);
+  });
+
+  test('caps restore windows to latest backup when archive time is unknown', function testBackupAvailabilityWithoutArchiveTime() {
+    const availability = parsePgBackRestInfo(JSON.stringify([{
+      name: 'main',
+      status: { code: 0, message: 'ok' },
+      archive: [{ id: '16-1', min: '000000010000000000000001', max: '000000010000000000000002' }],
+      backup: [{
+        label: '20260502-021502F',
+        type: 'full',
+        error: false,
+        timestamp: { start: 1777688102, stop: 1777688267 },
+      }],
+    }]), 90, new Date('2026-05-02T12:00:00.000Z'));
+
+    expect(availability.status).toBe('ok');
+    expect(availability.pitr.to).toBe('2026-05-02T02:17:47.000Z');
   });
 
   test('migrates idempotently and creates setup steps', async function testMigrations() {
@@ -376,6 +398,53 @@ describe('control plane database', function controlPlaneDatabase() {
     expect(backup.endpoint).toBe('https://new.example.com');
     expect(backup.secretConfigured).toBe(true);
     expect(secret.value).toBe('keep-me');
+  });
+
+  test('writes full backup retention as days', async function testBackupRetentionConfig() {
+    await saveBackupSettings({
+      enabled: false,
+      endpoint: '',
+      bucket: '',
+      region: 'auto',
+      accessKeyId: '',
+      path: '/prod',
+      pitrDays: 5,
+      fullBackupRetentionDays: 14,
+    });
+
+    const config = await buildPgBackRestConfig();
+
+    expect(config).toContain('repo1-retention-full-type=time');
+    expect(config).toContain('repo1-retention-full=14');
+    expect(config).toContain('repo1-retention-archive=5');
+  });
+
+  test('queues backup reconfigure after setup is done', async function testBackupReconfigureJob() {
+    await saveServer({
+      role: 'prod',
+      host: '89.167.89.255',
+      sshUser: 'root',
+      sshKeyPath: '/root/.ssh/frost-e2e-ci',
+    });
+    await setStepStatus('prod-setup', 'done', 'prod ready');
+    await setStepStatus('backups', 'done', 'backups ready');
+
+    const api = createApiClient();
+    const result = await api.backup.settings.update({
+      enabled: false,
+      endpoint: '',
+      bucket: '',
+      region: 'auto',
+      accessKeyId: '',
+      path: '/prod',
+      pitrDays: 5,
+      fullBackupRetentionDays: 14,
+    });
+
+    expect(result.jobId).toBeTruthy();
+    const job = await getJob(result.jobId!);
+    expect(job.type).toBe('backup-reconfigure');
+    expect(result.settings.fullBackupRetentionDays).toBe(14);
   });
 
   test('blocks first branch before replica base is ready', async function testBranchNeedsReplica() {

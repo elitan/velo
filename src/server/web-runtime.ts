@@ -76,6 +76,7 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
     setup: !requireReady,
     servers: !requireReady,
     prodConnection: !requireReady,
+    backups: !requireReady,
   };
   const errors: string[] = [];
 
@@ -107,6 +108,11 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
         return server.status === 'ok';
       });
       checks.prodConnection = Boolean(state.prodConnectionUrl);
+      const archiveKnown = process.env.VELO_LOCAL_DOCKER === '1' || Boolean(state.backupAvailability.archive?.lastArchivedAt);
+      checks.backups = state.backupAvailability.status === 'ok'
+        && Boolean(state.backupAvailability.pitr.from)
+        && Boolean(state.backupAvailability.pitr.to)
+        && archiveKnown;
 
       if (!checks.setup) {
         errors.push('setup: not all setup steps are done');
@@ -118,6 +124,12 @@ async function handleHealthCheck(request: Request): Promise<Response | null> {
 
       if (!checks.prodConnection) {
         errors.push('prodConnection: missing production connection URL');
+      }
+
+      if (!checks.backups) {
+        const message = state.backupAvailability.message
+          || (archiveKnown ? 'PITR range unavailable' : 'archive status unavailable');
+        errors.push(`backups: ${message}`);
       }
     }
   } catch (error) {

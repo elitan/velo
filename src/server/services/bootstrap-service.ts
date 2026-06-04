@@ -151,6 +151,61 @@ export async function runProdBootstrap(): Promise<BootstrapResult> {
   return { ok, message };
 }
 
+export async function reconfigureProdBackups(): Promise<BootstrapResult> {
+  if (isLocalDockerMode()) {
+    return { ok: true, message: 'local backup config is managed by Docker' };
+  }
+
+  const db = getDb();
+  const prod = await db
+    .selectFrom('servers')
+    .selectAll()
+    .where('role', '=', 'prod')
+    .executeTakeFirstOrThrow();
+
+  let pgBackRestConfig: string;
+  try {
+    pgBackRestConfig = await buildPgBackRestConfig();
+  } catch (error: any) {
+    const message = error?.message || 'backup settings are incomplete';
+    await setStepStatus('backups', 'error', message);
+    throw error;
+  }
+
+  await setStepStatus('backups', 'running', 'applying pgBackRest config');
+
+  const result = await runSshCommand(
+    {
+      host: prod.host,
+      user: prod.sshUser,
+      keyPath: prod.sshKeyPath,
+    },
+    [
+      'set -e',
+      'PGDATA=$(sudo -u postgres psql -tAc "show data_directory" | xargs)',
+      'sudo mkdir -p /var/lib/pgbackrest',
+      'sudo chown -R postgres:postgres /var/lib/pgbackrest',
+      `printf %s ${shellQuote(pgBackRestConfig)} | sudo tee /etc/pgbackrest.conf >/dev/null`,
+      'sudo sed -i "s#__PGDATA__#$PGDATA#g" /etc/pgbackrest.conf',
+      'sudo chmod 640 /etc/pgbackrest.conf',
+      'sudo chown postgres:postgres /etc/pgbackrest.conf',
+      'sudo -u postgres pgbackrest --stanza=main stanza-create || sudo -u postgres pgbackrest --stanza=main info',
+      'sudo -u postgres pgbackrest --stanza=main check',
+      'sudo -u postgres pgbackrest --stanza=main backup --type=full',
+      'CRON_FILE=/etc/cron.d/velo-pgbackrest',
+      `printf %s ${shellQuote(buildPgBackRestCron())} | sudo tee "$CRON_FILE" >/dev/null`,
+      'sudo chmod 644 "$CRON_FILE"',
+    ].join('\n'),
+    60 * 60 * 1000
+  );
+
+  const ok = result.exitCode === 0;
+  const message = ok ? 'pgBackRest config applied' : result.stderr || result.stdout || 'backup reconfigure failed';
+
+  await setStepStatus('backups', ok ? 'done' : 'error', message);
+  return { ok, message };
+}
+
 export async function buildPgBackRestConfig(): Promise<string> {
   const backup = await getBackupSettings();
   const secretAccessKey = await getSetting('backup.s3.secretAccessKey') || '';
@@ -177,6 +232,7 @@ export async function buildPgBackRestConfig(): Promise<string> {
   return [
     '[global]',
     ...repoLines,
+    'repo1-retention-full-type=time',
     `repo1-retention-full=${backup.fullBackupRetentionDays}`,
     `repo1-retention-archive=${backup.pitrDays}`,
     'repo1-retention-archive-type=full',
