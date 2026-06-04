@@ -1,12 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import type { FormEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Database,
-  Loader2,
   Pencil,
   Plus,
   RefreshCw,
@@ -17,28 +15,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AppSidebar } from '#web/components/control-plane';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '#web/components/ui/alert-dialog';
 import { Button } from '#web/components/ui/button';
-import { Checkbox } from '#web/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '#web/components/ui/dialog';
 import { Input } from '#web/components/ui/input';
-import { Label } from '#web/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -50,7 +28,15 @@ import {
 import { orpc } from '#web/lib/api-client';
 import { getMutationErrorMessage } from '#web/lib/errors';
 import { cn } from '#lib/utils';
-import { isConfirmedProductionWrite, isProductionBranchId, PRODUCTION_WRITE_CONFIRMATION } from '#utils/prod-write-guard';
+import { isProductionBranchId } from '#utils/prod-write-guard';
+import {
+  DeleteRowDialog,
+  RowEditorDialog,
+  type DeleteRowState,
+  type RowDraftField,
+  type RowEditorState,
+  type TableActionTarget,
+} from './-table-row-dialogs';
 
 export const Route = createFileRoute('/branch/$branchId/tables')({
   component: BranchTablesPage,
@@ -65,7 +51,6 @@ function BranchTablesPage() {
   const [search, setSearch] = useState('');
   const [editor, setEditor] = useState<RowEditorState | null>(null);
   const [rowToDelete, setRowToDelete] = useState<DeleteRowState | null>(null);
-  const [productionWriteConfirmation, setProductionWriteConfirmation] = useState('');
   const metadata = useQuery({
     ...orpc.tables.browse.queryOptions({
       input: {
@@ -109,7 +94,6 @@ function BranchTablesPage() {
     setSearch('');
     setEditor(null);
     setRowToDelete(null);
-    setProductionWriteConfirmation('');
   }, [params.branchId]);
 
   useEffect(function setInitialTable() {
@@ -179,11 +163,6 @@ function BranchTablesPage() {
   }
 
   function openAddRow() {
-    if (!productionWritesUnlocked) {
-      toast.error(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to edit production rows.`);
-      return;
-    }
-
     const target = getCurrentRowsTarget();
 
     if (!rows.data || !target) {
@@ -199,11 +178,6 @@ function BranchTablesPage() {
   }
 
   function openEditRow(row: Record<string, unknown>) {
-    if (!productionWritesUnlocked) {
-      toast.error(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to edit production rows.`);
-      return;
-    }
-
     const target = getCurrentRowsTarget();
 
     if (!rows.data || !target) {
@@ -219,11 +193,6 @@ function BranchTablesPage() {
   }
 
   function openDeleteRow(row: Record<string, unknown>) {
-    if (!productionWritesUnlocked) {
-      toast.error(`Type "${PRODUCTION_WRITE_CONFIRMATION}" to edit production rows.`);
-      return;
-    }
-
     const target = getCurrentRowsTarget();
 
     if (!rows.data || !target) {
@@ -253,7 +222,7 @@ function BranchTablesPage() {
     setRowToDelete(null);
   }
 
-  async function confirmDeleteRow() {
+  async function confirmDeleteRow(productionWriteConfirmation: string) {
     if (!rowToDelete) {
       return;
     }
@@ -301,9 +270,7 @@ function BranchTablesPage() {
     });
   }
 
-  async function saveEditor(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  async function saveEditor(productionWriteConfirmation: string) {
     if (!editor) {
       return;
     }
@@ -353,8 +320,8 @@ function BranchTablesPage() {
   const deleting = deleteRow.isPending;
   const rowsReady = Boolean(rows.data && rowDataMatches(rows.data, params.branchId, selectedDatabase, selectedSchema, selectedTable));
   const isProduction = isProductionBranchId(params.branchId);
-  const productionWritesUnlocked = !isProduction || isConfirmedProductionWrite(productionWriteConfirmation);
-  const tableActionsDisabled = !rowsReady || !productionWritesUnlocked;
+  const tableActionsDisabled = !rowsReady;
+  const contentGridRows = isProduction ? 'grid-rows-[auto_auto_1fr]' : 'grid-rows-[auto_1fr]';
 
   return (
     <>
@@ -455,20 +422,11 @@ function BranchTablesPage() {
               </div>
             </aside>
 
-            <div className="grid min-h-0 grid-rows-[auto_1fr]">
+            <div className={cn('grid min-h-0', contentGridRows)}>
               {isProduction ? (
-                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-amber-500/10 px-4 py-2 text-xs text-amber-200">
                   <ShieldAlert className="size-4" />
-                  <span className="font-medium">{productionWritesUnlocked ? 'production writes unlocked' : 'production rows read-only'}</span>
-                  <Input
-                    value={productionWriteConfirmation}
-                    onChange={function updateProductionWriteConfirmation(event) {
-                      setProductionWriteConfirmation(event.target.value);
-                    }}
-                    className="h-8 w-48 bg-background font-mono text-xs text-foreground"
-                    placeholder={PRODUCTION_WRITE_CONFIRMATION}
-                    aria-label="Production write confirmation"
-                  />
+                  <span className="font-medium">production database</span>
                 </div>
               ) : null}
               <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-3 py-2">
@@ -546,81 +504,23 @@ function BranchTablesPage() {
         </div>
       </main>
 
-      <Dialog open={editor !== null} onOpenChange={function handleEditorOpenChange(open) {
-        if (!open) {
-          closeEditor();
-        }
-      }}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{editor?.mode === 'insert' ? 'Add row' : 'Edit row'}</DialogTitle>
-            <DialogDescription>
-              {editor ? `${editor.target.schema}.${editor.target.table}` : `${selectedSchema}.${selectedTable}`}
-            </DialogDescription>
-          </DialogHeader>
+      <RowEditorDialog
+        editor={editor}
+        selectedLabel={`${selectedSchema}.${selectedTable}`}
+        isProduction={isProduction}
+        saving={saving}
+        onClose={closeEditor}
+        onChangeField={updateDraftField}
+        onSave={saveEditor}
+      />
 
-          <form className="grid gap-4" onSubmit={saveEditor}>
-            {editor ? (
-              <RowFieldsEditor
-                fields={editor.fields}
-                mode={editor.mode}
-                disabled={saving}
-                onChangeField={updateDraftField}
-              />
-            ) : null}
-
-            <DialogFooter>
-              <Button type="button" variant="ghost" disabled={saving} onClick={closeEditor}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={saving || !editor}>
-                {saving ? <Loader2 className="animate-spin" /> : null}
-                Save
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={rowToDelete !== null} onOpenChange={function handleDeleteOpenChange(open) {
-        if (!open) {
-          closeDeleteDialog();
-        }
-      }}>
-        <AlertDialogContent
-          onKeyDown={function handleDeleteDialogKeyDown(event) {
-            if (event.key !== 'Enter' || deleting) {
-              return;
-            }
-
-            event.preventDefault();
-            void confirmDeleteRow();
-          }}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete row?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {rowToDelete ? `Delete ${rowToDelete.label} from ${rowToDelete.target.schema}.${rowToDelete.target.table}.` : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              autoFocus
-              className="bg-destructive text-white hover:bg-destructive/90"
-              disabled={deleting}
-              onClick={function deleteConfirmed(event) {
-                event.preventDefault();
-                void confirmDeleteRow();
-              }}
-            >
-              {deleting ? <Loader2 className="animate-spin" /> : null}
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteRowDialog
+        rowToDelete={rowToDelete}
+        isProduction={isProduction}
+        deleting={deleting}
+        onClose={closeDeleteDialog}
+        onDelete={confirmDeleteRow}
+      />
     </>
   );
 }
@@ -743,36 +643,6 @@ function TableGrid(props: TableGridProps) {
   );
 }
 
-type RowEditorMode = 'insert' | 'edit';
-
-interface TableActionTarget {
-  branchId: string;
-  database: string;
-  schema: string;
-  table: string;
-}
-
-interface RowDraftField {
-  column: string;
-  type: string;
-  value: string;
-  isNull: boolean;
-  enabled: boolean;
-}
-
-interface RowEditorState {
-  mode: RowEditorMode;
-  target: TableActionTarget;
-  rowId: string | null;
-  fields: RowDraftField[];
-}
-
-interface DeleteRowState {
-  target: TableActionTarget;
-  rowId: string;
-  label: string;
-}
-
 function createInsertDraft(columns: Array<{ name: string; type: string; nullable: boolean; defaultValue: string | null }>): RowDraftField[] {
   return columns.map(function createField(column) {
     return {
@@ -833,67 +703,6 @@ function buildEditorValues(editor: RowEditorState): Record<string, string | null
       .map(function mapField(field) {
         return [field.column, field.isNull ? null : field.value];
       })
-  );
-}
-
-interface RowFieldsEditorProps {
-  fields: RowDraftField[];
-  mode: RowEditorMode;
-  disabled: boolean;
-  onChangeField: (column: string, patch: Partial<RowDraftField>) => void;
-}
-
-function RowFieldsEditor(props: RowFieldsEditorProps) {
-  return (
-    <div className="grid gap-2">
-      {props.fields.map(function renderField(field) {
-        const valueDisabled = props.disabled || field.isNull || !field.enabled;
-
-        return (
-          <div
-            key={field.column}
-            className="grid gap-2 border-t border-border pt-2 first:border-t-0 first:pt-0 md:grid-cols-[minmax(140px,1fr)_minmax(180px,2fr)_auto_auto]"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              {props.mode === 'insert' ? (
-                <Checkbox
-                  checked={field.enabled}
-                  disabled={props.disabled}
-                  onCheckedChange={function toggleEnabled(checked) {
-                    props.onChangeField(field.column, { enabled: checked === true });
-                  }}
-                  aria-label={`Include ${field.column}`}
-                />
-              ) : null}
-              <div className="min-w-0">
-                <div className="truncate font-mono text-xs font-medium">{field.column}</div>
-                <div className="truncate text-[11px] text-muted-foreground">{field.type}</div>
-              </div>
-            </div>
-
-            <Input
-              value={field.value}
-              disabled={valueDisabled}
-              className="h-8 font-mono text-xs"
-              onChange={function updateValue(event) {
-                props.onChangeField(field.column, { value: event.target.value });
-              }}
-            />
-
-            <Label className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs text-muted-foreground">
-              <Checkbox
-                checked={field.isNull}
-                disabled={props.disabled || !field.enabled}
-                onCheckedChange={function toggleNull(checked) {
-                  props.onChangeField(field.column, { isNull: checked === true });
-                }}
-              />
-              null
-            </Label>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
