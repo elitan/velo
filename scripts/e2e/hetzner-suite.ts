@@ -33,6 +33,7 @@ interface QueryResult {
 async function main() {
   const tests: TestCase[] = [
     { name: 'dashboard and web smoke', run: testDashboardAndWebSmoke },
+    { name: 'backup settings reconfigure', run: testBackupSettingsReconfigure },
     { name: 'replica base', run: testReplicaBase },
     { name: 'branch lifecycle', run: testBranchLifecycle },
     { name: 'http branch api', run: runHttpBranchApiTest },
@@ -80,6 +81,38 @@ async function testDashboardAndWebSmoke(): Promise<void> {
 
   await appHead('/');
   await appHead('/settings');
+}
+
+async function testBackupSettingsReconfigure(): Promise<void> {
+  const job = await api.backup.settings.update({
+    enabled: false,
+    endpoint: '',
+    bucket: '',
+    region: 'auto',
+    accessKeyId: '',
+    path: '/prod',
+    pitrDays: 7,
+    fullBackupRetentionDays: 14,
+  });
+
+  assert(job.jobId, 'backup settings should queue reconfigure job');
+  await waitForJob(job.jobId, JOB_TIMEOUT_MS);
+
+  const prod = await getDb()
+    .selectFrom('servers')
+    .selectAll()
+    .where('role', '=', 'prod')
+    .executeTakeFirstOrThrow();
+  const config = await runSshCommand({
+    host: prod.host,
+    user: prod.sshUser,
+    keyPath: prod.sshKeyPath,
+  }, 'sudo cat /etc/pgbackrest.conf', 30000);
+
+  await assertCommandOk(config, 'read prod pgBackRest config');
+  assert(config.stdout.includes('repo1-retention-full-type=time'), 'pgBackRest full retention should be time based');
+  assert(config.stdout.includes('repo1-retention-full=14'), 'pgBackRest full retention should match saved setting');
+  assert(config.stdout.includes('repo1-retention-archive=7'), 'pgBackRest archive retention should match saved setting');
 }
 
 async function testReplicaBase(): Promise<void> {

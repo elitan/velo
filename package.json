@@ -68,6 +68,7 @@
     "deploy:main": "scripts/deploy-main.sh",
     "deploy:dev": "scripts/deploy-dev.sh",
     "e2e:hetzner": "scripts/e2e-hetzner.sh",
+    "e2e:hetzner:worktree": "VELO_E2E_SOURCE_DIR=$PWD scripts/e2e-hetzner.sh",
     "auth:set-password": "bun run src/server/auth-cli.ts",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:generate": "bun run db:migrate && kysely-codegen --camel-case --dialect bun-sqlite --url ${VELO_DB:-$HOME/.velo/velo.sqlite} --out-file src/db/generated.ts",

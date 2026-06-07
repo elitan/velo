@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildPgBackRestConfig } from './bootstrap-service';
 import { runCommand } from './command-service';
-import { getBackupSettings } from './settings-service';
+import { getBackupSettings, getSetting } from './settings-service';
 import { getLocalPgBackRestInfo, isLocalDockerMode } from './local-docker-service';
 
 export interface BackupPoint {
@@ -16,11 +16,18 @@ export interface BackupPoint {
 export interface BackupAvailability {
   status: 'ok' | 'unavailable';
   message: string | null;
+  archive: BackupArchiveStatus | null;
   pitr: {
     from: string | null;
     to: string | null;
   };
   backups: BackupPoint[];
+}
+
+export interface BackupArchiveStatus {
+  lastArchivedAt: string | null;
+  failedCount: number | null;
+  lastFailedAt: string | null;
 }
 
 interface PgBackRestBackup {
@@ -74,7 +81,11 @@ export async function getBackupAvailability(): Promise<BackupAvailability> {
       return unavailable(sanitizeAvailabilityMessage(result.stderr || result.stdout || 'pgBackRest info failed'));
     }
 
-    return parsePgBackRestInfo(result.stdout, backup.pitrDays);
+    const archiveStatus = await getProductionArchiveStatus().catch(function ignoreArchiveStatusError() {
+      return null;
+    });
+
+    return parsePgBackRestInfo(result.stdout, backup.pitrDays, new Date(), archiveStatus);
   } catch (error: any) {
     return unavailable(sanitizeAvailabilityMessage(error?.message || 'Backup availability could not be read'));
   } finally {
@@ -82,7 +93,12 @@ export async function getBackupAvailability(): Promise<BackupAvailability> {
   }
 }
 
-export function parsePgBackRestInfo(value: string, pitrDays: number, now = new Date()): BackupAvailability {
+export function parsePgBackRestInfo(
+  value: string,
+  pitrDays: number,
+  now = new Date(),
+  archiveStatus: BackupArchiveStatus | null = null
+): BackupAvailability {
   const parsed = JSON.parse(value) as PgBackRestStanza[];
   const stanza = parsed.find(function findMain(item) {
     return item.name === 'main';
@@ -118,8 +134,8 @@ export function parsePgBackRestInfo(value: string, pitrDays: number, now = new D
   const latestTimestamp = getBackupTimestamp(latestBackup, 'stop');
   const policyMin = now.getTime() - pitrDays * 24 * 60 * 60 * 1000;
   const pitrFrom = new Date(Math.max(oldestTimestamp, policyMin));
-  const hasArchive = Boolean(stanza.archive?.length);
-  const pitrTo = hasArchive ? now : new Date(latestTimestamp);
+  const archiveTimestamp = getArchiveTimestamp(archiveStatus);
+  const pitrTo = archiveTimestamp ? new Date(Math.min(now.getTime(), archiveTimestamp)) : new Date(latestTimestamp);
 
   if (pitrFrom.getTime() > pitrTo.getTime()) {
     return unavailable('No PITR range is available yet');
@@ -128,6 +144,7 @@ export function parsePgBackRestInfo(value: string, pitrDays: number, now = new D
   return {
     status: 'ok',
     message: null,
+    archive: archiveStatus,
     pitr: {
       from: pitrFrom.toISOString(),
       to: pitrTo.toISOString(),
@@ -148,6 +165,66 @@ export function parsePgBackRestInfo(value: string, pitrDays: number, now = new D
   };
 }
 
+async function getProductionArchiveStatus(): Promise<BackupArchiveStatus | null> {
+  const connectionUrl = await getSetting('prod.connectionUrl');
+
+  if (!connectionUrl) {
+    return null;
+  }
+
+  const query = [
+    "select coalesce(to_char(last_archived_time at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), '')",
+    "     || '|' || failed_count::text",
+    "     || '|' || coalesce(to_char(last_failed_time at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), '')",
+    'from pg_stat_archiver',
+  ].join('\n');
+  const result = await runCommand([
+    'sh',
+    '-lc',
+    `psql ${shellQuote(connectionUrl)} -tA -c ${shellQuote(query)}`,
+  ], 30000);
+
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  const line = result.stdout.trim().split('\n').find(function findLine(value) {
+    return value.trim();
+  });
+
+  if (!line) {
+    return null;
+  }
+
+  const [lastArchivedAt, failedCount, lastFailedAt] = line.split('|');
+
+  return {
+    lastArchivedAt: normalizeOptionalTimestamp(lastArchivedAt),
+    failedCount: Number.isFinite(Number(failedCount)) ? Number(failedCount) : null,
+    lastFailedAt: normalizeOptionalTimestamp(lastFailedAt),
+  };
+}
+
+function getArchiveTimestamp(archiveStatus: BackupArchiveStatus | null): number | null {
+  if (!archiveStatus?.lastArchivedAt) {
+    return null;
+  }
+
+  const timestamp = new Date(archiveStatus.lastArchivedAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function normalizeOptionalTimestamp(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const date = new Date(trimmed);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
 function getBackupTimestamp(backup: PgBackRestBackup | undefined, key: 'start' | 'stop'): number {
   const timestamp = key === 'start'
     ? backup?.timestamp?.start || backup?.timestamp?.stop
@@ -164,6 +241,7 @@ function unavailable(message: string): BackupAvailability {
   return {
     status: 'unavailable',
     message,
+    archive: null,
     pitr: {
       from: null,
       to: null,

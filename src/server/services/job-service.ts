@@ -12,6 +12,7 @@ const DEFAULT_POLL_INTERVAL_MS = 1000;
 const SAFE_MANUAL_RETRY_JOB_TYPES = [
   'dev-bootstrap',
   'prod-bootstrap',
+  'backup-reconfigure',
   'setup',
   'replica-base',
   'create-branch',

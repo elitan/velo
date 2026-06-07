@@ -201,7 +201,7 @@ function SettingsPage() {
 
   async function handleSaveBackup(formData: FormData) {
     try {
-      await saveBackupSettings.mutateAsync({
+      const result = await saveBackupSettings.mutateAsync({
         enabled: formData.get('enabled') === 'on',
         endpoint: String(formData.get('endpoint') || ''),
         bucket: String(formData.get('bucket') || ''),
@@ -212,7 +212,7 @@ function SettingsPage() {
         pitrDays: Number(formData.get('pitrDays') || 7),
         fullBackupRetentionDays: Number(formData.get('fullBackupRetentionDays') || 90),
       });
-      toast.success('Backup settings saved.');
+      toast.success(result.jobId ? 'Backup settings saved. Applying to production.' : 'Backup settings saved.');
     } catch (error: any) {
       toast.error(getMutationErrorMessage(error, 'Could not save backup settings.'));
     }
