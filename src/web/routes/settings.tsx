@@ -45,6 +45,7 @@ import {
   type ServerRole,
 } from '#web/components/control-plane';
 import { ApiKeysPanel } from '#web/components/settings/api-keys-panel';
+import { BackupHealthPanel } from '#web/components/settings/backup-health-panel';
 
 const JOB_PAGE_SIZE = 20;
 type JobStatusFilter = 'all' | 'queued' | 'running' | 'done' | 'error' | 'cancelled';
@@ -62,7 +63,7 @@ function SettingsPage() {
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const saveServer = useMutation(orpc.servers.update.mutationOptions({ onSuccess: refreshDashboard }));
   const checkServer = useMutation(orpc.servers.check.mutationOptions({ onSuccess: refreshDashboard }));
-  const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions({ onSuccess: refreshDashboard }));
+  const saveBackupSettings = useMutation(orpc.backup.settings.update.mutationOptions());
   const jobList = useQuery({
     queryKey: ['settings-jobs', jobStatus, jobPage],
     queryFn: function listSettingsJobs() {
@@ -202,7 +203,7 @@ function SettingsPage() {
   async function handleSaveBackup(formData: FormData) {
     try {
       const result = await saveBackupSettings.mutateAsync({
-        enabled: formData.get('enabled') === 'on',
+        enabled: true,
         endpoint: String(formData.get('endpoint') || ''),
         bucket: String(formData.get('bucket') || ''),
         region: String(formData.get('region') || 'auto'),
@@ -212,7 +213,8 @@ function SettingsPage() {
         pitrDays: Number(formData.get('pitrDays') || 7),
         fullBackupRetentionDays: Number(formData.get('fullBackupRetentionDays') || 90),
       });
-      toast.success(result.jobId ? 'Backup settings saved. Applying to production.' : 'Backup settings saved.');
+      await dashboard.refetch();
+      toast.success(result.jobId ? 'Backup settings saved. Applying to production.' : 'Backup settings saved. Health refreshed.');
     } catch (error: any) {
       toast.error(getMutationErrorMessage(error, 'Could not save backup settings.'));
     }
@@ -257,17 +259,13 @@ function SettingsPage() {
 
         <section className="min-w-0">
           <div className="mx-auto grid w-full max-w-[980px] gap-6 px-4 py-6 sm:px-6 lg:px-8">
-            <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <header>
               <div>
                 <h1 className="text-3xl font-semibold tracking-normal md:text-4xl">Settings</h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
                   Manage server access, backup storage, and background activity.
                 </p>
               </div>
-              <Button variant="outline" onClick={function refreshPage() { void dashboard.refetch(); }}>
-                <RefreshCw />
-                Refresh
-              </Button>
             </header>
 
             <Tabs value={settingsTab} onValueChange={setSettingsTab} orientation="vertical" className="grid gap-6 lg:grid-cols-[180px_minmax(0,1fr)]">
@@ -320,7 +318,19 @@ function SettingsPage() {
               </TabsContent>
 
               <TabsContent value="backups" className="min-w-0">
-                <BackupPanel backup={state.backup} busy={busy === 'save-backup'} onSave={handleSaveBackup} />
+                <div className="grid gap-6">
+                  <BackupHealthPanel
+                    availability={state.backupAvailability}
+                    checkedAt={dashboard.dataUpdatedAt ? new Date(dashboard.dataUpdatedAt).toISOString() : null}
+                    checking={dashboard.isFetching}
+                    jobs={state.jobs}
+                    onRefresh={function refreshBackupHealth() {
+                      void dashboard.refetch();
+                    }}
+                    onOpenJob={openJob}
+                  />
+                  <BackupPanel backup={state.backup} busy={busy === 'save-backup'} onSave={handleSaveBackup} />
+                </div>
               </TabsContent>
 
               <TabsContent value="updates" className="min-w-0">
