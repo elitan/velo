@@ -49,7 +49,6 @@ import {
   CardHeader,
   CardTitle,
 } from '#web/components/ui/card';
-import { Checkbox } from '#web/components/ui/checkbox';
 import {
   Dialog,
   DialogClose,
@@ -72,6 +71,7 @@ import {
   SelectValue,
 } from '#web/components/ui/select';
 import { logout } from '#web/lib/auth-client';
+import { formatRelativeTime as formatLastCheck } from '#web/lib/time';
 
 export type ServerRole = 'prod' | 'dev';
 
@@ -170,16 +170,10 @@ export function AppSidebar(props: AppSidebarProps) {
   );
 }
 
-function AppBrand() {
+function AppBrand(props: { className?: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
-        <Database className="size-4" />
-      </div>
-      <div>
-        <div className="text-sm font-semibold leading-none">Velo</div>
-        <div className="mt-1 text-xs text-muted-foreground">Control plane</div>
-      </div>
+    <div className={cn('text-sm font-semibold leading-none', props.className)}>
+      Velo
     </div>
   );
 }
@@ -235,7 +229,7 @@ function SidebarContent(props: SidebarContentProps) {
   return (
     <div className={cn('flex flex-col', props.className)}>
       <div className="hidden lg:block">
-        <AppBrand />
+        <AppBrand className="px-3" />
       </div>
 
       <SidebarSection label="Project" className="mt-8">
@@ -337,7 +331,7 @@ function NavItem(props: NavItemProps) {
       to={props.href}
       onClick={props.onNavigate}
       className={cn(
-        'flex h-9 items-center gap-2 rounded-md px-3 text-muted-foreground',
+        'flex h-9 items-center gap-2 rounded-md px-3 text-sm text-muted-foreground',
         'transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
         props.active && 'bg-sidebar-accent text-sidebar-accent-foreground'
       )}
@@ -770,18 +764,20 @@ export function ServerPanel(props: ServerPanelProps) {
   );
 }
 
+interface BackupSettingsSummary {
+  enabled: boolean;
+  endpoint: string;
+  bucket: string;
+  region: string;
+  accessKeyId: string;
+  secretConfigured: boolean;
+  path: string;
+  pitrDays: number;
+  fullBackupRetentionDays: number;
+}
+
 export interface BackupPanelProps {
-  backup: {
-    enabled: boolean;
-    endpoint: string;
-    bucket: string;
-    region: string;
-    accessKeyId: string;
-    secretConfigured: boolean;
-    path: string;
-    pitrDays: number;
-    fullBackupRetentionDays: number;
-  };
+  backup: BackupSettingsSummary;
   busy: boolean;
   onSave: (formData: FormData) => Promise<void>;
 }
@@ -805,10 +801,6 @@ export function BackupPanel(props: BackupPanelProps) {
       </CardHeader>
       <CardContent>
         <form onSubmit={submitForm} className="grid gap-4">
-          <Label className="flex items-center gap-2">
-            <Checkbox name="enabled" defaultChecked={props.backup.enabled} />
-            Use S3 compatible storage
-          </Label>
           <Field label="Endpoint">
             <Input name="endpoint" defaultValue={props.backup.endpoint} placeholder="https://account.r2.cloudflarestorage.com" />
           </Field>
@@ -1144,37 +1136,6 @@ function formatJobInput(input: unknown): string {
   }
 
   return JSON.stringify(input, null, 2);
-}
-
-function formatLastCheck(value: string | null | undefined): string {
-  if (!value) {
-    return 'never';
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  const diffMs = Date.now() - date.getTime();
-  const minutes = Math.max(0, Math.round(diffMs / 60000));
-
-  if (minutes < 1) {
-    return 'just now';
-  }
-
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-
-  const hours = Math.round(minutes / 60);
-
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-
-  return `${Math.round(hours / 24)}d ago`;
 }
 
 interface FieldProps {
