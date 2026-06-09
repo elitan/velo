@@ -107,6 +107,7 @@ bun run web:build
 bash -n scripts/*.sh
 scripts/test-release-artifact.sh
 scripts/test-update-flow.sh
+scripts/test-packaged-update-flow.sh
 scripts/test-release-upgrade-flow.sh
 ```
 

@@ -63,6 +63,9 @@ jobs:
     - name: Test update flow
       run: scripts/test-update-flow.sh
 
+    - name: Test packaged update flow
+      run: scripts/test-packaged-update-flow.sh
+
     - name: Test release upgrade flow
       env:
         GH_TOKEN: ${{ github.token }}

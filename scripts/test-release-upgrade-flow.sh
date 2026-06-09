@@ -11,14 +11,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$ROOT_DIR"
-
-file_mode() {
-  if [ "$(uname)" = "Darwin" ]; then
-    stat -f '%Lp' "$1"
-  else
-    stat -c '%a' "$1"
-  fi
-}
+source "$ROOT_DIR/scripts/lib/release-smoke.sh"
 
 latest_tag="${VELO_RELEASE_TAG:-}"
 if [ -z "$latest_tag" ]; then
@@ -36,6 +29,10 @@ major="${major:-0}"
 minor="${minor:-0}"
 patch="${patch:-0}"
 target_version="${VELO_UPGRADE_TARGET_VERSION:-$major.$minor.$((patch + 1))}"
+allow_legacy_fallback=false
+if [ "$major" -lt 2 ]; then
+  allow_legacy_fallback=true
+fi
 
 echo "Testing release upgrade: $latest_tag -> v$target_version"
 
@@ -47,6 +44,11 @@ gh release download "$latest_tag" \
   --dir "$WORK_DIR/release" || true
 
 if [ ! -f "$release_tarball" ]; then
+  if [ "$allow_legacy_fallback" != true ]; then
+    echo "Release $latest_tag is missing velo-$latest_tag.tar.gz."
+    exit 1
+  fi
+
   echo "Missing release asset, building $latest_tag from source"
   git clone --depth 1 --branch "$latest_tag" "https://github.com/$REPO.git" "$WORK_DIR/latest-src"
   (
@@ -67,43 +69,21 @@ if [ ! -f "$release_tarball" ]; then
   }
 fi
 
-bun run web:build
+release_smoke_build_web
 current_tarball="$WORK_DIR/current/velo-v$target_version.tar.gz"
-scripts/create-release-tarball.sh "$target_version" "$current_tarball" >/dev/null
+release_smoke_create_tarball "$target_version" "$current_tarball"
 
-tar -xzf "$release_tarball" -C "$WORK_DIR/app"
-cd "$WORK_DIR/app"
-bun install --production --frozen-lockfile
+release_smoke_extract_tarball "$release_tarball" "$WORK_DIR/app"
+release_smoke_install_production_deps "$WORK_DIR/app"
 
-VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
-bun -e "
-  import { Database } from 'bun:sqlite';
-  const db = new Database('$WORK_DIR/app/.velo/velo.sqlite');
-  db.exec('create table if not exists release_upgrade_smoke (id integer primary key, value text not null)');
-  db.prepare('insert into release_upgrade_smoke (value) values (?)').run('survived');
-  db.close();
-"
+release_smoke_migrate "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite"
+release_smoke_seed_table "$WORK_DIR/app/.velo/velo.sqlite" release_upgrade_smoke
 
-VELO_DIR="$WORK_DIR/app" \
-VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" \
-VELO_SKIP_ROOT_CHECK=1 \
-VELO_SYSTEMCTL= \
-VELO_LATEST_VERSION="$target_version" \
-VELO_TARBALL_URL="file://$current_tarball" \
-bash "$WORK_DIR/app/scripts/update.sh"
+release_smoke_run_update "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite" "$target_version" "$current_tarball"
 
-test "$(cat "$WORK_DIR/app/.velo/.update-result")" = "success:$target_version"
-test "$(file_mode "$WORK_DIR/app/.velo")" = "700"
-test "$(file_mode "$WORK_DIR/app/.velo/velo.sqlite")" = "600"
-test "$(file_mode "$WORK_DIR/app/.velo/.update-log")" = "600"
-test "$(file_mode "$WORK_DIR/app/.velo/.update-result")" = "600"
-test "$(bun -e "import pkg from '$WORK_DIR/app/package.json'; console.log(pkg.version)")" = "$target_version"
-test "$(bun -e "
-  import { Database } from 'bun:sqlite';
-  const db = new Database('$WORK_DIR/app/.velo/velo.sqlite');
-  const row = db.query('select value from release_upgrade_smoke where id = 1').get();
-  console.log(row?.value || '');
-  db.close();
-")" = "survived"
+release_smoke_assert_update_result "$WORK_DIR/app" "$target_version"
+release_smoke_assert_update_files_private "$WORK_DIR/app"
+test "$(release_smoke_package_version "$WORK_DIR/app/package.json")" = "$target_version"
+release_smoke_assert_table_value "$WORK_DIR/app/.velo/velo.sqlite" release_upgrade_smoke
 
 echo "release upgrade smoke passed"

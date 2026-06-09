@@ -16,21 +16,13 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/lib/release-smoke.sh"
 
-file_mode() {
-  if [ "$(uname)" = "Darwin" ]; then
-    stat -f '%Lp' "$1"
-  else
-    stat -c '%a' "$1"
-  fi
-}
-
-bun run web:build
+release_smoke_build_web
 TARBALL="$WORK_DIR/velo.tar.gz"
-scripts/create-release-tarball.sh "$(bun -e "import pkg from './package.json'; console.log(pkg.version)")" "$TARBALL" >/dev/null
+release_smoke_create_tarball "$(release_smoke_package_version "$ROOT_DIR/package.json")" "$TARBALL"
 
-mkdir -p "$WORK_DIR/app"
-tar -xzf "$TARBALL" -C "$WORK_DIR/app"
+release_smoke_extract_tarball "$TARBALL" "$WORK_DIR/app"
 
 cd "$WORK_DIR/app"
 test -f package.json
@@ -40,55 +32,20 @@ test -f dist/server/server.js
 test -d dist/client
 test -f dist/server/assets/migrations/001_initial.sql
 
-bun install --production --frozen-lockfile
-VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
-VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
-APP_PASSWORD=test-password VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run auth:set-password
-test "$(file_mode "$WORK_DIR/app/.velo")" = "700"
-test "$(file_mode "$WORK_DIR/app/.velo/velo.sqlite")" = "600"
+release_smoke_install_production_deps "$WORK_DIR/app"
+release_smoke_migrate "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite"
+release_smoke_migrate "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite"
+release_smoke_set_password "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite" test-password
+release_smoke_assert_state_private "$WORK_DIR/app"
 
-HOST=127.0.0.1 \
-PORT="$PORT" \
-NODE_ENV=production \
-VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" \
-bun src/server/web-runtime.ts >"$WORK_DIR/server.log" 2>&1 &
-SERVER_PID="$!"
+release_smoke_start_app "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite" "$PORT" "$WORK_DIR/server.log"
 
-for attempt in $(seq 1 30); do
-  if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
-    break
-  fi
-
-  if [ "$attempt" = "30" ]; then
-    cat "$WORK_DIR/server.log"
-    exit 1
-  fi
-
-  sleep 1
-done
-
-http_status() {
-  curl -sS -o /dev/null -w '%{http_code}' "$@"
-}
-
-assert_status() {
-  expected="$1"
-  shift
-  actual="$(http_status "$@")"
-
-  if [ "$actual" != "$expected" ]; then
-    echo "expected HTTP $expected, got $actual: $*"
-    cat "$WORK_DIR/server.log"
-    exit 1
-  fi
-}
-
-assert_status 200 "http://127.0.0.1:$PORT/healthz"
-assert_status 302 -I "http://127.0.0.1:$PORT"
-assert_status 200 -I "http://127.0.0.1:$PORT/login"
-assert_status 401 -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
-assert_status 401 -H 'content-type: application/json' -d '{"password":"bad-password"}' "http://127.0.0.1:$PORT/api/auth/login"
+release_smoke_assert_status 200 "$WORK_DIR/server.log" "http://127.0.0.1:$PORT/healthz"
+release_smoke_assert_status 302 "$WORK_DIR/server.log" -I "http://127.0.0.1:$PORT"
+release_smoke_assert_status 200 "$WORK_DIR/server.log" -I "http://127.0.0.1:$PORT/login"
+release_smoke_assert_status 401 "$WORK_DIR/server.log" -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
+release_smoke_assert_status 401 "$WORK_DIR/server.log" -H 'content-type: application/json' -d '{"password":"bad-password"}' "http://127.0.0.1:$PORT/api/auth/login"
 curl -fsS -c "$WORK_DIR/cookie" -H 'content-type: application/json' -d '{"password":"test-password"}' "http://127.0.0.1:$PORT/api/auth/login" >/dev/null
-assert_status 200 -b "$WORK_DIR/cookie" -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
+release_smoke_assert_status 200 "$WORK_DIR/server.log" -b "$WORK_DIR/cookie" -H 'content-type: application/json' -d '{}' "http://127.0.0.1:$PORT/api/v1/dashboard/retrieve"
 
 echo "release artifact smoke passed"

@@ -10,70 +10,28 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$ROOT_DIR"
+source "$ROOT_DIR/scripts/lib/release-smoke.sh"
 
-file_mode() {
-  if [ "$(uname)" = "Darwin" ]; then
-    stat -f '%Lp' "$1"
-  else
-    stat -c '%a' "$1"
-  fi
-}
-
-bun run web:build
-VERSION="$(bun -e "import pkg from './package.json'; console.log(pkg.version)")"
+release_smoke_build_web
+VERSION="$(release_smoke_package_version "$ROOT_DIR/package.json")"
 TARBALL="$WORK_DIR/velo-v$VERSION.tar.gz"
-scripts/create-release-tarball.sh "$VERSION" "$TARBALL" >/dev/null
+release_smoke_create_tarball "$VERSION" "$TARBALL"
 
-mkdir -p "$WORK_DIR/app/.velo"
-tar -xzf "$TARBALL" -C "$WORK_DIR/app"
+release_smoke_extract_tarball "$TARBALL" "$WORK_DIR/app"
 
-cd "$WORK_DIR/app"
-bun install --production --frozen-lockfile
+release_smoke_install_production_deps "$WORK_DIR/app"
+release_smoke_set_package_version "$WORK_DIR/app" "0.0.0"
 
-bun -e "
-  import { readFileSync, writeFileSync } from 'node:fs';
-  const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-  pkg.version = '0.0.0';
-  writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-"
+release_smoke_migrate "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite"
+release_smoke_seed_table "$WORK_DIR/app/.velo/velo.sqlite" update_smoke
 
-VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" bun run db:migrate
-bun -e "
-  import { Database } from 'bun:sqlite';
-  const db = new Database('$WORK_DIR/app/.velo/velo.sqlite');
-  db.exec('create table if not exists update_smoke (id integer primary key, value text not null)');
-  db.prepare('insert into update_smoke (value) values (?)').run('survived');
-  db.close();
-"
+release_smoke_assert_table_value "$WORK_DIR/app/.velo/velo.sqlite" update_smoke
 
-test "$(bun -e "
-  import { Database } from 'bun:sqlite';
-  const db = new Database('$WORK_DIR/app/.velo/velo.sqlite');
-  const row = db.query('select value from update_smoke where id = 1').get();
-  console.log(row?.value || '');
-  db.close();
-")" = "survived"
+release_smoke_run_update "$WORK_DIR/app" "$WORK_DIR/app/.velo/velo.sqlite" "$VERSION" "$TARBALL"
 
-VELO_DIR="$WORK_DIR/app" \
-VELO_DB="$WORK_DIR/app/.velo/velo.sqlite" \
-VELO_SKIP_ROOT_CHECK=1 \
-VELO_SYSTEMCTL= \
-VELO_LATEST_VERSION="$VERSION" \
-VELO_TARBALL_URL="file://$TARBALL" \
-bash "$WORK_DIR/app/scripts/update.sh"
-
-test "$(cat "$WORK_DIR/app/.velo/.update-result")" = "success:$VERSION"
-test "$(file_mode "$WORK_DIR/app/.velo")" = "700"
-test "$(file_mode "$WORK_DIR/app/.velo/velo.sqlite")" = "600"
-test "$(file_mode "$WORK_DIR/app/.velo/.update-log")" = "600"
-test "$(file_mode "$WORK_DIR/app/.velo/.update-result")" = "600"
-test "$(bun -e "import pkg from '$WORK_DIR/app/package.json'; console.log(pkg.version)")" = "$VERSION"
-test "$(bun -e "
-  import { Database } from 'bun:sqlite';
-  const db = new Database('$WORK_DIR/app/.velo/velo.sqlite');
-  const row = db.query('select value from update_smoke where id = 1').get();
-  console.log(row?.value || '');
-  db.close();
-")" = "survived"
+release_smoke_assert_update_result "$WORK_DIR/app" "$VERSION"
+release_smoke_assert_update_files_private "$WORK_DIR/app"
+test "$(release_smoke_package_version "$WORK_DIR/app/package.json")" = "$VERSION"
+release_smoke_assert_table_value "$WORK_DIR/app/.velo/velo.sqlite" update_smoke
 
 echo "update flow smoke passed"
